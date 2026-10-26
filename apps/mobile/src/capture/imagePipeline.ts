@@ -44,6 +44,8 @@ export interface ProcessingOptions {
 
 export interface ProcessingPlan {
   crop: CropRect | null;
+  /** Degrees to rotate so the document reads upright (EXIF orientation, MOB-002). */
+  rotate: 0 | 90 | 180 | 270;
   resize: Size | null;
   quality: number;
   /** Whether a mild contrast/sharpen pass is worth it (only for flat or low-contrast scans). */
@@ -142,11 +144,36 @@ export function chooseJpegQuality(
 }
 
 /** Everything decided before a single pixel moves. */
+/**
+ * EXIF orientation → the rotation needed to make the pixels upright.
+ *
+ * Cameras store the sensor image as-is and rely on the tag; most image toolkits honour it, but the
+ * ones that do not produce a sideways page that OCR reads badly. 5–8 are the mirrored variants and
+ * need a quarter turn as well.
+ */
+export function orientationFix(orientation: number): 0 | 90 | 180 | 270 {
+  switch (orientation) {
+    case 3:
+    case 4:
+      return 180;
+    case 5:
+    case 6:
+      return 90;
+    case 7:
+    case 8:
+      return 270;
+    default:
+      return 0;
+  }
+}
+
 export function planProcessing(input: {
   frame: Size;
   quad?: Quad | null;
   estimatedBytes?: number;
   washedOut?: boolean;
+  /** EXIF orientation of the captured photo; 1 means already upright. */
+  orientation?: number;
   options?: ProcessingOptions;
 }): ProcessingPlan {
   const options = input.options ?? {};
@@ -154,8 +181,10 @@ export function planProcessing(input: {
   const croppedSize = crop ? { width: crop.width, height: crop.height } : input.frame;
   const resize = resizeFor(croppedSize, options.targetLongEdge);
   const { quality, fits } = chooseJpegQuality(input.estimatedBytes ?? 0, options);
+  const rotate = orientationFix(input.orientation ?? 1);
 
   const steps: string[] = [];
+  if (rotate !== 0) steps.push(`rotate ${rotate}°`);
   if (crop)
     steps.push(`crop ${crop.width}×${crop.height} from ${input.frame.width}×${input.frame.height}`);
   if (resize) steps.push(`resize to ${resize.width}×${resize.height}`);
@@ -165,6 +194,7 @@ export function planProcessing(input: {
 
   return {
     crop,
+    rotate,
     resize,
     quality,
     enhance: Boolean(input.washedOut),
@@ -174,6 +204,8 @@ export function planProcessing(input: {
 
 /** The port the app implements with the platform image toolkit. */
 export interface ImageTransformer {
+  /** Optional: a toolkit without rotation leaves the EXIF tag for the server to honour. */
+  rotate?(uri: string, degrees: 0 | 90 | 180 | 270): Promise<string>;
   crop(uri: string, rect: CropRect): Promise<string>;
   resize(uri: string, size: Size): Promise<string>;
   enhance(uri: string): Promise<string>;
@@ -201,6 +233,13 @@ export async function processCapture(
   const plan = planProcessing(input);
   let current = uri;
 
+  if (plan.rotate !== 0 && transformer.rotate) {
+    try {
+      current = await transformer.rotate(current, plan.rotate);
+    } catch {
+      plan.steps.push('rotate unavailable, leaving the EXIF orientation in place');
+    }
+  }
   if (plan.crop) {
     try {
       current = await transformer.crop(current, plan.crop);

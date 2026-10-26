@@ -2,7 +2,7 @@
   "name": "idcp",
   "version": "0.1.0",
   "private": true,
-  "description": "AI Universal Data Capture Platform — capture documents, extract structured data, review, and push to business systems.",
+  "description": "AI Universal Data Capture Platform \u2014 capture documents, extract structured data, review, and push to business systems.",
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=22.0.0",
@@ -29,9 +29,10 @@
     "test:prd": "node scripts/validate-prd.mjs",
     "db:migrate": "npm run db:migrate --workspace @idcp/backend",
     "db:seed": "npm run db:seed --workspace @idcp/backend",
-    "verify": "npm run typecheck && npm run lint && npm run test:prd && npm run test:api && npm test",
+    "verify": "npm run typecheck && npm run lint && npm run test:prd && npm run test:api && npm run test:packaging && npm test",
     "test:api": "node scripts/validate-openapi.mjs && node scripts/generate-udm-schema.mjs --check",
-    "schema:udm": "node scripts/generate-udm-schema.mjs"
+    "schema:udm": "node scripts/generate-udm-schema.mjs",
+    "test:packaging": "node scripts/validate-packaging.mjs"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

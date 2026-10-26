@@ -56,11 +56,71 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 - **Runtime language switch** — navigation and settings are translated from the shared `en/sw/fr`
   catalogues, with the choice remembered per device (`I18N-001` in progress).
 - 17 suites; the count of automated tests is tracked in `TESTING.md`.
+- **Duplicate preview and honest merges** — `GET /documents/{id}/duplicates` scores the mapped
+  record against the destination without writing anything, and `POST /documents/{id}/send` now
+  follows the mapping profile's policy: `skip`, `update`, `merge` or `append`. A merge never
+  overwrites a field a human reviewed or a key, and never blanks a value with an empty one; the
+  desktop review screen shows the score, matched keys and the existing row before anything is sent
+  (`DUP-001`).
+- **Correction capture and learning opt-in** — every review correction records the document type as
+  well as the before/after values; `GET /review/corrections` aggregates what keeps being corrected,
+  and `POST /review/corrections/export` is admin-only and refuses unless the organisation has turned
+  on `learningOptIn`. Settings shows the aggregates and the switch (`REV-002`).
+- **Desktop shell hardening and packaging** — allow-listed IPC (four channels), keychain-encrypted
+  token file that is deleted on sign-out, sandboxed renderer with an external-link handler, and an
+  electron-builder configuration with Windows, macOS and Linux targets; `scripts/validate-packaging.mjs`
+  checks the security-relevant parts of that configuration in CI (`DESK-001`).
+- **Dashboard coverage** — the document list filters by device as well as status, type and date,
+  refreshes itself from the event stream, and the review queue gained bulk approval that reports
+  exactly which records it refused and how many fields each still needs (`DESK-002`).
+- **Automatic page detection on mobile** — a pure detector downscales the camera frame, runs Sobel
+  edges, thresholds with Otsu and takes the four extreme points as the page outline; the outline is
+  smoothed across frames, mapped onto the photo, and used for the crop. EXIF orientation is corrected
+  before cropping, and a flat page (low contrast inside the outline) triggers the enhancement pass.
+  The platform shim degrades to no overlay when the worklet runtime is absent (`MOB-002`).
+- **CRM, ERP and accounting connectors** — HubSpot (CRM), Odoo (ERP, JSON-RPC) and QuickBooks Online
+  (accounting, SQL-subset query endpoint) implement `create`, `read`, `search` and `update` through
+  the same contract; mapping profiles choose the destination fields, so retargeting a model needs no
+  code. Vendor errors are translated into the fix ("the token is missing the write scope") rather
+  than an HTTP status, and plain http is refused except for a loopback host (`CRM-001`).
+- **Connector marketplace** — a signed, reviewed catalogue: a package is a manifest (never code) with
+  an HMAC over its id, version, type and permissions. `GET /marketplace` shows the disclosed
+  permissions and signature state; installing is admin-only, requires a connector of the matching
+  type, and records the permissions it grants; a withdrawn package stays visible with the vendor's
+  reason but cannot be installed; any installation can be rolled back to the version before it. The
+  desktop gained a Marketplace page that says what a package will be allowed to do in plain sentences
+  (`MARKET-001`).
+- **CRM/ERP/accounting destinations** — HubSpot, Odoo and QuickBooks through one shared HTTP
+  transport (`CRM-001`); see above.
+- **Workflow automation** — rules of the form "when a document is approved, if these hold, do that",
+  built from four triggers, eight condition operators and four actions. Destructive actions
+  (`send_to_connector`, `create_export`, `delete_document`) are planned and held as
+  `awaiting_approval`; a reviewer approves that specific run, and only an owner can create a rule
+  that runs unattended. Every evaluation is logged, including the ones that skipped and why, and a
+  failing rule is recorded against its run instead of stopping the others. The desktop gained a
+  Workflow page that reads each rule back as a sentence (`AGENT-001`).
+- **Voice guidance and commands** — capture guidance is derived from the detector's output alone
+  (brightness, glare, page size, contrast, confidence), so it works with the network down; a cue must
+  hold for three frames before it is shown and is not repeated within a cooldown, and "ready" is said
+  once per framing. Spoken commands are matched against an `en/sw/fr` phrase book, a low-confidence
+  transcript fires nothing, and `approve`/`reject` need a second utterance before they act. Voice is
+  off until the operator turns it on, needs the microphone permission to open, and audio is never
+  recorded, stored or transmitted — a recogniser result is reduced to its transcript on arrival
+  (`VOICE-001`).
+- **Full localisation sweep** — every user-facing string in the desktop renderer and the mobile
+  screens now comes from the shared catalogue (577 keys, complete in `en`, `sw` and `fr`); the
+  language switches at runtime without reloading, dates, numbers, percentages and relative times are
+  formatted with `Intl`, statuses and document types are labelled from the catalogue with a readable
+  fallback, and the layout uses logical CSS properties with a direction-aware root so a
+  right-to-left language needs no new stylesheet (`I18N-001`).
+- 20 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 
-- `PRD.json` statuses and artifact paths now reflect the code (42 stories have code; see the file
-  for the remaining `pending` items).
+- `PRD.json` statuses and artifact paths now reflect the code (all 45 stories are `done`; the
+  remaining ones are listed in `TASKS.md`).
+- **`node_modules` is no longer tracked.** It was committed at the start (22,706 files) even though
+  `.gitignore` listed it; this change untracks it, so installs come from `package-lock.json` again.
 
 ### Fixed
 
@@ -69,6 +129,8 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 - Content sniffing rejected valid JPEGs shorter than 12 bytes; each format now has its own minimum.
 - Table extraction coerced text cells containing digits ("Cement 50kg bags") into numbers.
 - Connector `date_iso` transform failed on `DD/MM/YYYY`; it now uses the shared date parser.
+- `verify` now typechecks the Electron main process and validates the packaging configuration, and
+  ESLint ignores the compiled `dist-electron` output instead of linting CommonJS as browser code.
 
 ### Security
 
@@ -76,6 +138,8 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   connector credentials are encrypted with AES-256-GCM.
 - Audit records are append-only, enforced by database triggers as well as by code.
 - API keys are bounded by scopes _and_ by the live role of the person who created them.
+- A record can only be sent with `update`/`merge` when the destination supports updates; otherwise
+  the request is refused rather than silently appending a duplicate.
 - Uploads are verified by content, size-capped, served with `nosniff` and never from a public URL.
 
 ---

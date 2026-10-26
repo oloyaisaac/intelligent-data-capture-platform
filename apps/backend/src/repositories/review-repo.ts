@@ -103,6 +103,8 @@ export class ReviewChangesRepository {
     correctedValue: unknown;
     originalConfidence?: number | null;
     changedBy: string;
+    /** REV-002: recorded with the correction so statistics can be grouped by document type. */
+    documentType?: string | null;
   }): Promise<ReviewChangeRow> {
     const row: ReviewChangeRow = {
       id: newId(),
@@ -117,13 +119,14 @@ export class ReviewChangesRepository {
           ? null
           : String(input.correctedValue),
       original_confidence: input.originalConfidence ?? null,
+      document_type: input.documentType ?? null,
       changed_by: input.changedBy,
       created_at: nowIso(),
     };
     await this.db.execute(
       `INSERT INTO review_changes (id, review_id, field_path, original_value, corrected_value,
-        original_confidence, changed_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        original_confidence, document_type, changed_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.review_id,
@@ -131,6 +134,7 @@ export class ReviewChangesRepository {
         row.original_value,
         row.corrected_value,
         row.original_confidence,
+        row.document_type,
         row.changed_by,
         row.created_at,
       ],
@@ -159,6 +163,54 @@ export class ReviewChangesRepository {
         GROUP BY rc.field_path
         ORDER BY corrections DESC`,
       [organisationId],
+    );
+  }
+
+  /** The same statistics split by document type, which is how extraction rules are scoped. */
+  async statisticsByDocumentType(
+    organisationId: string,
+  ): Promise<
+    Array<{ document_type: string | null; corrections: number; average_confidence: number }>
+  > {
+    return this.db.query(
+      `SELECT rc.document_type,
+              COUNT(*) AS corrections,
+              AVG(rc.original_confidence) AS average_confidence
+         FROM review_changes rc
+         JOIN reviews r ON r.id = rc.review_id
+        WHERE r.organisation_id = ?
+        GROUP BY rc.document_type
+        ORDER BY corrections DESC`,
+      [organisationId],
+    );
+  }
+
+  /**
+   * The training hand-off (REV-002). Only ever called when the organisation has opted in;
+   * the caller enforces that, because a query cannot know the policy.
+   */
+  async listForTraining(
+    organisationId: string,
+    limit = 500,
+  ): Promise<
+    Array<{
+      document_type: string | null;
+      field_path: string;
+      original_value: string | null;
+      corrected_value: string | null;
+      original_confidence: number | null;
+      created_at: string;
+    }>
+  > {
+    return this.db.query(
+      `SELECT rc.document_type, rc.field_path, rc.original_value, rc.corrected_value,
+              rc.original_confidence, rc.created_at
+         FROM review_changes rc
+         JOIN reviews r ON r.id = rc.review_id
+        WHERE r.organisation_id = ?
+        ORDER BY rc.created_at DESC
+        LIMIT ?`,
+      [organisationId, limit],
     );
   }
 }

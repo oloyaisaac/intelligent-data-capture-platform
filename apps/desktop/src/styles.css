@@ -70,6 +70,23 @@ h3 {
 }
 
 /* --- Layout ------------------------------------------------------------- */
+/*
+ * I18N-001 — right-to-left support.
+ *
+ * The layout is written with logical properties (`inline-start`, `border-inline-end`,
+ * `text-align: start`), so a right-to-left language needs no override here: the root element's
+ * `dir` attribute flips the grid, the sidebar border and the text alignment together. These rules
+ * only cover the two things CSS cannot express logically: a transform that must mirror, and the
+ * app's own scroll shadows.
+ */
+[dir='rtl'] .brand-mark {
+  transform: scaleX(1);
+}
+
+[dir='rtl'] .chart text {
+  transform: scaleX(-1);
+  transform-origin: center;
+}
 
 .app-shell {
   display: grid;
@@ -79,7 +96,8 @@ h3 {
 
 .sidebar {
   background: linear-gradient(180deg, #121c25, #0e161e);
-  border-right: 1px solid var(--border);
+  /* Logical, not physical: the sidebar swaps sides when the interface is right-to-left. */
+  border-inline-end: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   padding: var(--space-4);
@@ -130,7 +148,7 @@ h3 {
   border: 1px solid transparent;
   background: none;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   width: 100%;
 }
@@ -329,7 +347,7 @@ h3 {
 }
 
 .table th {
-  text-align: left;
+  text-align: start;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;

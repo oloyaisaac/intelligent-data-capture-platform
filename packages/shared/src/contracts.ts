@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { DOCUMENT_TYPES, DUPLICATE_POLICIES, LIMITS, ROLES, UDM_VERSION } from './constants';
+import {
+  CONNECTOR_TYPES,
+  DOCUMENT_TYPES,
+  DUPLICATE_POLICIES,
+  LIMITS,
+  ROLES,
+  UDM_VERSION,
+} from './constants';
 import { UdmSchema } from './udm/schema';
 
 /**
@@ -215,7 +222,7 @@ export const ConnectorConfigSchema = z.record(z.string(), z.unknown());
 
 export const CreateConnectorRequestSchema = z
   .object({
-    type: z.enum(['csv', 'xlsx', 'google_sheets', 'postgres', 'mysql', 'sqlite']),
+    type: z.enum(CONNECTOR_TYPES),
     name: z.string().trim().min(1).max(80),
     config: ConnectorConfigSchema,
     credentials: z.record(z.string(), z.string()).optional(),
@@ -263,11 +270,38 @@ export const SendDocumentRequestSchema = z
   .object({ connectorId: z.string().uuid(), mappingProfileId: z.string().uuid() })
   .strict();
 
+export const DuplicateCandidateSchema = z.object({
+  /** 0..1; 1 means an exact match on every configured duplicate key. */
+  score: z.number(),
+  matchedKeys: z.array(z.string()),
+  /** The destination row, so a reviewer can confirm it is the same invoice. */
+  values: z.record(z.string(), z.unknown()),
+});
+export type DuplicateCandidate = z.infer<typeof DuplicateCandidateSchema>;
+
+export const DuplicateCheckResponseSchema = z.object({
+  connectorId: z.string(),
+  mappingProfileId: z.string(),
+  documentId: z.string(),
+  keys: z.array(z.string()),
+  policy: z.enum(DUPLICATE_POLICIES),
+  threshold: z.number(),
+  /** True when the best candidate meets the policy threshold. */
+  isDuplicate: z.boolean(),
+  /** Score of the best candidate, 0 when the destination is empty. */
+  bestScore: z.number(),
+  matchedKeys: z.array(z.string()),
+  candidates: z.array(DuplicateCandidateSchema),
+});
+export type DuplicateCheckResponse = z.infer<typeof DuplicateCheckResponseSchema>;
+
 export const UpdateOrganisationRequestSchema = z
   .object({
     name: z.string().trim().min(2).max(120).optional(),
     retentionDays: z.number().int().min(0).max(3650).optional(),
     aiProvider: z.enum(['local', 'cloud']).optional(),
+    /** REV-002: corrections may only be used to improve extraction after explicit opt-in. */
+    learningOptIn: z.boolean().optional(),
   })
   .strict();
 
@@ -279,6 +313,54 @@ export const InviteUserRequestSchema = z
   .strict();
 
 export const UpdateRoleRequestSchema = z.object({ role: z.enum(ROLES) }).strict();
+
+// --- Correction statistics (REV-002) --------------------------------------
+
+export const CorrectionStatSchema = z.object({
+  fieldPath: z.string(),
+  corrections: z.number().int(),
+  averageConfidence: z.number().nullable(),
+});
+export type CorrectionStat = z.infer<typeof CorrectionStatSchema>;
+
+export const CorrectionStatsResponseSchema = z.object({
+  /** Whether this organisation allows corrections to be used for training. */
+  optIn: z.boolean(),
+  total: z.number().int(),
+  byField: z.array(CorrectionStatSchema),
+  byDocumentType: z.array(
+    z.object({
+      documentType: z.string().nullable(),
+      corrections: z.number().int(),
+      averageConfidence: z.number().nullable(),
+    }),
+  ),
+});
+export type CorrectionStatsResponse = z.infer<typeof CorrectionStatsResponseSchema>;
+
+// --- Audit trail (AUDIT-001) --------------------------------------------
+
+export const AuditLogEntrySchema = z.object({
+  id: z.string(),
+  actorType: z.string(),
+  actorId: z.string(),
+  action: z.string(),
+  targetType: z.string(),
+  targetId: z.string(),
+  metadata: z.record(z.string(), z.unknown()),
+  createdAt: z.string(),
+});
+export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>;
+
+// --- Pairing sessions (PAIR-002) -----------------------------------------
+
+export const PairingSessionSchema = z.object({
+  id: z.string(),
+  status: z.enum(['pending', 'completed', 'expired']),
+  expiresAt: z.string(),
+  deviceId: z.string().nullable(),
+});
+export type PairingSession = z.infer<typeof PairingSessionSchema>;
 
 // --- Review responses (REV-001) -------------------------------------------
 
@@ -542,6 +624,7 @@ export const CreateBatchRequestSchema = z
     documentType: z.enum(DOCUMENT_TYPES).optional(),
   })
   .strict();
+export type CreateBatchRequest = z.infer<typeof CreateBatchRequestSchema>;
 
 // --- Projects (TEAM-001) -------------------------------------------------
 

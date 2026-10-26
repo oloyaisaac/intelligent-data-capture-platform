@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslator } from '../lib/locale';
 
 /**
  * Small presentational primitives.
@@ -143,6 +144,11 @@ export function useAsync<T>(loader: () => Promise<T>, deps: unknown[] = []): Asy
   const mounted = useRef(true);
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
+  // The fallback message is translated, but `reload` must not be re-created when the language
+  // changes — that would refetch every list on a language switch.
+  const translate = useTranslator();
+  const translateRef = useRef(translate);
+  translateRef.current = translate;
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -152,7 +158,11 @@ export function useAsync<T>(loader: () => Promise<T>, deps: unknown[] = []): Asy
       if (mounted.current) setData(value);
     } catch (caught) {
       if (mounted.current)
-        setError(caught instanceof Error ? caught.message : 'Something went wrong.');
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : translateRef.current('error.somethingWentWrong'),
+        );
     } finally {
       if (mounted.current) setLoading(false);
     }

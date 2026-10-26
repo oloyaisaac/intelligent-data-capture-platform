@@ -46,14 +46,14 @@ and browser harness.
 
 ### Current coverage
 
-| Workspace             | Suite                                                                                                                                       | Tests   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `packages/shared`     | `test/shared.test.ts`                                                                                                                       | 44      |
-| `packages/connectors` | `test/connectors.test.ts`                                                                                                                   | 21      |
-| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, security) | 137     |
-| `apps/desktop`        | `test/desktop.test.tsx` (jsdom + Testing Library)                                                                                           | 27      |
-| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                          | 23      |
-| **Total**             | 17 suites                                                                                                                                   | **252** |
+| Workspace             | Suite                                                                                                                                                               | Tests   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `packages/shared`     | `test/shared.test.ts`                                                                                                                                               | 47      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                           | 29      |
+| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, security) | 161     |
+| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                            | 48      |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                  | 33      |
+| **Total**             | 20 suites                                                                                                                                                           | **318** |
 
 Notes for anyone extending the suite:
 
@@ -154,8 +154,82 @@ Notes for anyone extending the suite:
 ### TC-13 — Connector write with duplicate detection · `CON-002`, `DUP-001`
 
 1. Configure a mapping to a test Google Sheet with `invoice.number` as the duplicate key.
-2. Send a record, then send the same record again.
-3. **Expect:** the second run reports `skipped_duplicate` (or updates, per policy) and never creates a second row.
+2. Open an approved record, choose the mapping, and press **Check for duplicates**.
+3. **Expect:** the score, the matched keys and the existing row appear, and the destination is unchanged.
+4. Press **Send**.
+5. **Expect:** the second run reports `skipped_duplicate` for `skip`, updates in place for `update`,
+   or fills only empty columns for `merge`; a reviewed field and a duplicate key are never overwritten.
+6. Set the policy to `update` on a connector without update support.
+7. **Expect:** `409`, not a silent append.
+
+### TC-13c — CRM destination · `CRM-001`
+
+1. Create a `hubspot` connector with a private-app token and object `invoices`, and a mapping profile
+   with `invoice.number → invoice_number` as the duplicate key.
+2. Send an approved record, then send it again.
+3. **Expect:** one HubSpot record; the second run reports `skipped_duplicate` (or updates in place).
+4. Replace the token with an expired one and test the connector.
+5. **Expect:** an actionable message naming the write scope, not `401`.
+
+### TC-13d — Marketplace install and rollback · `MARKET-001`
+
+1. Create a HubSpot connector, then open Marketplace.
+2. **Expect:** every package lists its permissions as sentences and its signature state.
+3. Install HubSpot CRM on that connector.
+4. **Expect:** `201`, an audit entry, and the package shows the installed version.
+5. Try installing Zoho CRM (withdrawn). **Expect:** the button is disabled with the vendor's reason.
+6. Roll back the install. **Expect:** the previous version becomes active and the connector keeps
+   working — rollback never deletes a connector.
+
+### TC-13e — A workflow that cannot act alone · `AGENT-001`
+
+1. Create a workflow: on `document.approved`, for invoices, notify — plus send to a connector.
+2. Approve an invoice that matches. **Expect:** the change is held; the run says `awaiting_approval`
+   and the action is marked as destructive.
+3. Approve the run. **Expect:** `completed`, the output names the connector, `approvedBy` is recorded,
+   and approving again returns `409`.
+4. Approve an invoice that does not match (different type or a failed condition). **Expect:** a
+   `skipped` run whose explanation names the condition that failed.
+5. Create a rule with `approvalPolicy: auto_approve` as a reviewer. **Expect:** `403` — only an owner
+   may let a rule act unattended.
+6. Delete the rule. **Expect:** `204`, and its runs remain in the log.
+
+### TC-13f — Hands-free capture and a spoken approval · `VOICE-001`
+
+1. Open Capture. **Expect:** a guidance line that changes with the framing ("move closer", "too
+   dark", "hold still"), and no microphone activity while voice is off.
+2. Turn flight mode on and reframe. **Expect:** guidance keeps working — it never needed the network.
+3. Switch voice on and refuse the microphone permission. **Expect:** the reason shown is "permission
+   needed", and no command fires.
+4. Grant it, then say "capture". **Expect:** the photo is taken once; a mumble fires nothing.
+5. In Review, say "approve" once. **Expect:** a confirmation prompt, not a filed record. Say it again
+   (or tap Approve) to file it; saying anything else in between disarms the confirmation.
+6. Turn voice off. **Expect:** the microphone is closed and any remembered command text is gone.
+
+### TC-13g — Switching language and reading an RTL layout · `I18N-001`
+
+1. Open Settings and switch the interface language to Kiswahili.
+2. **Expect:** the navigation, the page bodies, the table headers and the empty states all change
+   without a reload; dates show in the locale's format.
+3. Switch to Français. **Expect:** the same, and a percentage renders as `85 %`.
+4. Check a status badge and a document type. **Expect:** translated labels; a value the catalogue
+   does not know shows as words, never as `needs_review`.
+5. Set the document direction to `rtl` (the helper used by the root element) and reload.
+   **Expect:** the sidebar moves to the right, its divider moves with it, table headers align to the
+   right and no control is clipped — the stylesheet contains no `left`/`right` properties.
+6. On the phone, set the device language to Swahili and launch the app. **Expect:** the tabs and the
+   capture guidance are in Swahili; the voice cues and confirmation prompts use the same catalogue.
+
+### TC-13b — Corrections and the training switch · `REV-002`
+
+1. Correct two fields on two documents of the same type.
+2. Open Settings.
+3. **Expect:** the correction count and the fields with the lowest average confidence are listed, and
+   the values themselves are not.
+4. Press **Export corrections** as an admin with the switch off.
+5. **Expect:** "not opted in" — the server refuses with `409`.
+6. Turn the switch on, export again.
+7. **Expect:** rows with document type, field path and confidence; a reviewer account cannot export.
 
 ### TC-14 — AI provider failure handling · `AI-001`, `AI-004`
 

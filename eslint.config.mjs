@@ -13,6 +13,7 @@ export default tseslint.config(
       'apps/mobile/ios/**',
       'apps/mobile/index.js',
       'apps/desktop/dist/**',
+      'apps/desktop/dist-electron/**',
       '**/*.config.cjs',
       '**/*.config.mjs',
       'scripts/**',

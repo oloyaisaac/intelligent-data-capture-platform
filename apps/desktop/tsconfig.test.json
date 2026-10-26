@@ -1,10 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["vite/client", "node", "jest"],
-    "module": "CommonJS",
-    "moduleResolution": "node",
-    "isolatedModules": true
+    "types": ["jest", "node", "vite/client"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"]
 }

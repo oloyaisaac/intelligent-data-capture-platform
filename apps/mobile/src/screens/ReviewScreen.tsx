@@ -1,16 +1,33 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import { createTranslator, type ReviewQueueItem, type ReviewSession } from '@idcp/shared';
+import {
+  createTranslator,
+  type Locale,
+  type ReviewQueueItem,
+  type ReviewSession,
+} from '@idcp/shared';
 import { confidenceColor, colors, spacing, typography } from '../ui/theme';
 import type { ApiClient } from '../api/client';
-
-const t = createTranslator('en');
+import { canListen, type VoiceAssistant } from '../assist/consent';
+import { parseCommand, type VoiceCommandId } from '../assist/commands';
+import { initialVoiceSession, reduceVoice } from '../assist/reviewVoice';
 
 /**
  * Review on the phone (REV-001). A reviewer can resolve low-confidence fields, confirm the
  * classification and approve — the same rules the desktop uses, enforced by the server.
  */
-export function ReviewScreen({ client }: { client: ApiClient }): React.JSX.Element {
+export function ReviewScreen({
+  client,
+  voice,
+  locale = 'en',
+}: {
+  client: ApiClient;
+  /** VOICE-001: spoken commands; the screen is button-only when this is absent. */
+  voice?: VoiceAssistant;
+  locale?: Locale;
+}): React.JSX.Element {
+  const t = useMemo(() => createTranslator(locale), [locale]);
+  const [voiceState, setVoiceState] = useState(initialVoiceSession);
   const [items, setItems] = useState<ReviewQueueItem[]>([]);
   const [session, setSession] = useState<ReviewSession | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,6 +71,42 @@ export function ReviewScreen({ client }: { client: ApiClient }): React.JSX.Eleme
       setError(caught instanceof Error ? caught.message : t('review.blockedByFields'));
     } finally {
       setBusy(false);
+    }
+  };
+
+  /**
+   * VOICE-001: one listening turn. A destructive command is never run from a single utterance —
+   * `reduceVoice` arms it, and the operator has to say it again (or tap the button).
+   */
+  const hearOnce = async () => {
+    if (!voice) return;
+    const spoken = await voice.hear();
+    if (!spoken) {
+      setVoiceState((state) => ({ ...state, armed: null, heard: { key: 'voice.noMatch' } }));
+      return;
+    }
+    const parsed = parseCommand(spoken.transcript, spoken.confidence, { locale });
+    const outcome = reduceVoice(voiceState, parsed, { listening: canListen(voice.settings()) });
+    setVoiceState(outcome.state);
+    if (outcome.spoken) await voice.say(t(outcome.spoken));
+    if (outcome.confirm) setError(t(outcome.confirm));
+    if (outcome.run) await runCommand(outcome.run);
+  };
+
+  const runCommand = async (command: VoiceCommandId) => {
+    if (!session) return;
+    if (command === 'approve') return approve();
+    if (command === 'reject') {
+      setBusy(true);
+      try {
+        await client.reject(session.reviewId, 'Rejected by voice command');
+        setSession(null);
+        await loadQueue();
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : t('error.generic'));
+      } finally {
+        setBusy(false);
+      }
     }
   };
 
@@ -110,6 +163,26 @@ export function ReviewScreen({ client }: { client: ApiClient }): React.JSX.Eleme
         </View>
         {session.blocking.length > 0 && (
           <Text style={styles.muted}>{t('review.blockedByFields')}</Text>
+        )}
+        {voice && (
+          <View style={styles.voice}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('voice.listening')}
+              onPress={() => void hearOnce()}
+              style={styles.voiceButton}
+            >
+              <Text style={styles.secondaryText}>{t('voice.listening')}</Text>
+            </Pressable>
+            <Text style={styles.muted}>
+              {voiceState.heard
+                ? t(
+                    voiceState.heard.key,
+                    voiceState.heard.phrase ? { phrase: voiceState.heard.phrase } : undefined,
+                  )
+                : t('voice.commands')}
+            </Text>
+          </View>
         )}
       </View>
     );
@@ -175,6 +248,14 @@ const styles = StyleSheet.create({
   fieldValue: { ...typography.body },
   error: { ...typography.body, color: colors.danger, marginTop: spacing.sm },
   actions: { flexDirection: 'row', gap: spacing.sm, paddingTop: spacing.md },
+  voice: { paddingTop: spacing.md, gap: spacing.xs },
+  voiceButton: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
   button: {
     flex: 1,
     backgroundColor: colors.primary,

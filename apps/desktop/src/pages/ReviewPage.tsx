@@ -8,8 +8,11 @@ import {
   pendingChanges,
   reviewRows,
 } from '../lib/review';
-import { confidenceTone, formatDateTime, formatPercent, titleCase } from '../lib/format';
+import { confidenceTone, formatDateTime, formatPercent } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Modal, useAsync } from '../components/ui';
+import { SendToDestination } from '../components/SendToDestination';
+import { documentTypeLabel } from '../lib/labels';
+import { useLocale, useTranslator } from '../lib/locale';
 
 /**
  * REV-001 — the review workspace.
@@ -25,6 +28,8 @@ export function ReviewPage({
   client: ApiClient;
   initialDocumentId?: string;
 }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const queue = useAsync(() => client.reviewQueue(50), []);
   const [session, setSession] = useState<ReviewSession | null>(null);
   const [edited, setEdited] = useState<Record<string, string>>({});
@@ -34,17 +39,60 @@ export function ReviewPage({
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [syncKey, setSyncKey] = useState(0);
+  /** Kept after approval so the record can still be sent to a destination (DUP-001). */
+  const [approvedDocumentId, setApprovedDocumentId] = useState<string | null>(null);
+  /** DESK-002: bulk approval works on the queue, and reports what it refused and why. */
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulk, setBulk] = useState<{ approved: number; skipped: ReviewQueueItem[] } | null>(null);
   void syncKey;
+
+  const cleanIds = useMemo(
+    () => (queue.data?.items ?? []).filter((item) => item.blockingFields.length === 0),
+    [queue.data],
+  );
+
+  const toggleSelected = (documentId: string, next: boolean) => {
+    setSelected((current) =>
+      next ? [...new Set([...current, documentId])] : current.filter((id) => id !== documentId),
+    );
+  };
+
+  const bulkApprove = async () => {
+    if (selected.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setBulk(null);
+    try {
+      const result = await client.bulkApprove(selected);
+      const skipped = (queue.data?.items ?? []).filter((item) =>
+        result.skipped.some((entry) => entry.documentId === item.document.id),
+      );
+      setBulk({ approved: result.approved.length, skipped });
+      setSelected([]);
+      setSession(null);
+      setNotice(
+        result.skipped.length === 0
+          ? `${result.approved.length} record(s) approved.`
+          : `${result.approved.length} approved, ${result.skipped.length} left for a human.`,
+      );
+      await queue.reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('review.couldNotApproveMany'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const open = async (documentId: string) => {
     setBusy(true);
     setError(null);
     setNotice(null);
     setEdited({});
+    setApprovedDocumentId(null);
     try {
       setSession(await client.openReview(documentId));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not open that record.');
+      setError(caught instanceof Error ? caught.message : t('review.couldNotOpen'));
     } finally {
       setBusy(false);
     }
@@ -63,7 +111,7 @@ export function ReviewPage({
     if (!session) return;
     const changes = pendingChanges(rows, edited);
     if (changes.length === 0) {
-      setNotice('No changes to save.');
+      setNotice(t('review.noChanges'));
       return;
     }
     setBusy(true);
@@ -80,7 +128,7 @@ export function ReviewPage({
       setSyncKey((value) => value + 1);
       await queue.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not save those changes.');
+      setError(caught instanceof Error ? caught.message : t('review.couldNotSave'));
     } finally {
       setBusy(false);
     }
@@ -94,7 +142,7 @@ export function ReviewPage({
       const result = await client.patchFields(session.reviewId, [], documentType);
       setSession({ ...session, blocking: result.blocking, documentType: result.documentType });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not confirm the document type.');
+      setError(caught instanceof Error ? caught.message : t('review.couldNotConfirmType'));
     } finally {
       setBusy(false);
     }
@@ -106,11 +154,12 @@ export function ReviewPage({
     setError(null);
     try {
       await client.approveReview(session.reviewId);
-      setNotice('Record approved.');
+      setNotice(t('review.approvedNotice'));
+      setApprovedDocumentId(session.document.id);
       setSession(null);
       await queue.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not approve this record.');
+      setError(caught instanceof Error ? caught.message : t('review.couldNotApprove'));
     } finally {
       setBusy(false);
     }
@@ -125,10 +174,10 @@ export function ReviewPage({
       setRejecting(false);
       setRejectReason('');
       setSession(null);
-      setNotice('Record rejected.');
+      setNotice(t('review.rejectedNotice'));
       await queue.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not reject this record.');
+      setError(caught instanceof Error ? caught.message : t('review.couldNotReject'));
     } finally {
       setBusy(false);
     }
@@ -137,11 +186,11 @@ export function ReviewPage({
   return (
     <div className="stack">
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>Review</h1>
+        <h1>{t('review.title')}</h1>
         {session && (
           <div className="row">
             <button className="button secondary" type="button" onClick={() => setSession(null)}>
-              Close record
+              {t('review.closeRecord')}
             </button>
             <button
               className="button secondary"
@@ -149,7 +198,7 @@ export function ReviewPage({
               onClick={() => setRejecting(true)}
               disabled={busy}
             >
-              Reject
+              {t('action.reject')}
             </button>
             <button
               className="button"
@@ -158,11 +207,11 @@ export function ReviewPage({
               disabled={approveDisabled}
               title={
                 approveDisabled && session.blocking.length > 0
-                  ? 'Resolve the highlighted fields first.'
+                  ? t('review.resolveFirst')
                   : undefined
               }
             >
-              Approve
+              {t('action.approve')}
             </button>
           </div>
         )}
@@ -174,20 +223,62 @@ export function ReviewPage({
           {notice}
         </div>
       )}
+      {bulk && bulk.skipped.length > 0 && (
+        <div className="banner warning" role="status">
+          <strong>{t('review.skipped', { count: bulk.skipped.length })}</strong>{' '}
+          {t('review.skippedHint')}{' '}
+          {bulk.skipped
+            .map((item) => `${item.document.documentType} (${item.blockingFields.length})`)
+            .join(', ')}
+          .
+        </div>
+      )}
 
       <div className="split">
-        <Card title={`Queue (${queue.data?.total ?? 0})`}>
+        <Card
+          title={t('review.queue', { count: queue.data?.total ?? 0 })}
+          actions={
+            queue.data && queue.data.items.length > 0 ? (
+              <div className="row">
+                <button
+                  className="button secondary small"
+                  type="button"
+                  disabled={cleanIds.length === 0 || busy}
+                  onClick={() => setSelected(cleanIds.map((item) => item.document.id))}
+                  title={
+                    cleanIds.length === 0
+                      ? t('review.everyRecordNeedsLook')
+                      : t('review.selectCleanHint')
+                  }
+                >
+                  {t('review.selectClean', { count: cleanIds.length })}
+                </button>
+                <button
+                  className="button small"
+                  type="button"
+                  disabled={selected.length === 0 || busy}
+                  onClick={() => void bulkApprove()}
+                >
+                  {t('review.approveSelected', { count: selected.length })}
+                </button>
+              </div>
+            ) : null
+          }
+        >
           {queue.loading && !queue.data ? (
-            <EmptyState title="Loading…" />
+            <EmptyState title={t('dashboard.loading')} />
           ) : (queue.data?.items.length ?? 0) === 0 ? (
-            <EmptyState title="Nothing to review" hint="New captures appear here automatically." />
+            <EmptyState title={t('review.empty')} hint={t('review.newCaptures')} />
           ) : (
             <table className="table">
               <thead>
                 <tr>
-                  <th>Type</th>
-                  <th>Confidence</th>
-                  <th>To check</th>
+                  <th style={{ width: 28 }}>
+                    <span className="sr-only">{t('review.select')}</span>
+                  </th>
+                  <th>{t('table.type')}</th>
+                  <th>{t('table.confidence')}</th>
+                  <th>{t('review.toCheck')}</th>
                   <th />
                 </tr>
               </thead>
@@ -198,11 +289,19 @@ export function ReviewPage({
                     className={session?.document.id === item.document.id ? 'selected' : ''}
                   >
                     <td>
-                      <div>{titleCase(item.document.documentType)}</div>
-                      <div className="dim">{formatDateTime(item.document.createdAt)}</div>
+                      <input
+                        type="checkbox"
+                        aria-label={`${t('review.select')} ${item.document.documentType} ${item.document.id}`}
+                        checked={selected.includes(item.document.id)}
+                        onChange={(event) => toggleSelected(item.document.id, event.target.checked)}
+                      />
+                    </td>
+                    <td>
+                      <div>{documentTypeLabel(t, item.document.documentType)}</div>
+                      <div className="dim">{formatDateTime(item.document.createdAt, locale)}</div>
                     </td>
                     <td className={`confidence ${confidenceTone(item.confidence)}`}>
-                      {formatPercent(item.confidence)}
+                      {formatPercent(item.confidence, locale)}
                     </td>
                     <td>{item.blockingFields.length}</td>
                     <td>
@@ -211,7 +310,7 @@ export function ReviewPage({
                         type="button"
                         onClick={() => void open(item.document.id)}
                       >
-                        Open
+                        {t('review.open')}
                       </button>
                     </td>
                   </tr>
@@ -223,19 +322,19 @@ export function ReviewPage({
 
         {session ? (
           <Card
-            title="Record"
+            title={t('review.record')}
             actions={
               <Badge tone={session.blocking.length > 0 ? 'warning' : 'success'}>
                 {session.blocking.length > 0
-                  ? `${session.blocking.length} to resolve`
-                  : 'Ready to approve'}
+                  ? t('review.toResolve', { count: session.blocking.length })
+                  : t('review.readyToApprove')}
               </Badge>
             }
           >
             <div className="stack">
               <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
                 <label className="field" style={{ minWidth: 200 }}>
-                  <span className="label">Document type</span>
+                  <span className="label">{t('filter.documentType')}</span>
                   <select
                     className="select"
                     value={session.documentType}
@@ -243,20 +342,20 @@ export function ReviewPage({
                   >
                     {DOCUMENT_TYPES.map((type) => (
                       <option key={type} value={type}>
-                        {titleCase(type)}
+                        {documentTypeLabel(t, type)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <div>
-                  <div className="label">Type confidence</div>
+                  <div className="label">{t('review.typeConfidence')}</div>
                   <div className={`confidence ${confidenceTone(session.documentTypeConfidence)}`}>
-                    {formatPercent(session.documentTypeConfidence)}
+                    {formatPercent(session.documentTypeConfidence, locale)}
                   </div>
                 </div>
                 {typeBlocker && (
                   <div className="notice" style={{ alignSelf: 'center' }}>
-                    Confirm the document type before approving.
+                    {t('review.confirmTypeFirst')}
                   </div>
                 )}
               </div>
@@ -281,18 +380,18 @@ export function ReviewPage({
                         className="input"
                         value={value}
                         aria-label={`${row.label} value`}
-                        placeholder={row.reason ? blockingReasonLabel(row.reason) : ''}
+                        placeholder={row.reason ? blockingReasonLabel(row.reason, t) : ''}
                         onChange={(event) =>
                           setEdited({ ...edited, [row.path]: event.target.value })
                         }
                       />
                       <div className="stack" style={{ gap: 2 }}>
                         <span className={`confidence ${tone}`}>
-                          {formatPercent(row.confidence)}
+                          {formatPercent(row.confidence, locale)}
                         </span>
                         {row.needsReview && (
                           <span className="dim">
-                            {blockingReasonLabel(row.reason ?? 'low_confidence')}
+                            {blockingReasonLabel(row.reason ?? 'low_confidence', t)}
                           </span>
                         )}
                       </div>
@@ -304,7 +403,7 @@ export function ReviewPage({
               {session.udm.tables.length > 0 && (
                 <div>
                   <h3 className="card-title" style={{ marginBottom: 8 }}>
-                    Line items
+                    {t('review.lineItems')}
                   </h3>
                   <table className="table">
                     <thead>
@@ -336,7 +435,7 @@ export function ReviewPage({
                   onClick={() => setEdited({})}
                   disabled={busy}
                 >
-                  Discard edits
+                  {t('review.discardEdits')}
                 </button>
                 <button
                   className="button"
@@ -344,34 +443,38 @@ export function ReviewPage({
                   onClick={() => void save()}
                   disabled={busy || Object.keys(edited).length === 0}
                 >
-                  Save changes
+                  {t('review.saveChanges')}
                 </button>
                 <span className="muted">
                   {Object.keys(edited).length === 0
-                    ? 'Click a value to correct it.'
-                    : `${Object.keys(edited).length} unsaved`}
+                    ? t('review.clickToCorrect')
+                    : t('review.unsaved', { count: Object.keys(edited).length })}
                 </span>
               </div>
 
               <p className="dim" style={{ margin: 0 }}>
-                Every correction records the previous value, the new value and your name.
-                Corrections are only used to improve extraction when your organisation opts in.
+                {t('review.correctionAudit')}
               </p>
             </div>
           </Card>
         ) : (
-          <Card title="Record">
-            <EmptyState
-              title="Select a record"
-              hint="Open a record from the queue to check its fields."
-            />
+          <Card title={t('review.record')}>
+            <EmptyState title={t('review.selectRecord')} hint={t('review.selectRecordHint')} />
           </Card>
         )}
       </div>
 
+      {(session || approvedDocumentId) && (
+        <SendToDestination
+          client={client}
+          documentId={session?.document.id ?? approvedDocumentId ?? ''}
+          approved={session ? session.document.status === 'approved' : true}
+        />
+      )}
+
       {rejecting && (
         <Modal
-          title="Reject this record"
+          title={t('review.rejectTitle')}
           onClose={() => setRejecting(false)}
           footer={
             <>
@@ -380,7 +483,7 @@ export function ReviewPage({
                 type="button"
                 onClick={() => setRejecting(false)}
               >
-                Cancel
+                {t('action.cancel')}
               </button>
               <button
                 className="button danger"
@@ -388,13 +491,13 @@ export function ReviewPage({
                 disabled={rejectReason.trim().length === 0 || busy}
                 onClick={() => void reject()}
               >
-                Reject
+                {t('action.reject')}
               </button>
             </>
           }
         >
           <label className="field">
-            <span className="label">Reason (stored in the audit trail)</span>
+            <span className="label">{t('review.rejectReason')}</span>
             <textarea
               className="textarea"
               rows={3}

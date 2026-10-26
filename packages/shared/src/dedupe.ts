@@ -148,3 +148,67 @@ export function findBestDuplicate(
   }
   return best && best.match.isDuplicate ? best : null;
 }
+
+export interface MergeConflict {
+  field: string;
+  /** The value that was kept (from the existing row / the human review). */
+  kept: unknown;
+  /** The incoming value that was not written. */
+  ignored: unknown;
+  reason: 'reviewed' | 'key';
+}
+
+export interface MergeOutcome {
+  values: Record<string, string | number | boolean | null>;
+  conflicts: MergeConflict[];
+  /** Fields that changed, so the run summary can say what the merge actually did. */
+  changedFields: string[];
+}
+
+/**
+ * Merge an incoming record into an existing row (DUP-001).
+ *
+ * Two rules matter here:
+ *   - a **reviewed** field is never overwritten. A human confirmed that value; a later automated
+ *     import must not silently replace it.
+ *   - a **duplicate key** is never overwritten either, or the row would stop being the same row.
+ *
+ * Everything else takes the incoming value when it is present, and keeps the existing value when
+ * the incoming field is empty (a mapping that could not read a field must not blank the row).
+ * Every ignored value is reported as a conflict, so "nothing was discarded silently" is provable.
+ */
+export function mergeRecord(
+  existing: Record<string, string | number | boolean | null>,
+  incoming: Record<string, string | number | boolean | null>,
+  options: { keys?: string[]; reviewedFields?: string[] } = {},
+): MergeOutcome {
+  const keys = new Set(options.keys ?? []);
+  const reviewed = new Set(options.reviewedFields ?? []);
+  const values: Record<string, string | number | boolean | null> = { ...existing };
+  const conflicts: MergeConflict[] = [];
+  const changedFields: string[] = [];
+
+  for (const [field, next] of Object.entries(incoming)) {
+    if (next === null || next === undefined || next === '') continue;
+    const current = existing[field] ?? null;
+
+    if (keys.has(field)) {
+      if (current !== next) {
+        conflicts.push({ field, kept: current, ignored: next, reason: 'key' });
+      }
+      continue;
+    }
+
+    if (reviewed.has(field) && current !== null && current !== next) {
+      conflicts.push({ field, kept: current, ignored: next, reason: 'reviewed' });
+      continue;
+    }
+
+    if (current !== next) {
+      values[field] = next;
+      changedFields.push(field);
+    }
+  }
+
+  return { values, conflicts, changedFields };
+}

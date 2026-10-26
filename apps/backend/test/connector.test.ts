@@ -291,4 +291,170 @@ describe('connectors (CON-001, CON-003, MAP-001, DUP-001)', () => {
     expect(row?.status).toBe('error');
     expect(row?.last_error).toBeTruthy();
   });
+
+  it('previews a duplicate with its score and matched fields before writing (DUP-001)', async () => {
+    const account = await registerAccount(harness);
+    const dbPath = join(directory, 'preview.sqlite');
+
+    const destination = new DatabaseSync(dbPath);
+    destination.exec(
+      'CREATE TABLE invoices (invoice_number TEXT, total REAL, invoice_date TEXT, note TEXT)',
+    );
+    destination
+      .prepare('INSERT INTO invoices VALUES (?, ?, ?, ?)')
+      .run('INV-1042', 1121000, '2026-10-26', 'existing row');
+    destination.close();
+
+    const connector = await harness.api.json('POST', '/api/v1/connectors', {
+      token: account.accessToken,
+      body: { type: 'sqlite', name: 'SQLite sink', config: { path: dbPath, table: 'invoices' } },
+    });
+    const connectorId = connector.json<{ id: string }>().id;
+
+    const mapping = await harness.api.json('POST', '/api/v1/mapping-profiles', {
+      token: account.accessToken,
+      body: {
+        connectorId,
+        documentType: 'invoice',
+        name: 'Invoice to SQLite',
+        fieldMap: [
+          { udmPath: 'invoice.number', destinationField: 'invoice_number', transform: 'none' },
+          { udmPath: 'total.amount', destinationField: 'total', transform: 'number' },
+        ],
+        duplicatePolicy: 'skip',
+        duplicateKeys: ['invoice_number'],
+      },
+    });
+    const mappingId = mapping.json<{ id: string }>().id;
+    const documentId = await approvedDocument(account);
+
+    const preview = await harness.api.json(
+      'GET',
+      `/api/v1/documents/${documentId}/duplicates?connectorId=${connectorId}&mappingProfileId=${mappingId}`,
+      { token: account.accessToken },
+    );
+    expect(preview.statusCode).toBe(200);
+    const result = preview.json<{
+      isDuplicate: boolean;
+      bestScore: number;
+      matchedKeys: string[];
+      threshold: number;
+      candidates: Array<{ score: number; matchedKeys: string[]; values: Record<string, unknown> }>;
+    }>();
+    expect(result.isDuplicate).toBe(true);
+    expect(result.bestScore).toBe(1);
+    expect(result.matchedKeys).toEqual(['invoice_number']);
+    expect(result.candidates[0]?.values.note).toBe('existing row');
+
+    // The preview must not have changed anything.
+    const check = new DatabaseSync(dbPath);
+    const count = check.prepare('SELECT COUNT(*) AS n FROM invoices').get() as { n: number };
+    expect(count.n).toBe(1);
+    check.close();
+  });
+
+  it('updates the existing row when the policy says update (DUP-001)', async () => {
+    const account = await registerAccount(harness);
+    const dbPath = join(directory, 'update.sqlite');
+
+    const destination = new DatabaseSync(dbPath);
+    destination.exec('CREATE TABLE invoices (invoice_number TEXT, total REAL, note TEXT)');
+    destination.prepare('INSERT INTO invoices VALUES (?, ?, ?)').run('INV-1042', 1, 'old total');
+    destination.close();
+
+    const connector = await harness.api.json('POST', '/api/v1/connectors', {
+      token: account.accessToken,
+      body: { type: 'sqlite', name: 'SQLite sink', config: { path: dbPath, table: 'invoices' } },
+    });
+    const connectorId = connector.json<{ id: string }>().id;
+
+    const mapping = await harness.api.json('POST', '/api/v1/mapping-profiles', {
+      token: account.accessToken,
+      body: {
+        connectorId,
+        documentType: 'invoice',
+        name: 'Invoice update',
+        fieldMap: [
+          { udmPath: 'invoice.number', destinationField: 'invoice_number', transform: 'none' },
+          { udmPath: 'total.amount', destinationField: 'total', transform: 'number' },
+        ],
+        duplicatePolicy: 'update',
+        duplicateKeys: ['invoice_number'],
+      },
+    });
+    const mappingId = mapping.json<{ id: string }>().id;
+    const documentId = await approvedDocument(account);
+
+    const send = await harness.api.json('POST', `/api/v1/documents/${documentId}/send`, {
+      token: account.accessToken,
+      body: { connectorId, mappingProfileId: mappingId },
+    });
+    expect(send.statusCode).toBe(202);
+    expect(send.json<{ status: string; updated: number }>().status).toBe('succeeded');
+    expect(send.json<{ updated: number }>().updated).toBe(1);
+
+    const check = new DatabaseSync(dbPath);
+    const row = check.prepare('SELECT total, note FROM invoices').get() as {
+      total: number;
+      note: string;
+    };
+    expect(row.total).toBe(1121000);
+    // A merge/update never invents values for columns the mapping does not cover.
+    expect(row.note).toBe('old total');
+    check.close();
+  });
+
+  it('merges into the existing row and never overwrites a reviewed value (DUP-001)', async () => {
+    const account = await registerAccount(harness);
+    const dbPath = join(directory, 'merge.sqlite');
+
+    const destination = new DatabaseSync(dbPath);
+    destination.exec('CREATE TABLE invoices (invoice_number TEXT, total REAL, note TEXT)');
+    destination
+      .prepare('INSERT INTO invoices VALUES (?, ?, ?)')
+      .run('INV-1042', 1, 'confidential note');
+    destination.close();
+
+    const connector = await harness.api.json('POST', '/api/v1/connectors', {
+      token: account.accessToken,
+      body: { type: 'sqlite', name: 'SQLite sink', config: { path: dbPath, table: 'invoices' } },
+    });
+    const connectorId = connector.json<{ id: string }>().id;
+
+    const mapping = await harness.api.json('POST', '/api/v1/mapping-profiles', {
+      token: account.accessToken,
+      body: {
+        connectorId,
+        documentType: 'invoice',
+        name: 'Invoice merge',
+        fieldMap: [
+          { udmPath: 'invoice.number', destinationField: 'invoice_number', transform: 'none' },
+          { udmPath: 'total.amount', destinationField: 'total', transform: 'number' },
+        ],
+        duplicatePolicy: 'merge',
+        duplicateKeys: ['invoice_number'],
+      },
+    });
+    const mappingId = mapping.json<{ id: string }>().id;
+    const documentId = await approvedDocument(account);
+
+    const send = await harness.api.json('POST', `/api/v1/documents/${documentId}/send`, {
+      token: account.accessToken,
+      body: { connectorId, mappingProfileId: mappingId },
+    });
+    expect(send.statusCode).toBe(202);
+    expect(send.json<{ status: string }>().status).toBe('succeeded');
+
+    const check = new DatabaseSync(dbPath);
+    const rows = check.prepare('SELECT invoice_number, total, note FROM invoices').all() as Array<{
+      invoice_number: string;
+      total: number;
+      note: string;
+    }>;
+    // One row, merged — not a second insert.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.total).toBe(1121000);
+    expect(rows[0]?.note).toBe('confidential note');
+    check.close();
+  });
 });

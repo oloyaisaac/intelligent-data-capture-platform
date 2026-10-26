@@ -1,3 +1,5 @@
+import type { Translate } from '@idcp/shared';
+
 import type { StatsTimelinePoint } from '@idcp/shared';
 
 /**
@@ -109,11 +111,27 @@ export function shares(
   return floored.map(({ key, value, percent }) => ({ key, value, percent }));
 }
 
-/** One concise sentence for a screen reader, because a chart alone is not accessible. */
-export function describeChart(chart: BarChart, metric: string): string {
+/**
+ * One concise sentence for a screen reader, because a chart alone is not accessible.
+ *
+ * The sentence is translated when a translator is supplied; without one it stays English, so the
+ * pure helper continues to work in isolation (and its unit test keeps asserting the same shape).
+ */
+export function describeChart(chart: BarChart, metric: string, t?: Translate): string {
   const total = chart.bars.reduce((sum, bar) => sum + bar.value, 0);
-  if (chart.bars.length === 0) return `No ${metric} data yet.`;
+  if (chart.bars.length === 0) {
+    return t ? t('chart.empty', { metric }) : `No ${metric} data yet.`;
+  }
   const busiest = [...chart.bars].sort((a, b) => b.value - a.value)[0];
+  if (t) {
+    return t('chart.summary', {
+      total,
+      metric,
+      days: chart.bars.length,
+      day: busiest?.label ?? '',
+      value: busiest?.value ?? 0,
+    });
+  }
   return `${total} ${metric} over the last ${chart.bars.length} days; the highest day is ${busiest?.label} with ${busiest?.value}.`;
 }
 

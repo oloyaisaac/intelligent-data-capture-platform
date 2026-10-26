@@ -14,11 +14,14 @@ import {
   parsePairingQrPayload,
   findBestDuplicate,
   matchDuplicate,
+  mergeRecord,
   normaliseKeyValue,
   similarity,
   parseCsv as parseCsvAlias,
   createTranslator,
   translationCoverage,
+  directionFor,
+  isRtl,
   roleAtLeast,
   applyCorrections,
   partitionForBulkApprove,
@@ -338,7 +341,9 @@ describe('i18n', () => {
     const t = createTranslator('sw');
     expect(t('action.save')).toBe('Hifadhi');
     expect(t('export.title')).toBe('Hamisha');
-    expect(t('review.fieldCorrected')).toBe('Corrected');
+    // The fallback still works: a locale with no catalogue at all returns English, not the key.
+    const empty = createTranslator('fr');
+    expect(empty('action.save')).toBe('Enregistrer');
   });
 
   it('never returns undefined for an unknown key', () => {
@@ -348,8 +353,33 @@ describe('i18n', () => {
   });
 
   it('reports translation coverage for shipped locales', () => {
+    // I18N-001: nothing ships half-translated — every key has an Swahili and a French string.
     expect(translationCoverage('en')).toBe(1);
-    expect(translationCoverage('sw')).toBeGreaterThan(0.1);
+    expect(translationCoverage('sw')).toBe(1);
+    expect(translationCoverage('fr')).toBe(1);
+  });
+
+  it('decides text direction from the language, so an RTL catalogue needs no layout work', () => {
+    expect(directionFor('en')).toBe('ltr');
+    expect(directionFor('sw-KE')).toBe('ltr');
+    expect(directionFor('fr')).toBe('ltr');
+    expect(directionFor('ar')).toBe('rtl');
+    expect(directionFor('ar-EG')).toBe('rtl');
+    expect(directionFor('he')).toBe('rtl');
+    expect(directionFor('FA_ir')).toBe('rtl');
+    expect(isRtl('ur')).toBe(true);
+    expect(isRtl('en')).toBe(false);
+    // Unknown or missing languages are left-to-right rather than guessed.
+    expect(directionFor(null)).toBe('ltr');
+    expect(directionFor('')).toBe('ltr');
+    expect(directionFor('tlh')).toBe('ltr');
+  });
+
+  it('interpolates parameters and leaves unknown keys visible', () => {
+    expect(createTranslator('en')('review.confidence', { percent: 82 })).toBe('Confidence 82%');
+    expect(createTranslator('fr')('review.confidence', { percent: 82 })).toContain('82');
+    // A missing key returns the key, which is how a half-finished translation announces itself.
+    expect(createTranslator('sw')('nothing.here' as never)).toBe('nothing.here');
   });
 });
 
@@ -358,5 +388,43 @@ describe('roles', () => {
     expect(roleAtLeast('owner', 'admin')).toBe(true);
     expect(roleAtLeast('reviewer', 'admin')).toBe(false);
     expect(roleAtLeast('viewer', 'viewer')).toBe(true);
+  });
+});
+
+describe('merge policy (DUP-001)', () => {
+  it('takes incoming values for fields the existing row has not reviewed', () => {
+    const merged = mergeRecord(
+      { invoice_number: 'INV-1', total: 100, note: 'kept' },
+      { invoice_number: 'INV-1', total: 250 },
+      { keys: ['invoice_number'] },
+    );
+    expect(merged.values).toEqual({ invoice_number: 'INV-1', total: 250, note: 'kept' });
+    expect(merged.changedFields).toEqual(['total']);
+    expect(merged.conflicts).toEqual([]);
+  });
+
+  it('never overwrites a reviewed value, and says what it kept', () => {
+    const merged = mergeRecord(
+      { invoice_number: 'INV-1', total: 100, supplier: 'Acme Ltd' },
+      { total: 250, supplier: 'Acme Limited' },
+      { keys: ['invoice_number'], reviewedFields: ['supplier'] },
+    );
+    expect(merged.values.supplier).toBe('Acme Ltd');
+    expect(merged.values.total).toBe(250);
+    expect(merged.conflicts).toEqual([
+      { field: 'supplier', kept: 'Acme Ltd', ignored: 'Acme Limited', reason: 'reviewed' },
+    ]);
+  });
+
+  it('keeps existing values when the incoming field is empty, and never rewrites a key', () => {
+    const merged = mergeRecord(
+      { invoice_number: 'INV-1', total: 100 },
+      { invoice_number: 'INV-9', total: null, supplier: '' },
+      { keys: ['invoice_number'] },
+    );
+    expect(merged.values).toEqual({ invoice_number: 'INV-1', total: 100 });
+    expect(merged.conflicts).toEqual([
+      { field: 'invoice_number', kept: 'INV-1', ignored: 'INV-9', reason: 'key' },
+    ]);
   });
 });

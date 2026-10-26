@@ -3,6 +3,7 @@ import type { Project } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { formatDateTime } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync } from '../components/ui';
+import { useLocale, useTranslator } from '../lib/locale';
 
 /**
  * TEAM-001 — projects.
@@ -17,6 +18,8 @@ export function ProjectsPage({
   client: ApiClient;
   canManage: boolean;
 }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const projects = useAsync(() => client.listProjects(true), []);
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
@@ -37,7 +40,7 @@ export function ProjectsPage({
       setKey('');
       await projects.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not create the project.');
+      setError(caught instanceof Error ? caught.message : t('projects.createFailed'));
     } finally {
       setBusy(false);
     }
@@ -49,31 +52,31 @@ export function ProjectsPage({
       await client.updateProject(project.id, { archived: !project.archivedAt });
       await projects.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not update the project.');
+      setError(caught instanceof Error ? caught.message : t('projects.updateFailed'));
     }
   };
 
   return (
     <div className="stack">
-      <h1>Projects</h1>
+      <h1>{t('projects.title')}</h1>
       <ErrorBanner message={error ?? projects.error} />
 
       {canManage && (
-        <Card title="New project">
+        <Card title={t('projects.new')}>
           <div className="row" style={{ alignItems: 'flex-end' }}>
-            <Field label="Name">
+            <Field label={t('projects.name')}>
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Kampala branch"
+                placeholder={t('projects.namePlaceholder')}
                 maxLength={120}
               />
             </Field>
-            <Field label="Key" hint="Optional — derived from the name when left blank.">
+            <Field label={t('projects.key')} hint={t('projects.keyHint')}>
               <input
                 value={key}
                 onChange={(event) => setKey(event.target.value)}
-                placeholder="KAMPALA"
+                placeholder={t('projects.keyPlaceholder')}
                 maxLength={20}
               />
             </Field>
@@ -83,26 +86,23 @@ export function ProjectsPage({
               onClick={() => void create()}
               disabled={busy || name.trim().length < 2}
             >
-              {busy ? 'Creating…' : 'Create project'}
+              {busy ? t('projects.creating') : t('projects.create')}
             </button>
           </div>
         </Card>
       )}
 
-      <Card title="All projects">
+      <Card title={t('projects.all')}>
         {items.length === 0 ? (
-          <EmptyState
-            title="No projects yet"
-            hint="Group documents and batches by branch, client or month."
-          />
+          <EmptyState title={t('projects.none')} hint={t('projects.noneHint')} />
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Key</th>
-                <th>Created</th>
-                <th>Status</th>
+                <th>{t('projects.name')}</th>
+                <th>{t('projects.key')}</th>
+                <th>{t('table.created')}</th>
+                <th>{t('table.status')}</th>
                 <th />
               </tr>
             </thead>
@@ -111,10 +111,10 @@ export function ProjectsPage({
                 <tr key={project.id}>
                   <td>{project.name}</td>
                   <td className="mono">{project.key}</td>
-                  <td className="dim">{formatDateTime(project.createdAt)}</td>
+                  <td className="dim">{formatDateTime(project.createdAt, locale)}</td>
                   <td>
                     <Badge tone={project.archivedAt ? 'neutral' : 'success'}>
-                      {project.archivedAt ? 'archived' : 'active'}
+                      {project.archivedAt ? t('projects.archived') : t('status.active')}
                     </Badge>
                   </td>
                   <td>
@@ -124,7 +124,7 @@ export function ProjectsPage({
                         type="button"
                         onClick={() => void toggle(project)}
                       >
-                        {project.archivedAt ? 'Restore' : 'Archive'}
+                        {project.archivedAt ? t('projects.restore') : t('projects.archive')}
                       </button>
                     )}
                   </td>

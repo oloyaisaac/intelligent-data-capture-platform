@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { API_KEY_SCOPES, ROLES, type ApiKeyScope, type Locale } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatPercent } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, Modal, useAsync } from '../components/ui';
+import { keyStatusLabel, roleLabel } from '../lib/labels';
+import { useLocale, useTranslator } from '../lib/locale';
 
 /**
  * TEAM-001 / AUDIT-001 / SEC-001 / DEVAPI-001 — organisation settings, team, audit trail,
@@ -22,16 +24,19 @@ export function SettingsPage({
   localeOptions?: Array<{ locale: Locale; label: string }>;
   onLocaleChange?: (locale: Locale) => void;
 }): React.JSX.Element {
+  const t = useTranslator();
   const organisation = useAsync(() => client.organisation(), []);
   const users = useAsync(() => client.listUsers(), []);
   const audit = useAsync(() => client.auditLogs({ limit: 50 }), []);
   const keys = useAsync(() => client.listApiKeys(), []);
+  const corrections = useAsync(() => client.correctionStats(), []);
 
   const [name, setName] = useState('');
   const [retentionDays, setRetentionDays] = useState<number | ''>('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('reviewer');
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const { locale: activeLocale } = useLocale();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [createdKey, setCreatedKey] = useState<{ key: string; name: string } | null>(null);
@@ -39,6 +44,7 @@ export function SettingsPage({
   const [keyScopes, setKeyScopes] = useState<ApiKeyScope[]>(['documents:read']);
   const [keyDialog, setKeyDialog] = useState(false);
   const [filters, setFilters] = useState({ action: '', actor: '', from: '', to: '' });
+  const [trainingNote, setTrainingNote] = useState<string | null>(null);
 
   const isAdmin = role === 'admin' || role === 'owner';
 
@@ -53,23 +59,20 @@ export function SettingsPage({
       organisation.setData(updated);
       setName('');
       setRetentionDays('');
-      setNotice('Organisation settings saved.');
+      setNotice(t('settings.saved'));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not save those settings.');
+      setError(caught instanceof Error ? caught.message : t('settings.couldNotSave'));
     }
   };
 
   return (
     <div className="stack">
-      <h1>Settings</h1>
+      <h1>{t('settings.title')}</h1>
 
       {onLocaleChange && localeOptions.length > 0 && (
-        <Card title="Language">
+        <Card title={t('settings.languageCard')}>
           <div className="row" style={{ alignItems: 'flex-end' }}>
-            <Field
-              label="Interface language"
-              hint="Missing translations fall back to English; the choice is remembered on this device."
-            >
+            <Field label={t('settings.interfaceLanguage')} hint={t('settings.languageHint')}>
               <select
                 className="select"
                 value={locale}
@@ -92,33 +95,35 @@ export function SettingsPage({
         </div>
       )}
 
-      <Card title="Organisation">
+      <Card title={t('settings.organisation')}>
         {organisation.data && (
           <div className="stack">
             <div className="row" style={{ gap: 24, flexWrap: 'wrap' }}>
               <div>
-                <div className="label">Name</div>
+                <div className="label">{t('settings.name')}</div>
                 <div>{organisation.data.name}</div>
               </div>
               <div>
-                <div className="label">Plan</div>
+                <div className="label">{t('settings.plan')}</div>
                 <div>{organisation.data.plan}</div>
               </div>
               <div>
-                <div className="label">Retention</div>
-                <div>{organisation.data.retentionDays} days</div>
+                <div className="label">{t('settings.retention')}</div>
+                <div>{t('settings.days', { count: organisation.data.retentionDays })}</div>
               </div>
               <div>
-                <div className="label">AI mode</div>
+                <div className="label">{t('settings.aiMode')}</div>
                 <div>
-                  {organisation.data.aiProvider === 'local' ? 'On this machine' : 'Cloud provider'}
+                  {organisation.data.aiProvider === 'local'
+                    ? t('settings.aiLocal')
+                    : t('settings.aiCloud')}
                 </div>
               </div>
             </div>
 
             {isAdmin && (
               <div className="toolbar">
-                <Field label="Rename organisation">
+                <Field label={t('settings.renameOrganisation')}>
                   <input
                     className="input"
                     value={name}
@@ -126,7 +131,7 @@ export function SettingsPage({
                     onChange={(event) => setName(event.target.value)}
                   />
                 </Field>
-                <Field label="Retention (days)" hint="0 keeps documents until deleted by hand.">
+                <Field label={t('settings.retentionDays')} hint={t('settings.retentionHint')}>
                   <input
                     className="input"
                     type="number"
@@ -139,7 +144,7 @@ export function SettingsPage({
                   />
                 </Field>
                 <button className="button" type="button" onClick={() => void saveOrganisation()}>
-                  Save
+                  {t('settings.save')}
                 </button>
                 <button
                   className="button secondary"
@@ -148,31 +153,149 @@ export function SettingsPage({
                     setError(null);
                     try {
                       const result = await client.purgeRetention();
-                      setNotice(`Purge complete: ${result.purged} document(s) removed.`);
+                      setNotice(t('settings.purgeComplete', { count: result.purged }));
                     } catch (caught) {
-                      setError(caught instanceof Error ? caught.message : 'Purge failed.');
+                      setError(
+                        caught instanceof Error ? caught.message : t('settings.purgeFailed'),
+                      );
                     }
                   }}
                 >
-                  Run retention purge now
+                  {t('settings.purgeNow')}
                 </button>
               </div>
             )}
             <p className="dim" style={{ margin: 0 }}>
-              Deleting a document removes the stored file, not only its metadata, and the purge is
-              recorded in the audit trail.
+              {t('settings.deleteNote')}
             </p>
           </div>
         )}
       </Card>
 
-      <Card title="Team">
+      <Card title={t('settings.correctionsCard')}>
+        <div className="stack">
+          <p className="dim" style={{ margin: 0 }}>
+            {t('settings.correctionsNote')}
+          </p>
+          {corrections.data ? (
+            <>
+              <div className="row" style={{ gap: 24, flexWrap: 'wrap' }}>
+                <div>
+                  <div className="label">{t('settings.correctionsRecorded')}</div>
+                  <div>{corrections.data.total}</div>
+                </div>
+                <div>
+                  <div className="label">{t('settings.fieldsAffected')}</div>
+                  <div>{corrections.data.byField.length}</div>
+                </div>
+                <div>
+                  <div className="label">{t('settings.trainingUse')}</div>
+                  <div>
+                    {corrections.data.optIn ? t('settings.optedIn') : t('settings.notEnabled')}
+                  </div>
+                </div>
+              </div>
+
+              {corrections.data.byField.length > 0 && (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>{t('table.field')}</th>
+                      <th>{t('table.corrections')}</th>
+                      <th>{t('table.averageConfidence')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {corrections.data.byField.slice(0, 8).map((row) => (
+                      <tr key={row.fieldPath}>
+                        <td>{row.fieldPath}</td>
+                        <td>{row.corrections}</td>
+                        <td className="dim">
+                          {row.averageConfidence === null
+                            ? '—'
+                            : formatPercent(row.averageConfidence, activeLocale)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {isAdmin && (
+                <div className="toolbar">
+                  <Field
+                    label={t('settings.useCorrections')}
+                    hint={t('settings.useCorrectionsHint')}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={corrections.data.optIn}
+                      onChange={async (event) => {
+                        setError(null);
+                        setTrainingNote(null);
+                        try {
+                          const updated = await client.updateOrganisation({
+                            learningOptIn: event.target.checked,
+                          });
+                          organisation.setData(updated);
+                          await corrections.reload();
+                          setTrainingNote(
+                            event.target.checked
+                              ? t('settings.optInNote')
+                              : t('settings.optOutNote'),
+                          );
+                        } catch (caught) {
+                          setError(
+                            caught instanceof Error
+                              ? caught.message
+                              : t('settings.couldNotSaveChoice'),
+                          );
+                        }
+                      }}
+                    />
+                  </Field>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={!corrections.data.optIn}
+                    onClick={async () => {
+                      setError(null);
+                      setTrainingNote(null);
+                      try {
+                        const result = await client.exportCorrections();
+                        setTrainingNote(t('settings.exported', { count: result.rows.length }));
+                      } catch (caught) {
+                        setError(
+                          caught instanceof Error ? caught.message : t('settings.exportFailed'),
+                        );
+                      }
+                    }}
+                  >
+                    {t('settings.exportCorrections')}
+                  </button>
+                </div>
+              )}
+              {trainingNote && (
+                <p className="dim" style={{ margin: 0 }}>
+                  {trainingNote}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="dim" style={{ margin: 0 }}>
+              {t('settings.loadingCorrections')}
+            </p>
+          )}
+        </div>
+      </Card>
+
+      <Card title={t('settings.team')}>
         <table className="table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Role</th>
+              <th>{t('settings.name')}</th>
+              <th>{t('table.email')}</th>
+              <th>{t('table.role')}</th>
               <th />
             </tr>
           </thead>
@@ -182,13 +305,15 @@ export function SettingsPage({
                 <td>{member.displayName}</td>
                 <td className="dim">{member.email}</td>
                 <td>
-                  <Badge tone={member.role === 'owner' ? 'info' : 'neutral'}>{member.role}</Badge>
+                  <Badge tone={member.role === 'owner' ? 'info' : 'neutral'}>
+                    {roleLabel(t, member.role)}
+                  </Badge>
                 </td>
-                <td style={{ textAlign: 'right' }}>
+                <td style={{ textAlign: 'end' }}>
                   {isAdmin && member.role !== 'owner' && (
                     <select
                       className="select"
-                      aria-label={`Role for ${member.email}`}
+                      aria-label={t('settings.roleFor', { email: member.email })}
                       value={member.role}
                       onChange={async (event) => {
                         try {
@@ -198,14 +323,14 @@ export function SettingsPage({
                           setError(
                             caught instanceof Error
                               ? caught.message
-                              : 'Could not change that role.',
+                              : t('settings.couldNotChangeRole'),
                           );
                         }
                       }}
                     >
                       {ROLES.filter((value) => value !== 'owner').map((value) => (
                         <option key={value} value={value}>
-                          {value}
+                          {roleLabel(t, value)}
                         </option>
                       ))}
                     </select>
@@ -218,7 +343,7 @@ export function SettingsPage({
 
         {isAdmin && (
           <div className="toolbar" style={{ marginTop: 12 }}>
-            <Field label="Invite by email">
+            <Field label={t('settings.inviteByEmail')}>
               <input
                 className="input"
                 type="email"
@@ -226,7 +351,7 @@ export function SettingsPage({
                 onChange={(event) => setInviteEmail(event.target.value)}
               />
             </Field>
-            <Field label="Role">
+            <Field label={t('settings.role')}>
               <select
                 className="select"
                 value={inviteRole}
@@ -234,7 +359,7 @@ export function SettingsPage({
               >
                 {ROLES.filter((value) => value !== 'owner').map((value) => (
                   <option key={value} value={value}>
-                    {value}
+                    {roleLabel(t, value)}
                   </option>
                 ))}
               </select>
@@ -253,16 +378,14 @@ export function SettingsPage({
                   setInviteEmail('');
                   // No email delivery is configured, so the link is shown once, for the admin to pass on.
                   setInviteLink(invitation.acceptUrl);
-                  setNotice('Invitation ready. Share the link — it expires and works once.');
+                  setNotice(t('settings.invitationReady'));
                   await users.reload();
                 } catch (caught) {
-                  setError(
-                    caught instanceof Error ? caught.message : 'Could not send that invitation.',
-                  );
+                  setError(caught instanceof Error ? caught.message : t('settings.couldNotInvite'));
                 }
               }}
             >
-              Send invitation
+              {t('settings.sendInvitation')}
             </button>
           </div>
         )}
@@ -270,7 +393,7 @@ export function SettingsPage({
         {inviteLink && (
           <div className="notice" role="status">
             <div className="stack" style={{ gap: 4 }}>
-              <strong>Invitation link</strong>
+              <strong>{t('settings.invitationLink')}</strong>
               <code className="mono" style={{ wordBreak: 'break-all' }}>
                 {inviteLink}
               </code>
@@ -279,10 +402,10 @@ export function SettingsPage({
                 type="button"
                 onClick={() => {
                   void navigator.clipboard?.writeText(inviteLink);
-                  setNotice('Link copied.');
+                  setNotice(t('settings.linkCopied'));
                 }}
               >
-                Copy link
+                {t('settings.copyLink')}
               </button>
             </div>
           </div>
@@ -291,31 +414,28 @@ export function SettingsPage({
 
       {isAdmin && (
         <Card
-          title="API keys"
+          title={t('settings.apiKeys')}
           actions={
             <button
               className="button secondary small"
               type="button"
               onClick={() => setKeyDialog(true)}
             >
-              Create key
+              {t('settings.createKey')}
             </button>
           }
         >
           {(keys.data?.items.length ?? 0) === 0 ? (
-            <EmptyState
-              title="No API keys"
-              hint="Keys are for scheduled exports and integrations."
-            />
+            <EmptyState title={t('settings.noApiKeys')} hint={t('settings.noApiKeysHint')} />
           ) : (
             <table className="table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Prefix</th>
-                  <th>Scopes</th>
-                  <th>Last used</th>
-                  <th>Status</th>
+                  <th>{t('settings.name')}</th>
+                  <th>{t('table.prefix')}</th>
+                  <th>{t('table.scopes')}</th>
+                  <th>{t('table.lastUsed')}</th>
+                  <th>{t('table.status')}</th>
                   <th />
                 </tr>
               </thead>
@@ -325,13 +445,13 @@ export function SettingsPage({
                     <td>{key.name}</td>
                     <td className="mono">{key.prefix}…</td>
                     <td className="dim">{key.scopes.join(', ')}</td>
-                    <td className="dim">{formatDateTime(key.lastUsedAt ?? null)}</td>
+                    <td className="dim">{formatDateTime(key.lastUsedAt ?? null, activeLocale)}</td>
                     <td>
                       <Badge tone={key.revokedAt ? 'danger' : 'success'}>
-                        {key.revokedAt ? 'revoked' : 'active'}
+                        {keyStatusLabel(t, Boolean(key.revokedAt))}
                       </Badge>
                     </td>
-                    <td style={{ textAlign: 'right' }}>
+                    <td style={{ textAlign: 'end' }}>
                       {!key.revokedAt && (
                         <button
                           className="button danger small"
@@ -344,12 +464,12 @@ export function SettingsPage({
                               setError(
                                 caught instanceof Error
                                   ? caught.message
-                                  : 'Could not revoke that key.',
+                                  : t('settings.couldNotRevoke'),
                               );
                             }
                           }}
                         >
-                          Revoke
+                          {t('action.revoke')}
                         </button>
                       )}
                     </td>
@@ -361,9 +481,9 @@ export function SettingsPage({
         </Card>
       )}
 
-      <Card title="Audit trail">
+      <Card title={t('settings.auditTrail')}>
         <div className="toolbar">
-          <Field label="Action">
+          <Field label={t('filter.action')}>
             <input
               className="input"
               value={filters.action}
@@ -371,14 +491,14 @@ export function SettingsPage({
               onChange={(event) => setFilters({ ...filters, action: event.target.value })}
             />
           </Field>
-          <Field label="Actor id">
+          <Field label={t('filter.actorId')}>
             <input
               className="input mono"
               value={filters.actor}
               onChange={(event) => setFilters({ ...filters, actor: event.target.value })}
             />
           </Field>
-          <Field label="From">
+          <Field label={t('filter.from')}>
             <input
               className="input"
               type="date"
@@ -386,7 +506,7 @@ export function SettingsPage({
               onChange={(event) => setFilters({ ...filters, from: event.target.value })}
             />
           </Field>
-          <Field label="To">
+          <Field label={t('filter.to')}>
             <input
               className="input"
               type="date"
@@ -410,26 +530,26 @@ export function SettingsPage({
               audit.setData(result);
             }}
           >
-            Search
+            {t('settings.search')}
           </button>
         </div>
 
         {(audit.data?.items.length ?? 0) === 0 ? (
-          <EmptyState title="No matching records" />
+          <EmptyState title={t('settings.noMatchingRecords')} />
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>When</th>
-                <th>Action</th>
-                <th>Actor</th>
-                <th>Target</th>
+                <th>{t('table.when')}</th>
+                <th>{t('filter.action')}</th>
+                <th>{t('table.actor')}</th>
+                <th>{t('table.target')}</th>
               </tr>
             </thead>
             <tbody>
               {audit.data!.items.map((entry) => (
                 <tr key={entry.id}>
-                  <td className="dim">{formatDateTime(entry.createdAt)}</td>
+                  <td className="dim">{formatDateTime(entry.createdAt, activeLocale)}</td>
                   <td className="mono">{entry.action}</td>
                   <td className="dim">
                     {entry.actorType}
@@ -445,13 +565,13 @@ export function SettingsPage({
           </table>
         )}
         <p className="dim" style={{ marginBottom: 0 }}>
-          Audit records are append-only: the database rejects updates and deletes.
+          {t('settings.auditNote')}
         </p>
       </Card>
 
       {keyDialog && (
         <Modal
-          title="Create an API key"
+          title={t('settings.createApiKey')}
           onClose={() => setKeyDialog(false)}
           footer={
             <>
@@ -460,7 +580,7 @@ export function SettingsPage({
                 type="button"
                 onClick={() => setKeyDialog(false)}
               >
-                Cancel
+                {t('action.cancel')}
               </button>
               <button
                 className="button"
@@ -480,17 +600,17 @@ export function SettingsPage({
                     await keys.reload();
                   } catch (caught) {
                     setError(
-                      caught instanceof Error ? caught.message : 'Could not create that key.',
+                      caught instanceof Error ? caught.message : t('settings.couldNotCreateKey'),
                     );
                   }
                 }}
               >
-                Create
+                {t('settings.create')}
               </button>
             </>
           }
         >
-          <Field label="Name">
+          <Field label={t('settings.name')}>
             <input
               className="input"
               value={keyName}
@@ -498,7 +618,7 @@ export function SettingsPage({
             />
           </Field>
           <div className="stack">
-            <span className="label">Scopes</span>
+            <span className="label">{t('settings.scopes')}</span>
             {API_KEY_SCOPES.map((scope) => (
               <label className="row" key={scope} style={{ gap: 8 }}>
                 <input
@@ -521,16 +641,16 @@ export function SettingsPage({
 
       {createdKey && (
         <Modal
-          title="Copy this key now"
+          title={t('settings.copyKeyNow')}
           onClose={() => setCreatedKey(null)}
           footer={
             <button className="button" type="button" onClick={() => setCreatedKey(null)}>
-              I have copied it
+              {t('settings.copiedIt')}
             </button>
           }
         >
           <p className="muted" style={{ margin: 0 }}>
-            This is the only time the key for “{createdKey.name}” is shown. Store it somewhere safe.
+            {t('settings.keyShownOnce', { name: createdKey.name })}
           </p>
           <div className="code-block" data-testid="created-api-key">
             {createdKey.key}

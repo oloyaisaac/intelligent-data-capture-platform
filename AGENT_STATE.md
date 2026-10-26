@@ -6,29 +6,29 @@
 ---
 
 **Last updated:** 2026-10-26
-**Updated by:** Arena agent session (batches, projects, invitations, MySQL)
-**Branch:** `arena/55dc62bf-intelligent-data-capture-platf`
-**Phase:** M1 complete, M2 in progress
+**Updated by:** Arena agent session (duplicate preview + merges, correction learning, desktop shell, dashboard filters)
+**Branch:** `arena/134db4ca-intelligent-data-capture-platf`
+**Phase:** M1 and M2 complete; Phase 3 in progress
 
 ## Current task
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
-`npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema contract, 252 tests
-in 17 suites).
+`npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
+337 tests in 20 suites).
 
-The remaining work is the "should/could" tail (see `PRD.json`): CRM/marketplace/workflow/voice
-stories, desktop packaging, and finishing the translation sweep of the desktop page bodies.
+**All 45 stories are `done`.** The product described by `PRD.json` is built; the remaining work is the
+deliberate release-side gaps listed below.
 
 ## What is built
 
-| Area                                                            | Where                                  | Notes                                                                                                                                                 |
-| --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shared contracts, UDM, money/dates/CSV/dedupe/i18n/review rules | `packages/shared`                      | 44 tests. Node-only helpers live at `@idcp/shared/ids` so React Native never pulls `node:crypto`.                                                     |
-| Connector SDK + CSV, SQLite, PostgreSQL, MySQL, Google Sheets   | `packages/connectors`                  | 21 tests. MySQL has its own plugin (`?` placeholders, `DATABASE()` introspection, quoted identifiers).                                                |
-| Backend API (Fastify 5)                                         | `apps/backend`                         | 132 tests. Batches, projects, hashed single-use invitations, SQLite in dev/test, PostgreSQL in production.                                            |
-| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 20 tests. Hash routing, SSE dashboard, review workspace, templates, connectors, exports, devices, settings. Electron main/preload written (see gaps). |
-| Mobile (React Native 0.86)                                      | `apps/mobile`                          | 17 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                                          |
-| CI, PRD + API contracts, generators                             | `.github/workflows/ci.yml`, `scripts/` | `validate-prd.mjs`, `validate-openapi.mjs`, `generate-udm-schema.mjs`.                                                                                |
+| Area                                                            | Where                                  | Notes                                                                                                                                                       |
+| --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shared contracts, UDM, money/dates/CSV/dedupe/i18n/review rules | `packages/shared`                      | 47 tests. `mergeRecord` reports every value it refuses to overwrite. Node-only helpers live at `@idcp/shared/ids`.                                          |
+| Connector SDK + CSV, SQLite, PostgreSQL, MySQL, Google Sheets   | `packages/connectors`                  | 23 tests. `update()` is implemented for SQLite/PostgreSQL/MySQL (transactional, identifier-validated).                                                      |
+| Backend API (Fastify 5)                                         | `apps/backend`                         | 161 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
+| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 55 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
+| Mobile (React Native 0.86)                                      | `apps/mobile`                          | 23 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                                                |
+| CI, PRD + API contracts, generators                             | `.github/workflows/ci.yml`, `scripts/` | `validate-prd.mjs`, `validate-openapi.mjs`, `generate-udm-schema.mjs`.                                                                                      |
 
 ## How to run it
 
@@ -45,14 +45,15 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
 
 ## Known gaps (deliberate, tracked in PRD.json)
 
-1. **Electron packaging is not verified.** `apps/desktop/src/main/electron-main.ts` and
-   `preload.ts` are complete and typechecked, but the `electron` binary is not a dependency of this
-   environment, so no installer was produced or launched (`DESK-001` stays `in_progress`).
-   `IDCP_AUTO_UPDATE=off` disables update checks; the update check is a no-op stub.
-2. **Mobile capture crops, enhances and compresses through pure planning functions**
-   (`apps/mobile/src/capture/imagePipeline.ts`), but the _quad_ they crop to must be supplied by the
-   caller: no VisionCamera frame processor is installed, so automatic edge detection is not wired.
-   `MOB-002` stays `in_progress` until that overlay feeds it.
+1. **Installers are not built here.** The shell, IPC allow-list and keychain storage are tested
+   against a stand-in Electron (`apps/desktop/test/shell.test.ts`), and the packaging contract is
+   validated statically (`scripts/validate-packaging.mjs`, DEC-022). Producing and smoke-testing
+   signed installers on Windows/macOS/Linux is a release-checklist item, not a code gap.
+2. **The frame processor needs the worklet runtime.** The detector, its smoothing and the crop plan
+   are pure and tested (`apps/mobile/src/capture/edgeDetection.ts`), and
+   `frameProcessor.tsx` builds the VisionCamera processor when `react-native-worklets-core` is
+   installed. That dependency is not installed here, so the overlay is inert in this sandbox — the
+   capture path itself works either way.
 3. **The MySQL connector is typechecked but not exercised against a live server** (no MySQL in this
    sandbox). Its SQL is covered by validation tests only; the Postgres and SQLite paths run for real.
 4. **Realtime transport is authenticated SSE**, not Socket.IO. The `RealtimeHub` interface keeps the
@@ -62,22 +63,27 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
 6. **Analytics** is now a 14-day (up to 90) SVG chart plus CSV export (`DASH-001` done). There are no
    saved/custom dashboards, and the 2-second target is asserted by design (bounded window, indexed
    query), not by a load test.
-7. **Language switch works at runtime** (desktop navigation and settings, mobile screens) and both
-   `sw` and `fr` cover ~49% of the catalogue with English fallback. The desktop page _bodies_ are
-   still English string literals, so `I18N-001` stays `in_progress`; the remaining work is a
-   mechanical sweep, not new plumbing.
-8. **`node_modules` is tracked in Git** from the first commit (22k files). It is ignored now, but
-   untracking it should be a separate, deliberate commit — do not mix it with feature work.
-9. **Open decisions**: AI provider/budget (Q-001), licensing (Q-002), hosting region (Q-003),
-   standalone desktop mode (Q-004).
+7. **Localisation is complete** (I18N-001, DEC-028): 577 keys, 100% coverage in `en`, `sw` and `fr`,
+   `Intl` formatting, and a direction-aware layout. No RTL language ships yet, so RTL is verified by
+   the direction helper and the logical-property test rather than by a real RTL catalogue.
+8. **Three environments' worth of connectors are not exercised against live servers**: MySQL, Postgres
+   and Google Sheets have no server in this sandbox. Their SQL/HTTP is covered by validation tests
+   and the SQLite path runs for real.
+9. **`node_modules` is no longer tracked.** It was committed at the start (22,706 files); this round
+   untracked it in one deliberate commit. Installs now come from `package-lock.json`.
+10. **Workflows cannot branch.** A rule is one AND-list of conditions over the extracted fields and
+    `notify` records an output rather than delivering a message (no mail transport here). See DEC-026.
+11. **Speech needs native modules.** `@react-native-voice/voice` and `react-native-tts` are not
+    installed here, so `assist/speechPlatform.ts` reports speech as unavailable and the screens stay
+    button-only; the consent gate, phrase book and guidance logic are pure and tested (DEC-027).
+12. **Open decisions**: AI provider/budget (Q-001), licensing (Q-002), hosting region (Q-003),
+    standalone desktop mode (Q-004).
 
 ## Next actions, in order
 
-1. `DASH-001` — charts and exportable figures over the existing `/stats` data.
-2. `MOB-002` — crop/enhance/compress before queuing.
-3. Package the desktop app (electron-builder) and verify on Windows/macOS/Linux.
-4. `I18N-001` — route UI copy through the `en/sw/fr` catalogues.
-5. `CRM-001`, `MARKET-001`, `AGENT-001`, `VOICE-001` — the Phase 3 tail.
+1. Release checklist: sign and smoke-test installers on Windows/macOS/Linux (DEC-022).
+2. Exercise the MySQL, Postgres and Google Sheets connectors against live servers.
+3. Add the Socket.IO adapter behind the existing `RealtimeHub` interface (DEC-016).
 
 ## Environment facts worth knowing
 

@@ -18,6 +18,8 @@ import { registerApiKeyRoutes } from './routes/api-key-routes';
 import { registerRealtimeRoutes } from './routes/realtime-routes';
 import { registerBatchRoutes } from './routes/batch-routes';
 import { registerProjectRoutes } from './routes/project-routes';
+import { registerMarketplaceRoutes } from './routes/marketplace-routes';
+import { registerWorkflowRoutes } from './routes/workflow-routes';
 
 /**
  * HTTP application factory. Separated from `index.ts` so tests can build an app around an
@@ -184,6 +186,8 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
       registerRealtimeRoutes(scope, services, guards);
       registerBatchRoutes(scope, services, guards);
       registerProjectRoutes(scope, services, guards);
+      registerMarketplaceRoutes(scope, services, guards);
+      registerWorkflowRoutes(scope, services, guards);
     },
     { prefix: '/api/v1' },
   );

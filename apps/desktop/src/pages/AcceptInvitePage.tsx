@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { ApiClient } from '../api/client';
 import { Field } from '../components/ui';
+import { useTranslator } from '../lib/locale';
 
 /**
  * TEAM-001 — the screen an invitation link opens.
@@ -22,11 +23,12 @@ export function AcceptInvitePage({
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = useTranslator();
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (password !== confirm) {
-      setError('The two passwords do not match.');
+      setError(t('invite.mismatch'));
       return;
     }
     setBusy(true);
@@ -36,7 +38,7 @@ export function AcceptInvitePage({
       await client.adoptSession(pair);
       onAccepted();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'This invitation could not be accepted.');
+      setError(caught instanceof Error ? caught.message : t('invite.failed'));
     } finally {
       setBusy(false);
     }
@@ -50,8 +52,8 @@ export function AcceptInvitePage({
             ID
           </div>
           <div>
-            <div className="brand-name">Join your team</div>
-            <div className="dim">Choose a password to finish setting up your account.</div>
+            <div className="brand-name">{t('invite.title')}</div>
+            <div className="dim">{t('invite.subtitle')}</div>
           </div>
         </div>
 
@@ -61,7 +63,7 @@ export function AcceptInvitePage({
           </div>
         )}
 
-        <Field label="Password" hint="At least 12 characters.">
+        <Field label={t('auth.password')} hint={t('auth.passwordHint')}>
           <input
             type="password"
             value={password}
@@ -71,7 +73,7 @@ export function AcceptInvitePage({
             required
           />
         </Field>
-        <Field label="Confirm password">
+        <Field label={t('auth.confirmPassword')}>
           <input
             type="password"
             value={confirm}
@@ -83,11 +85,9 @@ export function AcceptInvitePage({
         </Field>
 
         <button className="button" type="submit" disabled={busy || password.length < 12}>
-          {busy ? 'Setting up…' : 'Set password and sign in'}
+          {busy ? t('invite.settingUp') : t('invite.submit')}
         </button>
-        <p className="dim">
-          This link works once. If it has expired, ask an administrator to send a new invitation.
-        </p>
+        <p className="dim">{t('invite.singleUse')}</p>
       </form>
     </div>
   );

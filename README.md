@@ -4,8 +4,13 @@
 
 IDCP is an AI-powered bridge between physical documents and digital business systems. You capture a form, receipt, invoice, ID or contract with a phone, AI extracts and structures the content, a human confirms anything uncertain, and the finished record is pushed into Excel, Google Sheets, CSV, a SQL database or — in later phases — a CRM, ERP or accounting system.
 
-> **Project status: early foundation.**
-> The repository currently contains the documentation pack, a dependency manifest and source requirement documents. There is no application source code, backend, database or test suite yet. See [`AGENT_STATE.md`](AGENT_STATE.md) and [`TASKS.md`](TASKS.md) for exactly where work stands.
+> **Project status: all 45 planned stories are built.**
+> The repository contains the backend API (Fastify 5 over SQLite/PostgreSQL), the desktop renderer
+> (React 19 + Vite with an Electron shell), the mobile app (React Native), the connector SDK and the
+> test suite behind them: `npm run verify` typechecks, lints, checks the PRD/OpenAPI/packaging
+> contracts and runs 337 tests in 20 suites. What is deliberately not here yet — signed installers,
+> live-database connector runs and the Socket.IO transport — is listed in
+> [`AGENT_STATE.md`](AGENT_STATE.md).
 
 ---
 
@@ -214,12 +219,12 @@ Right now only `npm install` is meaningful. See [`TASKS.md`](TASKS.md) for the p
 
 ## Roadmap
 
-| Milestone | Goal                                                                   | Status      |
-| --------- | ---------------------------------------------------------------------- | ----------- |
-| **M0**    | Foundation: docs, tooling, monorepo, CI                                | In progress |
-| **M1**    | MVP vertical slice: pair → capture → extract → review → export         | Pending     |
-| **M2**    | Connector platform, mapping, templates, duplicates, teams              | Pending     |
-| **M3**    | Enterprise integrations, developer API, marketplace, agents, analytics | Pending     |
+| Milestone | Goal                                                                   | Status |
+| --------- | ---------------------------------------------------------------------- | ------ |
+| **M0**    | Foundation: docs, tooling, monorepo, CI                                | Done   |
+| **M1**    | MVP vertical slice: pair → capture → extract → review → export         | Done   |
+| **M2**    | Connector platform, mapping, templates, duplicates, teams              | Done   |
+| **M3**    | Enterprise integrations, developer API, marketplace, agents, analytics | Done   |
 
 Story-level detail and statuses live in [`PRD.json`](PRD.json).
 

@@ -12,8 +12,10 @@ import type {
   CreateMappingProfileRequest,
   CreatePairingSessionResponse,
   CreateTemplateRequest,
+  CorrectionStatsResponse,
   CreatedApiKey,
   Device,
+  DuplicateCheckResponse,
   DocumentListResponse,
   DocumentResultResponse,
   DocumentSummary,
@@ -313,6 +315,28 @@ export class ApiClient {
     return this.request('/pairing/complete', { method: 'POST', body: input, anonymous: true });
   }
 
+  // --- Marketplace (MARKET-001) --------------------------------------------
+
+  listMarketplace(): Promise<{ items: MarketplacePackageSummary[] }> {
+    return this.request('/marketplace');
+  }
+
+  installPackage(input: {
+    packageId: string;
+    connectorId: string;
+    version?: string;
+  }): Promise<MarketplaceInstall> {
+    return this.request('/marketplace/install', { method: 'POST', body: input });
+  }
+
+  rollbackPackage(installId: string): Promise<{
+    rolledBack: string;
+    activeVersion: string | null;
+    message: string;
+  }> {
+    return this.request(`/marketplace/installs/${installId}/rollback`, { method: 'POST' });
+  }
+
   listDevices(): Promise<{ items: Device[] }> {
     return this.request('/devices');
   }
@@ -486,14 +510,50 @@ export class ApiClient {
     return this.request(`/mapping-profiles/${id}`, { method: 'DELETE' });
   }
 
+  /** DUP-001: what would happen if this record were sent, and why (read-only). */
+  checkDuplicates(
+    documentId: string,
+    query: { connectorId: string; mappingProfileId: string },
+  ): Promise<DuplicateCheckResponse> {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    return this.request(`/documents/${documentId}/duplicates?${params.toString()}`);
+  }
+
   sendDocument(
     documentId: string,
     input: { connectorId: string; mappingProfileId: string },
   ): Promise<{
     status: string;
     created: number;
+    updated: number;
+    skipped: number;
+    summary: string;
   }> {
     return this.request(`/documents/${documentId}/send`, { method: 'POST', body: input });
+  }
+
+  /** REV-002: aggregates of what reviewers keep correcting, with the opt-in state. */
+  correctionStats(): Promise<CorrectionStatsResponse> {
+    return this.request('/review/corrections');
+  }
+
+  /** REV-002: admin-only, and refused unless the organisation opted in. */
+  exportCorrections(limit = 500): Promise<{
+    organisationId: string;
+    exportedAt: string;
+    rows: Array<{
+      documentType: string | null;
+      fieldPath: string;
+      originalValue: string | null;
+      correctedValue: string | null;
+      originalConfidence: number | null;
+      createdAt: string;
+    }>;
+  }> {
+    return this.request('/review/corrections/export', { method: 'POST', body: { limit } });
   }
 
   // --- Organisation -------------------------------------------------------
@@ -506,6 +566,7 @@ export class ApiClient {
     name?: string;
     retentionDays?: number;
     aiProvider?: 'local' | 'cloud';
+    learningOptIn?: boolean;
   }): Promise<Organisation> {
     return this.request('/organisation', { method: 'PATCH', body: input });
   }
@@ -627,6 +688,41 @@ export class ApiClient {
     });
   }
 
+  // --- Workflows (AGENT-001) ------------------------------------------------
+
+  listWorkflows(): Promise<{ items: WorkflowDefinition[] }> {
+    return this.request('/workflows');
+  }
+
+  createWorkflow(
+    input: Partial<WorkflowDefinition> & { name: string },
+  ): Promise<WorkflowDefinition> {
+    return this.request('/workflows', { method: 'POST', body: input });
+  }
+
+  setWorkflowEnabled(id: string, enabled: boolean): Promise<WorkflowDefinition> {
+    return this.request(`/workflows/${id}`, { method: 'PATCH', body: { enabled } });
+  }
+
+  deleteWorkflow(id: string): Promise<void> {
+    return this.request(`/workflows/${id}`, { method: 'DELETE' });
+  }
+
+  evaluateWorkflows(input: { trigger: string; documentId?: string }): Promise<{
+    plans: Array<{ workflowId: string; matched: boolean; explanation: string }>;
+    runs: WorkflowRun[];
+  }> {
+    return this.request('/workflows/evaluate', { method: 'POST', body: input });
+  }
+
+  workflowRuns(limit = 50): Promise<{ items: WorkflowRun[] }> {
+    return this.request(`/workflows/runs?limit=${limit}`);
+  }
+
+  approveWorkflowRun(id: string): Promise<WorkflowRun> {
+    return this.request(`/workflows/runs/${id}/approve`, { method: 'POST' });
+  }
+
   // --- API keys -----------------------------------------------------------
 
   listApiKeys(): Promise<{ items: ApiKey[] }> {
@@ -640,4 +736,62 @@ export class ApiClient {
   revokeApiKey(id: string): Promise<ApiKey> {
     return this.request(`/api-keys/${id}`, { method: 'DELETE' });
   }
+}
+
+/** MARKET-001 — a catalogue entry as the API reports it, including this organisation's state. */
+export interface MarketplacePackageSummary {
+  id: string;
+  type: string;
+  label: string;
+  vendor: string;
+  version: string;
+  summary: string;
+  permissions: string[];
+  status: 'verified' | 'revoked';
+  revokedReason?: string;
+  signature: string | null;
+  signatureVerified: boolean;
+  installedVersions: string[];
+  availableVersions: string[];
+  activeInstallId: string | null;
+  installable: boolean;
+  blocker: string | null;
+  availableConnectors: Array<{ id: string; name: string }>;
+}
+
+export interface MarketplaceInstall {
+  id: string;
+  packageId: string;
+  version: string;
+  connectorId: string;
+  permissions: string[];
+  installedAt: string;
+  status: string;
+}
+
+/** AGENT-001 — a workflow rule as the API stores it. */
+export interface WorkflowDefinition {
+  id: string;
+  name: string;
+  trigger: string;
+  documentType: string | null;
+  conditions: Array<{ field: string; operator: string; value?: unknown }>;
+  actions: Array<{ type: string; config?: Record<string, unknown> }>;
+  approvalPolicy: 'always_ask' | 'auto_approve';
+  enabled: boolean;
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflowId: string;
+  documentId: string | null;
+  trigger: string;
+  status: 'matched' | 'skipped' | 'awaiting_approval' | 'completed' | 'failed';
+  matched: boolean;
+  explanation: string;
+  actions: Array<{ type: string; requiresApproval: boolean; reason: string | null }>;
+  outputs: string[];
+  failure: string | null;
+  approvedBy: string | null;
+  createdAt: string;
 }

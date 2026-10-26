@@ -1,4 +1,6 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ApiClient, ApiError, MemoryTokenStorage } from '../src/api/client';
 import { parseRoute, routeHref } from '../src/App';
@@ -19,9 +21,23 @@ import { LOCALE_OPTIONS, loadLocale, resolveLocale, saveLocale, translator } fro
 import { createTranslator, translationCoverage } from '@idcp/shared';
 import { LoginPage } from '../src/pages/LoginPage';
 import { AcceptInvitePage } from '../src/pages/AcceptInvitePage';
+import { SendToDestination } from '../src/components/SendToDestination';
 import { BatchesPage } from '../src/pages/BatchesPage';
+import { DocumentsPage } from '../src/pages/DocumentsPage';
 import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { ReviewPage } from '../src/pages/ReviewPage';
+import { SettingsPage } from '../src/pages/SettingsPage';
+import { MarketplacePage, permissionLabel } from '../src/marketplace/MarketplacePage';
+import { LocaleProvider, applyDocumentLocale, useTranslator } from '../src/lib/locale';
+import { documentTypeLabel, roleLabel, statusLabel } from '../src/lib/labels';
+import { formatNumber, formatRelative } from '../src/lib/format';
+import { directionFor } from '@idcp/shared';
+import {
+  DESTRUCTIVE_ACTIONS,
+  WorkflowsPage,
+  actionLabel,
+  describeRule,
+} from '../src/workflows/WorkflowsPage';
 import type { Udm } from '@idcp/shared';
 
 /**
@@ -175,7 +191,8 @@ describe('interface language (I18N-001)', () => {
     expect(createTranslator('sw')('app.name')).toBe('IDCP');
     // Every locale covers the navigation, so no screen is half in one language.
     for (const locale of ['sw', 'fr'] as const) {
-      expect(translationCoverage(locale)).toBeGreaterThan(0.45);
+      // I18N-001: the sweep is finished, so both shipped translations cover the whole catalogue.
+      expect(translationCoverage(locale)).toBe(1);
       expect(createTranslator(locale)('nav.batches')).toBeTruthy();
     }
   });
@@ -634,5 +651,590 @@ describe('accept-invitation screen (TEAM-001)', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('do not match');
     expect(called).toBe(false);
+  });
+});
+
+describe('duplicate check before sending (DUP-001)', () => {
+  afterEach(cleanup);
+
+  function stubClient(overrides: Partial<Record<string, unknown>> = {}): ApiClient {
+    return {
+      listConnectors: async () => ({
+        items: [
+          {
+            id: 'conn-1',
+            type: 'sqlite',
+            name: 'Accounts DB',
+            status: 'active',
+            config: {},
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+      listMappingProfiles: async () => ({
+        items: [
+          {
+            id: 'map-1',
+            connectorId: 'conn-1',
+            documentType: 'invoice',
+            name: 'Invoices',
+            fieldMap: [],
+            duplicatePolicy: 'skip',
+            duplicateKeys: ['invoice_number'],
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+      checkDuplicates: async () => ({
+        connectorId: 'conn-1',
+        mappingProfileId: 'map-1',
+        documentId: 'doc-1',
+        keys: ['invoice_number'],
+        policy: 'skip',
+        threshold: 0.85,
+        isDuplicate: true,
+        bestScore: 1,
+        matchedKeys: ['invoice_number'],
+        candidates: [
+          { score: 1, matchedKeys: ['invoice_number'], values: { invoice_number: 'INV-1042' } },
+        ],
+      }),
+      sendDocument: async () => ({
+        status: 'skipped_duplicate',
+        summary: 'A matching record already exists; skipped.',
+        created: 0,
+        updated: 0,
+        skipped: 1,
+      }),
+      ...overrides,
+    } as unknown as ApiClient;
+  }
+
+  it('shows the score, the matched keys and the existing row', async () => {
+    render(<SendToDestination client={stubClient()} documentId="doc-1" approved />);
+
+    // Wait for the connector to load: a select cannot take a value it does not yet offer.
+    await screen.findByRole('option', { name: 'Accounts DB' });
+    fireEvent.change(screen.getByLabelText('Connector'), { target: { value: 'conn-1' } });
+    fireEvent.change(await screen.findByLabelText('Mapping profile'), {
+      target: { value: 'map-1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Check for duplicates' }));
+
+    expect(await screen.findByText('duplicate found')).toBeTruthy();
+    // The matched key and the existing row are shown as evidence, not just a verdict.
+    expect((await screen.findAllByText(/invoice_number/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/INV-1042/)).length).toBeGreaterThan(0);
+    expect(screen.getByText(/best score 100%/)).toBeTruthy();
+  });
+
+  it('does not offer sending for an unapproved record', () => {
+    render(<SendToDestination client={stubClient()} documentId="doc-1" approved={false} />);
+    const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(screen.getByText(/Approve this record before sending/i)).toBeTruthy();
+  });
+});
+
+describe('correction learning (REV-002)', () => {
+  const stats = {
+    optIn: false,
+    total: 3,
+    byField: [
+      { fieldPath: 'invoice.number', corrections: 2, averageConfidence: 0.42 },
+      { fieldPath: 'total.amount', corrections: 1, averageConfidence: 0.71 },
+    ],
+    byDocumentType: [{ documentType: 'invoice', corrections: 3, averageConfidence: 0.5 }],
+  };
+
+  function settingsClient(overrides: Record<string, unknown> = {}): ApiClient {
+    return {
+      organisation: async () => ({
+        id: 'org-1',
+        name: 'Test Trading',
+        slug: 'test-trading',
+        plan: 'free',
+        retentionDays: 90,
+        aiProvider: 'local',
+        learningOptIn: false,
+        createdAt: new Date().toISOString(),
+      }),
+      listUsers: async () => ({ items: [] }),
+      auditLogs: async () => ({ items: [] }),
+      listApiKeys: async () => ({ items: [] }),
+      correctionStats: async () => stats,
+      updateOrganisation: async (input: { learningOptIn?: boolean }) => ({
+        id: 'org-1',
+        name: 'Test Trading',
+        slug: 'test-trading',
+        plan: 'free',
+        retentionDays: 90,
+        aiProvider: 'local',
+        learningOptIn: Boolean(input.learningOptIn),
+        createdAt: new Date().toISOString(),
+      }),
+      exportCorrections: async () => ({
+        organisationId: 'org-1',
+        exportedAt: new Date().toISOString(),
+        rows: [],
+      }),
+      ...overrides,
+    } as unknown as ApiClient;
+  }
+
+  it('shows which fields keep needing correction, without any document content', async () => {
+    render(<SettingsPage client={settingsClient()} role="owner" />);
+
+    expect(await screen.findByText('invoice.number')).toBeTruthy();
+    expect(screen.getByText('total.amount')).toBeTruthy();
+    // Average confidence is formatted for humans, not printed as a raw float.
+    expect(screen.getByText('42%')).toBeTruthy();
+    expect(screen.getByText('Not enabled')).toBeTruthy();
+  });
+
+  it('keeps training export off until an admin opts in', async () => {
+    const updateOrganisation = jest.fn(async () => ({
+      id: 'org-1',
+      name: 'Test Trading',
+      slug: 'test-trading',
+      plan: 'free',
+      retentionDays: 90,
+      aiProvider: 'local',
+      learningOptIn: true,
+      createdAt: new Date().toISOString(),
+    }));
+    render(<SettingsPage client={settingsClient({ updateOrganisation })} role="owner" />);
+
+    const toggle = (await screen.findByLabelText(
+      /Use corrections to improve extraction/i,
+    )) as HTMLInputElement;
+    const exportButton = screen.getByRole('button', {
+      name: 'Export corrections',
+    }) as HTMLButtonElement;
+    expect(toggle.checked).toBe(false);
+    expect(exportButton.disabled).toBe(true);
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(updateOrganisation).toHaveBeenCalled());
+    expect(updateOrganisation).toHaveBeenCalledWith({ learningOptIn: true });
+  });
+
+  it('does not show the opt-in to a reviewer', async () => {
+    render(<SettingsPage client={settingsClient()} role="reviewer" />);
+    await screen.findByText('invoice.number');
+    expect(screen.queryByRole('button', { name: 'Export corrections' })).toBeNull();
+  });
+});
+
+describe('desktop job dashboard (DESK-002)', () => {
+  afterEach(cleanup);
+
+  const cleanDocument = {
+    id: 'doc-clean',
+    status: 'needs_review',
+    documentType: 'receipt' as const,
+    mimeType: 'image/png',
+    sizeBytes: 512,
+    pageCount: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  const blockedDocument = { ...cleanDocument, id: 'doc-blocked', documentType: 'invoice' as const };
+
+  it('bulk approves only the records with nothing left to check, and says what it skipped', async () => {
+    const bulkApprove = jest.fn(async () => ({
+      approved: ['doc-clean'],
+      skipped: [{ documentId: 'doc-blocked', blocking: [] }],
+    }));
+    const client = {
+      reviewQueue: async () => ({
+        items: [
+          { document: cleanDocument, extractionId: 'e1', confidence: 0.97, blockingFields: [] },
+          {
+            document: blockedDocument,
+            extractionId: 'e2',
+            confidence: 0.4,
+            blockingFields: [{ path: 'invoice.total', reason: 'low_confidence', confidence: 0.4 }],
+          },
+        ],
+        total: 2,
+      }),
+      bulkApprove,
+    } as unknown as ApiClient;
+
+    render(<ReviewPage client={client} />);
+
+    const select = await screen.findByRole('button', { name: 'Select clean (1)' });
+    fireEvent.click(select);
+    fireEvent.click(screen.getByRole('button', { name: 'Approve selected (1)' }));
+
+    await waitFor(() => expect(bulkApprove).toHaveBeenCalledWith(['doc-clean']));
+    expect(await screen.findByText(/Skipped 1\./)).toBeTruthy();
+    expect(screen.getByText(/invoice \(1\)/)).toBeTruthy();
+  });
+
+  it('narrows the document list by device, alongside status, type and date', async () => {
+    const listDocuments = jest.fn(async (_query: Record<string, unknown>) => ({
+      items: [],
+      nextCursor: null,
+    }));
+    const client = {
+      listDevices: async () => ({
+        items: [{ id: 'dev-1', name: 'Front desk phone', platform: 'android', status: 'active' }],
+      }),
+      listDocuments,
+    } as unknown as ApiClient;
+
+    render(<DocumentsPage client={client} onOpenReview={() => undefined} />);
+
+    const device = await screen.findByLabelText('Device');
+    await screen.findByRole('option', { name: 'Front desk phone' });
+    fireEvent.change(device, { target: { value: 'dev-1' } });
+
+    await waitFor(() =>
+      expect(listDocuments).toHaveBeenCalledWith(expect.objectContaining({ deviceId: 'dev-1' })),
+    );
+  });
+});
+
+describe('connector marketplace (MARKET-001)', () => {
+  afterEach(cleanup);
+
+  const hubspot = {
+    id: 'hubspot-crm',
+    type: 'hubspot',
+    label: 'HubSpot CRM',
+    vendor: 'HubSpot',
+    version: '1.1.0',
+    summary: 'Create and update HubSpot objects from approved documents.',
+    permissions: ['documents:read', 'destination:write', 'network:outbound'],
+    status: 'verified' as const,
+    signature: 'sig',
+    signatureVerified: true,
+    installedVersions: [],
+    availableVersions: ['1.1.0', '1.0.0'],
+    activeInstallId: null,
+    installable: true,
+    blocker: null,
+    availableConnectors: [{ id: 'conn-1', name: 'HubSpot sandbox' }],
+  };
+  const withdrawn = {
+    ...hubspot,
+    id: 'zoho-crm',
+    type: 'zoho',
+    label: 'Zoho CRM (withdrawn)',
+    vendor: 'Zoho',
+    version: '0.9.0',
+    status: 'revoked' as const,
+    revokedReason: 'Withdrawn by the vendor: the API version it used is retired.',
+    installedVersions: [],
+    availableVersions: ['0.9.0'],
+    installable: false,
+    blocker: 'Zoho CRM (withdrawn) has been withdrawn: the API version it used is retired.',
+    availableConnectors: [],
+  };
+
+  function marketplaceClient(overrides: Record<string, unknown> = {}) {
+    const installPackage = jest.fn(async () => ({
+      id: 'install-1',
+      packageId: 'hubspot-crm',
+      version: '1.1.0',
+      connectorId: 'conn-1',
+      permissions: hubspot.permissions,
+      installedAt: new Date().toISOString(),
+      status: 'active',
+    }));
+    const rollbackPackage = jest.fn(async () => ({
+      rolledBack: 'hubspot-crm',
+      activeVersion: '1.0.0',
+      message: 'Rolled back to 1.0.0.',
+    }));
+    return {
+      installPackage,
+      rollbackPackage,
+      client: {
+        listMarketplace: async () => ({ items: [hubspot, withdrawn] }),
+        installPackage,
+        rollbackPackage,
+        ...overrides,
+      } as unknown as ApiClient,
+    };
+  }
+
+  it('discloses what a package will be allowed to do before it can be installed', async () => {
+    const { client } = marketplaceClient();
+    render(<MarketplacePage client={client} />);
+
+    expect(await screen.findByText('HubSpot CRM')).toBeTruthy();
+    // Permissions are sentences, not scope strings. Two packages disclose the same permission, so
+    // both lists are expected.
+    expect(screen.getAllByText('Create records in the destination').length).toBe(2);
+    expect(screen.getAllByText('Make outbound network requests').length).toBeGreaterThan(0);
+    expect(permissionLabel('destination:update')).toMatch(/Change records/);
+    expect(screen.getAllByText('signature verified').length).toBe(2);
+  });
+
+  it('keeps a withdrawn package visible and refuses to install it', async () => {
+    const { client } = marketplaceClient();
+    render(<MarketplacePage client={client} />);
+
+    await screen.findByText('HubSpot CRM');
+    expect(screen.getByText('Zoho CRM (withdrawn)')).toBeTruthy();
+    expect(screen.getByText(/Withdrawn by the vendor/)).toBeTruthy();
+
+    const installButtons = screen.getAllByRole('button', {
+      name: 'Install',
+    }) as HTMLButtonElement[];
+    // The withdrawn package's button is disabled; the signed one is not.
+    expect(installButtons.some((button) => button.disabled)).toBe(true);
+    expect(installButtons.some((button) => !button.disabled)).toBe(true);
+  });
+
+  it('installs onto the chosen connector and rolls back when asked', async () => {
+    const { client, installPackage, rollbackPackage } = marketplaceClient({
+      listMarketplace: async () => ({
+        items: [
+          { ...hubspot, activeInstallId: 'install-1', installedVersions: ['1.1.0'] },
+          withdrawn,
+        ],
+      }),
+    });
+    render(<MarketplacePage client={client} />);
+
+    const connector = await screen.findByLabelText('Connector for HubSpot CRM');
+    expect((connector as HTMLSelectElement).value).toBe('conn-1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Roll back' }));
+    await waitFor(() => expect(rollbackPackage).toHaveBeenCalledWith('install-1'));
+    expect(await screen.findByText('Rolled back to 1.0.0.')).toBeTruthy();
+    expect(installPackage).not.toHaveBeenCalled();
+  });
+
+  it('installs a package and reports the version that landed', async () => {
+    const { client, installPackage } = marketplaceClient();
+    render(<MarketplacePage client={client} />);
+
+    await screen.findByText('HubSpot CRM');
+    // The withdrawn package also renders an (disabled) Install button, so pick the enabled one.
+    const install = screen
+      .getAllByRole('button', { name: 'Install' })
+      .find((button) => !(button as HTMLButtonElement).disabled)!;
+    fireEvent.click(install);
+
+    await waitFor(() =>
+      expect(installPackage).toHaveBeenCalledWith({
+        packageId: 'hubspot-crm',
+        connectorId: 'conn-1',
+      }),
+    );
+    expect(await screen.findByText('HubSpot CRM 1.1.0 installed.')).toBeTruthy();
+  });
+});
+
+describe('workflow automation (AGENT-001)', () => {
+  afterEach(cleanup);
+
+  const rule = {
+    id: 'wf-1',
+    name: 'File large invoices',
+    trigger: 'document.approved',
+    documentType: 'invoice',
+    conditions: [{ field: 'total.amount', operator: 'greater_than', value: 100 }],
+    actions: [{ type: 'notify' }, { type: 'send_to_connector' }],
+    approvalPolicy: 'always_ask' as const,
+    enabled: true,
+  };
+  const pendingRun = {
+    id: 'run-1',
+    workflowId: 'wf-1',
+    documentId: 'doc-1',
+    trigger: 'document.approved',
+    status: 'awaiting_approval' as const,
+    matched: true,
+    explanation: 'Matched: Applies to invoice, total.amount greater than 100.',
+    actions: [
+      {
+        type: 'send_to_connector',
+        requiresApproval: true,
+        reason: 'Writes to an external system.',
+      },
+    ],
+    outputs: [],
+    failure: null,
+    approvedBy: null,
+    createdAt: new Date().toISOString(),
+  };
+
+  it('reads a rule back as a sentence and flags the steps that wait for a person', () => {
+    expect(describeRule(rule)).toBe(
+      'When a invoice is document approved, if total.amount greater than 100, ' +
+        'send a notification, then send the record to a connector ' +
+        '(a person approves the destructive steps).',
+    );
+    // Plain notification needs nobody; anything touching a destination, an export or a delete does.
+    expect(DESTRUCTIVE_ACTIONS).toEqual(['send_to_connector', 'create_export', 'delete_document']);
+    expect(actionLabel('delete_document')).toBe('Delete the document');
+  });
+
+  function workflowClient(overrides: Record<string, unknown> = {}) {
+    const approveWorkflowRun = jest.fn(async () => ({
+      ...pendingRun,
+      status: 'completed' as const,
+      outputs: ['send queued for connector conn-9'],
+      approvedBy: 'user-1',
+    }));
+    const createWorkflow = jest.fn(async () => rule);
+    return {
+      approveWorkflowRun,
+      createWorkflow,
+      client: {
+        listWorkflows: async () => ({ items: [rule] }),
+        workflowRuns: async () => ({ items: [pendingRun] }),
+        createWorkflow,
+        setWorkflowEnabled: async () => ({ ...rule, enabled: false }),
+        approveWorkflowRun,
+        ...overrides,
+      } as unknown as ApiClient,
+    };
+  }
+
+  it('surfaces a run waiting for approval and shows what it will do', async () => {
+    const { client, approveWorkflowRun } = workflowClient();
+    render(<WorkflowsPage client={client} />);
+
+    expect(await screen.findByText(/Waiting for approval/)).toBeTruthy();
+    // It appears twice on purpose: in the approval queue and in the run log below it.
+    expect(screen.getAllByText(pendingRun.explanation).length).toBe(2);
+    // The builder shows the sentence it is about to save.
+    expect(screen.getByText(/When a record is document approved/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve run' }));
+    await waitFor(() => expect(approveWorkflowRun).toHaveBeenCalledWith('run-1'));
+    expect(await screen.findByText(/send queued for connector conn-9/)).toBeTruthy();
+  });
+
+  it('saves the rule the builder described', async () => {
+    const { client, createWorkflow } = workflowClient();
+    render(<WorkflowsPage client={client} />);
+
+    const name = await screen.findByPlaceholderText('File large invoices');
+    fireEvent.change(name, { target: { value: 'Notify on approval' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' }));
+    await waitFor(() =>
+      expect(createWorkflow).toHaveBeenCalledWith({
+        name: 'Notify on approval',
+        trigger: 'document.approved',
+        documentType: null,
+        conditions: [],
+        actions: [{ type: 'notify' }],
+        approvalPolicy: 'always_ask',
+      }),
+    );
+
+    // The saved rule is listed, and its state can be changed.
+    expect(await screen.findByText('File large invoices')).toBeTruthy();
+    expect(screen.getAllByText('enabled').length).toBeGreaterThan(0);
+  });
+});
+
+describe('localisation sweep (I18N-001)', () => {
+  afterEach(cleanup);
+
+  const client = {} as unknown as ApiClient;
+
+  it('renders a page in Swahili when the provider says so, and switches at runtime', async () => {
+    function Switcher(): React.JSX.Element {
+      const [locale, setLocale] = React.useState<'en' | 'sw'>('en');
+      return (
+        <>
+          <button type="button" onClick={() => setLocale('sw')}>
+            switch
+          </button>
+          <LocaleProvider locale={locale}>
+            <LoginPage client={client} onSignedIn={() => undefined} />
+          </LocaleProvider>
+        </>
+      );
+    }
+    render(<Switcher />);
+
+    // English first, then the same component with a different provider value.
+    expect(await screen.findByText('Sign in to IDCP')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'switch' }));
+    expect(await screen.findByText('Ingia kwenye IDCP')).toBeTruthy();
+    // The fields are translated too, not just the heading.
+    expect(screen.getAllByText('Nenosiri').length).toBeGreaterThan(0);
+  });
+
+  it('formats dates and numbers for the reader, not the server', () => {
+    const iso = '2026-10-26T14:05:00.000Z';
+    const english = formatDateTime(iso, 'en');
+    const french = formatDateTime(iso, 'fr');
+    expect(english).not.toBe(french);
+    expect(english).toContain('2026');
+    expect(french).toContain('2026');
+    // Percentages use the locale's own separator and spacing.
+    expect(formatPercent(0.85, 'en')).toBe('85%');
+    expect(formatPercent(0.85, 'fr')).toMatch(/85\s*%/u);
+    // Thousands separators, and a relative phrase from Intl rather than a hand-rolled table.
+    expect(formatNumber(1234567, 'en')).toBe('1,234,567');
+    expect(formatNumber(1234567, 'fr')).not.toBe('1,234,567');
+    expect(formatRelative('2026-10-26T13:00:00.000Z', 'en', Date.parse(iso))).toBe('1 hour ago');
+    expect(formatDateTime(null, 'fr')).toBe('—');
+  });
+
+  it('labels enum values from the catalogue and falls back to the raw value', () => {
+    const t = translator('sw');
+    expect(statusLabel(t, 'needs_review')).toBe('Inahitaji ukaguzi');
+    expect(documentTypeLabel(t, 'invoice')).toBe('Ankara');
+    expect(roleLabel(t, 'admin')).toBe('Msimamizi');
+    // A status the catalogue does not know yet stays readable instead of showing underscores.
+    expect(statusLabel(translator('en'), 'brand_new')).toBe('brand new');
+  });
+
+  it('sets the document direction from the language', () => {
+    applyDocumentLocale('fr');
+    expect(document.documentElement.dir).toBe('ltr');
+    expect(document.documentElement.lang).toBe('fr');
+
+    // The shipped locales are LTR; an RTL language flips the root element with no layout change.
+    applyDocumentLocale('ar' as never);
+    expect(document.documentElement.dir).toBe('rtl');
+    expect(directionFor('ar')).toBe('rtl');
+    expect(directionFor('sw')).toBe('ltr');
+
+    applyDocumentLocale('en');
+  });
+
+  it('has no physical left/right CSS left to clip an RTL layout', () => {
+    const css = readFileSync(join(__dirname, '../src/styles.css'), 'utf8');
+    expect(css).toContain('border-inline-end');
+    expect(css).toContain('text-align: start');
+    expect(css).toContain("[dir='rtl']");
+    expect(css).not.toMatch(/border-(left|right):/);
+    expect(css).not.toMatch(/(margin|padding)-(left|right):/);
+    expect(css).not.toMatch(/text-align:\s*(left|right);/);
+  });
+
+  it('uses logical alignment in the components as well', () => {
+    const files = [
+      'pages/DocumentsPage.tsx',
+      'pages/SettingsPage.tsx',
+      'workflows/WorkflowsPage.tsx',
+    ];
+    for (const file of files) {
+      const source = readFileSync(join(__dirname, '../src', file), 'utf8');
+      expect(source).not.toMatch(/textAlign:\s*'(left|right)'/);
+    }
+  });
+
+  it('exposes the translator to any component, defaulting to English without a provider', () => {
+    function Probe(): React.JSX.Element {
+      const t = useTranslator();
+      return <span>{t('nav.documents')}</span>;
+    }
+    render(<Probe />);
+    expect(screen.getByText('Documents')).toBeTruthy();
   });
 });

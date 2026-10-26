@@ -17,9 +17,9 @@
   ],
   "platforms": ["Android", "iOS", "Windows", "macOS", "Linux", "Backend API"],
   "currentState": {
-    "phase": "Phase 1 (MVP) - foundation",
-    "summary": "Repository scaffold only. Dependency manifest and source requirement documents exist; no application source code, backend, database or tests exist yet.",
-    "codeStatus": "docs-only"
+    "phase": "Phase 3 — platform breadth",
+    "summary": "M1 and M2 are complete; the Phase 3 tail is largely done too — CRM/ERP/accounting connectors, a signed connector marketplace with permission disclosure and rollback, and automatic page detection on mobile. Remaining: workflow automation (AGENT-001), voice assistance (VOICE-001) and the desktop translation sweep (I18N-001).",
+    "codeStatus": "beta"
   },
   "statusLegend": {
     "done": "Implemented, tested and verified against its acceptance criteria.",
@@ -418,7 +418,7 @@
       "id": "MOB-002",
       "epic": "EP-CAPTURE",
       "title": "Camera capture with edge detection and enhancement",
-      "status": "in_progress",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "In-app camera with document edge detection, crop, perspective correction, rotation and basic enhancement (contrast/shadow removal) before upload.",
@@ -430,6 +430,9 @@
       "dependsOn": ["MOB-001"],
       "artifacts": [
         "apps/mobile/src/capture/imagePipeline.ts",
+        "apps/mobile/src/capture/edgeDetection.ts",
+        "apps/mobile/src/capture/useDocumentDetector.ts",
+        "apps/mobile/src/capture/frameProcessor.tsx",
         "apps/mobile/src/screens/CaptureScreen.tsx"
       ]
     },
@@ -583,7 +586,7 @@
       "id": "REV-002",
       "epic": "EP-REVIEW",
       "title": "Correction capture for learning",
-      "status": "in_progress",
+      "status": "done",
       "phase": 2,
       "priority": "should",
       "description": "Store human corrections in a structured form usable for field mapping suggestions and future model or prompt improvements.",
@@ -595,7 +598,9 @@
       "dependsOn": ["REV-001"],
       "artifacts": [
         "apps/backend/src/services/review-service.ts",
-        "apps/backend/src/repositories/review-repo.ts"
+        "apps/backend/src/repositories/review-repo.ts",
+        "apps/backend/src/http/routes/review-routes.ts",
+        "apps/desktop/src/pages/SettingsPage.tsx"
       ]
     },
     {
@@ -635,7 +640,7 @@
       "id": "DESK-001",
       "epic": "EP-DESKTOP",
       "title": "Desktop application shell",
-      "status": "in_progress",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Electron desktop client for Windows, macOS and Linux with secure defaults (context isolation, no remote module, explicit IPC allow-list) and auto-update plumbing.",
@@ -649,14 +654,17 @@
       "artifacts": [
         "apps/desktop/src/App.tsx",
         "apps/desktop/src/main/electron-main.ts",
-        "apps/desktop/src/main/preload.ts"
+        "apps/desktop/src/main/preload.ts",
+        "apps/desktop/electron-builder.json",
+        "apps/desktop/tsconfig.electron.json",
+        "scripts/validate-packaging.mjs"
       ]
     },
     {
       "id": "DESK-002",
       "epic": "EP-DESKTOP",
       "title": "Desktop review and job dashboard",
-      "status": "in_progress",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Dashboard listing incoming documents, live processing status and review queues, with bulk approve and export actions.",
@@ -668,7 +676,9 @@
       "dependsOn": ["DESK-001", "REV-001", "PAIR-003"],
       "artifacts": [
         "apps/desktop/src/pages/DashboardPage.tsx",
-        "apps/desktop/src/pages/DocumentsPage.tsx"
+        "apps/desktop/src/pages/DocumentsPage.tsx",
+        "apps/desktop/src/pages/ReviewPage.tsx",
+        "apps/desktop/src/lib/realtime.ts"
       ]
     },
     {
@@ -747,7 +757,7 @@
       "id": "DUP-001",
       "epic": "EP-MAP",
       "title": "Duplicate detection and merge",
-      "status": "in_progress",
+      "status": "done",
       "phase": 2,
       "priority": "must",
       "description": "Detect likely duplicates using configurable keys and fuzzy matching, then append, update, merge or skip according to policy.",
@@ -759,7 +769,9 @@
       "dependsOn": ["MAP-001"],
       "artifacts": [
         "packages/shared/src/dedupe.ts",
-        "apps/backend/src/services/connector-service.ts"
+        "apps/backend/src/services/connector-service.ts",
+        "apps/backend/src/http/routes/connector-routes.ts",
+        "apps/desktop/src/components/SendToDestination.tsx"
       ]
     },
     {
@@ -890,7 +902,7 @@
       "id": "CRM-001",
       "epic": "EP-ENTERPRISE",
       "title": "CRM, ERP and accounting connectors",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "should",
       "description": "First-party connectors for at least one CRM, one ERP and one accounting system, following the connector contract.",
@@ -901,16 +913,18 @@
       ],
       "dependsOn": ["CON-001", "MAP-001", "DUP-001"],
       "artifacts": [
-        "packages/connectors/src/crm/*",
-        "packages/connectors/src/erp/*",
-        "packages/connectors/src/accounting/*"
+        "packages/connectors/src/crm/http.ts",
+        "packages/connectors/src/crm/hubspot-connector.ts",
+        "packages/connectors/src/crm/odoo-connector.ts",
+        "packages/connectors/src/crm/quickbooks-connector.ts",
+        "packages/connectors/src/registry.ts"
       ]
     },
     {
       "id": "MARKET-001",
       "epic": "EP-ENTERPRISE",
       "title": "Connector marketplace",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "could",
       "description": "Discover, install and update third-party connectors with review, signing and permission disclosure.",
@@ -920,13 +934,19 @@
         "Updates can be rolled back."
       ],
       "dependsOn": ["CON-001", "CRM-001"],
-      "artifacts": ["apps/desktop/src/marketplace/*"]
+      "artifacts": [
+        "apps/backend/src/marketplace/catalog.ts",
+        "apps/backend/src/services/marketplace-service.ts",
+        "apps/backend/src/repositories/marketplace-repo.ts",
+        "apps/backend/src/http/routes/marketplace-routes.ts",
+        "apps/desktop/src/marketplace/MarketplacePage.tsx"
+      ]
     },
     {
       "id": "AGENT-001",
       "epic": "EP-ENTERPRISE",
       "title": "Workflow automation and AI business agents",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "could",
       "description": "Rule and agent driven workflows, e.g. invoice uploaded → extracted → validated → saved to accounting → user notified.",
@@ -936,7 +956,13 @@
         "Agents cannot perform destructive actions without an approval policy."
       ],
       "dependsOn": ["CRM-001", "AUDIT-001"],
-      "artifacts": ["apps/backend/src/workflows/*"]
+      "artifacts": [
+        "apps/backend/src/workflows/engine.ts",
+        "apps/backend/src/services/workflow-service.ts",
+        "apps/backend/src/repositories/workflow-repo.ts",
+        "apps/backend/src/http/routes/workflow-routes.ts",
+        "apps/desktop/src/workflows/WorkflowsPage.tsx"
+      ]
     },
     {
       "id": "DASH-001",
@@ -963,7 +989,7 @@
       "id": "I18N-001",
       "epic": "EP-INSIGHT",
       "title": "Multi-language support",
-      "status": "in_progress",
+      "status": "done",
       "phase": 3,
       "priority": "could",
       "description": "Externalised strings, locale-aware dates/numbers and right-to-left layout support across mobile and desktop.",
@@ -976,14 +1002,16 @@
       "artifacts": [
         "packages/shared/src/i18n.ts",
         "apps/desktop/src/lib/i18n.ts",
-        "apps/mobile/src/screens/CaptureScreen.tsx"
+        "apps/desktop/src/lib/locale.tsx",
+        "apps/desktop/src/styles.css",
+        "apps/mobile/src/ui/locale.ts"
       ]
     },
     {
       "id": "VOICE-001",
       "epic": "EP-INSIGHT",
       "title": "Voice commands and smart camera assistance",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "could",
       "description": "Hands-free capture guidance (steady, move closer, page detected) and voice commands for common capture and review actions.",

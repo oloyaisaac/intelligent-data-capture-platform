@@ -4,6 +4,7 @@ import type { ApiClient } from '../api/client';
 import { connectRealtime, eventsUrl, type RealtimeEventName } from '../lib/realtime';
 import { formatDateTime, formatPercent, statusTone } from '../lib/format';
 import { buildBarChart, describeChart, shares } from '../lib/charts';
+import { useLocale, useTranslator } from '../lib/locale';
 import { Badge, Card, EmptyState, ErrorBanner, useAsync } from '../components/ui';
 
 /**
@@ -22,6 +23,8 @@ export function DashboardPage({
   accessToken: string | null;
   onOpenDocument?: (documentId: string) => void;
 }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const stats = useAsync(() => client.stats(), []);
   const recent = useAsync(() => client.listDocuments({ limit: 8 }), []);
   const queue = useAsync(() => client.reviewQueue(5), []);
@@ -59,10 +62,14 @@ export function DashboardPage({
       <ErrorBanner message={stats.error ?? recent.error} />
 
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>Overview</h1>
+        <h1>{t('nav.overview')}</h1>
         <div className="row">
           <Badge tone={live === 'live' ? 'success' : live === 'connecting' ? 'warning' : 'danger'}>
-            {live === 'live' ? 'Live' : live === 'connecting' ? 'Connecting' : 'Offline'}
+            {live === 'live'
+              ? t('dashboard.live')
+              : live === 'connecting'
+                ? t('dashboard.connecting')
+                : t('dashboard.offline')}
           </Badge>
           <button
             className="button secondary small"
@@ -83,18 +90,21 @@ export function DashboardPage({
               }
             }}
           >
-            {exporting ? 'Preparing…' : 'Download figures'}
+            {exporting ? t('dashboard.preparing') : t('dashboard.downloadFigures')}
           </button>
         </div>
       </div>
 
       <div className="stats-grid">
         {[
-          ['Documents', Object.values(documents).reduce((sum, value) => sum + value, 0)],
-          ['Needs review', documents.needs_review ?? 0],
-          ['Approved', documents.approved ?? 0],
-          ['Processing', (documents.processing ?? 0) + (documents.queued ?? 0)],
-          ['Failed', documents.failed ?? 0],
+          [
+            t('dashboard.stat.documents'),
+            Object.values(documents).reduce((sum, value) => sum + value, 0),
+          ],
+          [t('dashboard.stat.needsReview'), documents.needs_review ?? 0],
+          [t('dashboard.stat.approved'), documents.approved ?? 0],
+          [t('dashboard.stat.processing'), (documents.processing ?? 0) + (documents.queued ?? 0)],
+          [t('dashboard.stat.failed'), documents.failed ?? 0],
         ].map(([label, value]) => (
           <div className="stat" key={String(label)}>
             <div className="stat-value">{value}</div>
@@ -104,17 +114,14 @@ export function DashboardPage({
       </div>
 
       <div className="split">
-        <Card title="Uploads in the last 14 days">
+        <Card title={t('dashboard.uploadsWindow', { days: 14 })}>
           {timeline.length === 0 ? (
-            <EmptyState
-              title="No activity yet"
-              hint="Uploads appear here as soon as they arrive."
-            />
+            <EmptyState title={t('dashboard.noActivity')} hint={t('dashboard.noActivityHint')} />
           ) : (
             <div className="stack" style={{ gap: 8 }}>
               <svg
                 role="img"
-                aria-label={describeChart(uploads, 'documents uploaded')}
+                aria-label={describeChart(uploads, t('dashboard.chartUploads'), t)}
                 viewBox={`0 0 ${uploads.width} ${uploads.height + 18}`}
                 width="100%"
                 height={uploads.height + 18}
@@ -161,27 +168,29 @@ export function DashboardPage({
                 ))}
               </svg>
               <div className="row" style={{ gap: 16 }}>
-                <span className="dim">Peak day: {uploads.max}</span>
+                <span className="dim">{t('dashboard.peakDay', { count: uploads.max })}</span>
                 <span className="dim">
-                  Approved: {stats.data?.review.approved ?? 0} · Waiting:{' '}
-                  {stats.data?.review.pending ?? 0}
+                  {t('dashboard.approvedWaiting', {
+                    approved: stats.data?.review.approved ?? 0,
+                    pending: stats.data?.review.pending ?? 0,
+                  })}
                 </span>
               </div>
             </div>
           )}
         </Card>
 
-        <Card title="Latest uploads">
+        <Card title={t('dashboard.latestUploads')}>
           {recent.loading && total === 0 ? (
-            <EmptyState title="Loading…" />
+            <EmptyState title={t('dashboard.loading')} />
           ) : recent.data && recent.data.items.length > 0 ? (
             <table className="table">
               <thead>
                 <tr>
-                  <th>Document</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Uploaded</th>
+                  <th>{t('table.document')}</th>
+                  <th>{t('table.type')}</th>
+                  <th>{t('table.status')}</th>
+                  <th>{t('table.uploaded')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -206,28 +215,25 @@ export function DashboardPage({
                         {document.status.replace('_', ' ')}
                       </Badge>
                     </td>
-                    <td className="dim">{formatDateTime(document.createdAt)}</td>
+                    <td className="dim">{formatDateTime(document.createdAt, locale)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           ) : (
-            <EmptyState
-              title="No documents yet"
-              hint="Upload a scan from Documents, or capture one on your phone."
-            />
+            <EmptyState title={t('dashboard.noDocuments')} hint={t('dashboard.noDocumentsHint')} />
           )}
         </Card>
 
         <div className="stack">
-          <Card title="Waiting for a reviewer">
+          <Card title={t('dashboard.waitingForReviewer')}>
             {queue.data && queue.data.items.length > 0 ? (
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Document</th>
-                    <th>Confidence</th>
-                    <th>Fields to check</th>
+                    <th>{t('table.document')}</th>
+                    <th>{t('table.confidence')}</th>
+                    <th>{t('table.fieldsToCheck')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -237,7 +243,7 @@ export function DashboardPage({
                       <td
                         className={`confidence ${item.confidence && item.confidence >= 0.85 ? 'ok' : 'medium'}`}
                       >
-                        {formatPercent(item.confidence)}
+                        {formatPercent(item.confidence, locale)}
                       </td>
                       <td>{item.blockingFields.length}</td>
                     </tr>
@@ -245,13 +251,16 @@ export function DashboardPage({
                 </tbody>
               </table>
             ) : (
-              <EmptyState title="Nothing to review" hint="Everything captured has been checked." />
+              <EmptyState
+                title={t('dashboard.nothingToReview')}
+                hint={t('dashboard.nothingToReviewHint')}
+              />
             )}
           </Card>
 
-          <Card title="Mix by status">
+          <Card title={t('dashboard.mixByStatus')}>
             {statusShares.length === 0 ? (
-              <EmptyState title="Nothing captured yet" />
+              <EmptyState title={t('dashboard.nothingCaptured')} />
             ) : (
               <div className="stack" style={{ gap: 6 }}>
                 <div
@@ -280,23 +289,25 @@ export function DashboardPage({
                 </ul>
                 {typeEntries.length > 0 && (
                   <p className="dim" style={{ margin: 0 }}>
-                    Types: {typeEntries.map(([type, count]) => `${type} ${count}`).join(' · ')}
+                    {t('dashboard.types', {
+                      list: typeEntries.map(([type, count]) => `${type} ${count}`).join(' · '),
+                    })}
                   </p>
                 )}
               </div>
             )}
           </Card>
 
-          <Card title="Activity">
+          <Card title={t('dashboard.activity')}>
             {events.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
-                Events will appear here as documents are captured and approved.
+                {t('dashboard.noEvents')}
               </p>
             ) : (
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {events.map((entry, index) => (
                   <li key={`${entry.event}-${index}`} className="dim">
-                    <span className="mono">{entry.event}</span> · {formatDateTime(entry.at)}
+                    <span className="mono">{entry.event}</span> · {formatDateTime(entry.at, locale)}
                   </li>
                 ))}
               </ul>

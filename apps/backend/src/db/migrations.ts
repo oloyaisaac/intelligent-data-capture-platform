@@ -390,6 +390,77 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX idx_invitations_org ON invitations(organisation_id, created_at DESC)`,
     ],
   },
+  {
+    // REV-002: corrections carry the document type they belong to, and training use is opt-in.
+    id: '005_corrections_learning_opt_in',
+    sql: [
+      'ALTER TABLE review_changes ADD COLUMN document_type TEXT',
+      'ALTER TABLE organisations ADD COLUMN learning_opt_in INTEGER NOT NULL DEFAULT 0',
+      'CREATE INDEX idx_review_changes_document_type ON review_changes(document_type)',
+    ],
+  },
+  {
+    // MARKET-001: reviewed connector packages installed against a connector, with rollback history.
+    id: '006_marketplace_installs',
+    sql: [
+      `CREATE TABLE marketplace_installs (
+        id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL,
+        package_id TEXT NOT NULL,
+        package_version TEXT NOT NULL,
+        connector_type TEXT NOT NULL,
+        connector_id TEXT NOT NULL,
+        permissions TEXT NOT NULL,
+        status TEXT NOT NULL,
+        installed_by TEXT NOT NULL,
+        installed_at TEXT NOT NULL,
+        rolled_back_at TEXT,
+        install_seq INTEGER NOT NULL
+      )`,
+      'CREATE INDEX idx_marketplace_org ON marketplace_installs(organisation_id, installed_at DESC)',
+      'CREATE INDEX idx_marketplace_connector ON marketplace_installs(connector_id, status)',
+      'CREATE UNIQUE INDEX idx_marketplace_seq ON marketplace_installs(organisation_id, install_seq)',
+    ],
+  },
+  {
+    // AGENT-001: workflows are data; every evaluation is logged with its inputs, output and failure.
+    id: '007_workflows',
+    sql: [
+      `CREATE TABLE workflows (
+        id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        trigger_event TEXT NOT NULL,
+        document_type TEXT,
+        conditions TEXT NOT NULL,
+        actions TEXT NOT NULL,
+        approval_policy TEXT NOT NULL DEFAULT 'always_ask',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      'CREATE INDEX idx_workflows_org ON workflows(organisation_id, created_at DESC)',
+      `CREATE TABLE workflow_runs (
+        id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL,
+        workflow_id TEXT NOT NULL,
+        document_id TEXT,
+        trigger_event TEXT NOT NULL,
+        status TEXT NOT NULL,
+        matched INTEGER NOT NULL,
+        explanation TEXT NOT NULL,
+        actions TEXT NOT NULL,
+        outputs TEXT NOT NULL,
+        failure TEXT,
+        approved_by TEXT,
+        approved_at TEXT,
+        created_at TEXT NOT NULL
+      )`,
+      'CREATE INDEX idx_workflow_runs_org ON workflow_runs(organisation_id, created_at DESC)',
+      'CREATE INDEX idx_workflow_runs_status ON workflow_runs(status, created_at DESC)',
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {
