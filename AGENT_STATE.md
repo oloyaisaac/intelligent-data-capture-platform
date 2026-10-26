@@ -13,11 +13,11 @@
 ## Current task
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
-`npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema contract, 234 tests
-in 16 suites).
+`npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema contract, 252 tests
+in 17 suites).
 
-The remaining work is the "should/could" tail (see `PRD.json`): analytics charts, mobile
-crop/enhance, marketplace, workflows, voice and realtime Socket.IO.
+The remaining work is the "should/could" tail (see `PRD.json`): CRM/marketplace/workflow/voice
+stories, desktop packaging, and finishing the translation sweep of the desktop page bodies.
 
 ## What is built
 
@@ -49,16 +49,23 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
    `preload.ts` are complete and typechecked, but the `electron` binary is not a dependency of this
    environment, so no installer was produced or launched (`DESK-001` stays `in_progress`).
    `IDCP_AUTO_UPDATE=off` disables update checks; the update check is a no-op stub.
-2. **Mobile capture has no crop/enhance/compress step** (`MOB-002` `in_progress`). Capture itself,
-   queuing and offline behaviour are done.
+2. **Mobile capture crops, enhances and compresses through pure planning functions**
+   (`apps/mobile/src/capture/imagePipeline.ts`), but the _quad_ they crop to must be supplied by the
+   caller: no VisionCamera frame processor is installed, so automatic edge detection is not wired.
+   `MOB-002` stays `in_progress` until that overlay feeds it.
 3. **The MySQL connector is typechecked but not exercised against a live server** (no MySQL in this
    sandbox). Its SQL is covered by validation tests only; the Postgres and SQLite paths run for real.
 4. **Realtime transport is authenticated SSE**, not Socket.IO. The `RealtimeHub` interface keeps the
    transport swappable; the Socket.IO adapter is not written (see DECISIONS.md DEC-016).
 5. **Batch upload reads files into memory** before storing them; with the 100-file cap and the
    20 MB per-file limit that is bounded, but a streaming batch importer would be the next step.
-6. **Analytics is a counters view**, not charts (`DASH-001` in_progress).
-7. **UI copy is English**; the i18n catalogues exist for `en/sw/fr` (`I18N-001` in_progress).
+6. **Analytics** is now a 14-day (up to 90) SVG chart plus CSV export (`DASH-001` done). There are no
+   saved/custom dashboards, and the 2-second target is asserted by design (bounded window, indexed
+   query), not by a load test.
+7. **Language switch works at runtime** (desktop navigation and settings, mobile screens) and both
+   `sw` and `fr` cover ~49% of the catalogue with English fallback. The desktop page _bodies_ are
+   still English string literals, so `I18N-001` stays `in_progress`; the remaining work is a
+   mechanical sweep, not new plumbing.
 8. **`node_modules` is tracked in Git** from the first commit (22k files). It is ignored now, but
    untracking it should be a separate, deliberate commit — do not mix it with feature work.
 9. **Open decisions**: AI provider/budget (Q-001), licensing (Q-002), hosting region (Q-003),

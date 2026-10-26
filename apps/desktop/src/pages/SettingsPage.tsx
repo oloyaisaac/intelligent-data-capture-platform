@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { API_KEY_SCOPES, ROLES, type ApiKeyScope } from '@idcp/shared';
+import { API_KEY_SCOPES, ROLES, type ApiKeyScope, type Locale } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { formatDateTime } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, Modal, useAsync } from '../components/ui';
@@ -12,9 +12,15 @@ import { Badge, Card, EmptyState, ErrorBanner, Field, Modal, useAsync } from '..
 export function SettingsPage({
   client,
   role,
+  locale = 'en',
+  localeOptions = [],
+  onLocaleChange,
 }: {
   client: ApiClient;
   role: string;
+  locale?: Locale;
+  localeOptions?: Array<{ locale: Locale; label: string }>;
+  onLocaleChange?: (locale: Locale) => void;
 }): React.JSX.Element {
   const organisation = useAsync(() => client.organisation(), []);
   const users = useAsync(() => client.listUsers(), []);
@@ -56,6 +62,29 @@ export function SettingsPage({
   return (
     <div className="stack">
       <h1>Settings</h1>
+
+      {onLocaleChange && localeOptions.length > 0 && (
+        <Card title="Language">
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <Field
+              label="Interface language"
+              hint="Missing translations fall back to English; the choice is remembered on this device."
+            >
+              <select
+                className="select"
+                value={locale}
+                onChange={(event) => onLocaleChange(event.target.value as Locale)}
+              >
+                {localeOptions.map((option) => (
+                  <option key={option.locale} value={option.locale}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        </Card>
+      )}
       <ErrorBanner message={error} />
       {notice && (
         <div className="notice" role="status">

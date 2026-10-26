@@ -1,4 +1,4 @@
-import { AppError, roleAtLeast, type Role } from '@idcp/shared';
+import { AppError, escapeCsvField, roleAtLeast, type Role } from '@idcp/shared';
 import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import {
@@ -140,18 +140,81 @@ export class OrganisationService {
   }
 
   /** Lightweight operational summary for the dashboard and for health checks. */
-  async stats(actor: AuthenticatedActor) {
+  /**
+   * DASH-001: counters plus a short time series.
+   *
+   * `date(created_at)` is the one date-truncation expression both SQLite and PostgreSQL accept, so
+   * the same query runs on the dev and production drivers. The window is bounded (14 days) so the
+   * dashboard cannot turn into a table scan as history grows.
+   */
+  async stats(actor: AuthenticatedActor, options: { days?: number } = {}) {
+    const days = clampDays(options.days);
     const documentsByStatus = await this.db.query<{ status: string; count: number }>(
       'SELECT status, COUNT(*) AS count FROM documents WHERE organisation_id = ? AND deleted_at IS NULL GROUP BY status',
       [actor.organisationId],
     );
     const jobs = await this.jobs.countByStatus(actor.organisationId);
+
+    const byType = await this.db.query<{ document_type: string; count: number }>(
+      `SELECT document_type, COUNT(*) AS count FROM documents
+        WHERE organisation_id = ? AND deleted_at IS NULL
+        GROUP BY document_type ORDER BY count DESC`,
+      [actor.organisationId],
+    );
+
+    const daily = await this.db.query<{ day: string; status: string; count: number }>(
+      `SELECT date(created_at) AS day, status, COUNT(*) AS count FROM documents
+        WHERE organisation_id = ? AND deleted_at IS NULL AND created_at >= ?
+        GROUP BY day, status ORDER BY day`,
+      [actor.organisationId, windowStart(days)],
+    );
+
+    const timeline = buildTimeline(daily, days);
+
+    const connectors = await this.db.one<{ total: number; active: number }>(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active
+         FROM connectors WHERE organisation_id = ?`,
+      [actor.organisationId],
+    );
+
+    const exportsRow = await this.db.one<{ total: number; ready: number }>(
+      `SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) AS ready
+         FROM exports WHERE organisation_id = ?`,
+      [actor.organisationId],
+    );
+
+    const reviewBacklog = await this.db.one<{ pending: number; approved: number }>(
+      `SELECT
+         SUM(CASE WHEN status = 'needs_review' THEN 1 ELSE 0 END) AS pending,
+         SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved
+       FROM documents WHERE organisation_id = ? AND deleted_at IS NULL`,
+      [actor.organisationId],
+    );
+
+    const documents = Object.fromEntries(
+      documentsByStatus.map((row) => [row.status, Number(row.count)]),
+    );
+    const totalDocuments = Object.values(documents).reduce((sum, value) => sum + value, 0);
+
     return {
       organisationId: actor.organisationId,
-      documents: Object.fromEntries(
-        documentsByStatus.map((row) => [row.status, Number(row.count)]),
-      ),
+      documents,
+      totalDocuments,
       jobs,
+      documentTypes: Object.fromEntries(
+        byType.map((row) => [row.document_type, Number(row.count)]),
+      ),
+      timeline,
+      connectors: {
+        total: Number(connectors?.total ?? 0),
+        active: Number(connectors?.active ?? 0),
+      },
+      exports: { total: Number(exportsRow?.total ?? 0), ready: Number(exportsRow?.ready ?? 0) },
+      review: {
+        pending: Number(reviewBacklog?.pending ?? 0),
+        approved: Number(reviewBacklog?.approved ?? 0),
+      },
       generatedAt: nowIso(),
     };
   }
@@ -171,4 +234,73 @@ export class OrganisationService {
   async currentUserExists(userId: string): Promise<boolean> {
     return (await this.users.findById(userId)) !== null;
   }
+}
+
+/** Bounds the dashboard window: enough history to be useful, small enough to stay fast. */
+export const MAX_STATS_DAYS = 90;
+export const DEFAULT_STATS_DAYS = 14;
+
+export function clampDays(value: number | undefined): number {
+  if (!Number.isFinite(value) || !value) return DEFAULT_STATS_DAYS;
+  return Math.min(MAX_STATS_DAYS, Math.max(1, Math.floor(value)));
+}
+
+/** Start of the dashboard window, as an ISO timestamp the stored format can compare to. */
+export function windowStart(days = DEFAULT_STATS_DAYS, now: Date = new Date()): string {
+  const date = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  return `${date.toISOString().slice(0, 10)}T00:00:00.000Z`;
+}
+
+/**
+ * DASH-001: the same figures as CSV, so a manager can put them in a spreadsheet without a tool.
+ * Rendered from the stats object rather than a second query: one code path, one set of numbers.
+ */
+export function statsToCsv(stats: Awaited<ReturnType<OrganisationService['stats']>>): string {
+  const rows: string[][] = [['date', 'uploaded', 'approved', 'failed']];
+  for (const point of stats.timeline) {
+    rows.push([point.date, String(point.uploaded), String(point.approved), String(point.failed)]);
+  }
+  rows.push([]);
+  rows.push(['metric', 'value']);
+  rows.push(['total_documents', String(stats.totalDocuments)]);
+  for (const [status, count] of Object.entries(stats.documents).sort()) {
+    rows.push([`status:${status}`, String(count)]);
+  }
+  for (const [type, count] of Object.entries(stats.documentTypes).sort()) {
+    rows.push([`type:${type}`, String(count)]);
+  }
+  rows.push(['review_pending', String(stats.review.pending)]);
+  rows.push(['review_approved', String(stats.review.approved)]);
+  rows.push(['connectors_active', String(stats.connectors.active)]);
+  rows.push(['exports_ready', String(stats.exports.ready)]);
+
+  return `\uFEFF${rows
+    .map((row) => row.map((cell) => escapeCsvField(cell)).join(','))
+    .join('\r\n')}\r\n`;
+}
+
+/**
+ * Fills the gaps: a day with no documents still appears in the series, so the chart does not lie
+ * about a quiet Sunday by omitting it.
+ */
+export function buildTimeline(
+  rows: Array<{ day: string; status: string; count: number }>,
+  days = 14,
+  now: Date = new Date(),
+): Array<{ date: string; uploaded: number; approved: number; failed: number }> {
+  const buckets = new Map<string, { uploaded: number; approved: number; failed: number }>();
+  for (let index = days - 1; index >= 0; index -= 1) {
+    const date = new Date(now.getTime() - index * 24 * 60 * 60 * 1000);
+    buckets.set(date.toISOString().slice(0, 10), { uploaded: 0, approved: 0, failed: 0 });
+  }
+
+  for (const row of rows) {
+    const bucket = buckets.get(String(row.day).slice(0, 10));
+    if (!bucket) continue;
+    bucket.uploaded += Number(row.count);
+    if (row.status === 'approved') bucket.approved += Number(row.count);
+    if (row.status === 'failed') bucket.failed += Number(row.count);
+  }
+
+  return [...buckets.entries()].map(([date, counts]) => ({ date, ...counts }));
 }

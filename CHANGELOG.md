@@ -47,7 +47,15 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   schema introspection, transactional inserts and identifier validation (`CON-003`).
 - **Desktop** — Batches page (multi-file upload with live per-item results) and Projects page; the
   team settings now show the invitation link once, because this deployment sends no email.
-- 234 automated tests across 16 suites.
+- **Analytics dashboard** — `/stats` now returns status counts, document-type mix and a daily
+  series (1–90 days, default 14) computed from the documents themselves; the desktop draws it as an
+  accessible SVG bar chart plus a status mix bar, and the figures download as CSV (`DASH-001`).
+- **Capture pipeline on mobile** — crop to the detected page, contrast pass, downscale to 1600 px
+  and JPEG compression under a byte budget, all decided by pure functions and applied through an
+  injected transformer; a step that is unavailable leaves the capture intact (`MOB-002`).
+- **Runtime language switch** — navigation and settings are translated from the shared `en/sw/fr`
+  catalogues, with the choice remembered per device (`I18N-001` in progress).
+- 17 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 

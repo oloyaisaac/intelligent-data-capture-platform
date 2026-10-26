@@ -14,6 +14,8 @@ import { TemplatesPage } from './pages/TemplatesPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { Badge } from './components/ui';
+import { LOCALE_OPTIONS, loadLocale, saveLocale, translator } from './lib/i18n';
+import type { Locale } from '@idcp/shared';
 
 /**
  * Application shell (DESK-001).
@@ -83,17 +85,31 @@ export function routeHref(route: Route): string {
   }
 }
 
-const NAV: Array<{ route: Route; label: string; section?: string }> = [
-  { route: { name: 'dashboard' }, label: 'Overview' },
-  { route: { name: 'documents' }, label: 'Documents' },
-  { route: { name: 'batches' }, label: 'Batches' },
-  { route: { name: 'review' }, label: 'Review' },
-  { route: { name: 'exports' }, label: 'Exports' },
-  { route: { name: 'projects' }, label: 'Projects', section: 'Configure' },
-  { route: { name: 'templates' }, label: 'Templates', section: 'Configure' },
-  { route: { name: 'connectors' }, label: 'Connectors' },
-  { route: { name: 'devices' }, label: 'Devices' },
-  { route: { name: 'settings' }, label: 'Settings' },
+const NAV: Array<{
+  route: Route;
+  labelKey:
+    | 'nav.overview'
+    | 'nav.documents'
+    | 'nav.batches'
+    | 'nav.review'
+    | 'nav.exports'
+    | 'nav.projects'
+    | 'nav.templates'
+    | 'nav.connectors'
+    | 'nav.devices'
+    | 'nav.settings';
+  sectionKey?: 'nav.configure';
+}> = [
+  { route: { name: 'dashboard' }, labelKey: 'nav.overview' },
+  { route: { name: 'documents' }, labelKey: 'nav.documents' },
+  { route: { name: 'batches' }, labelKey: 'nav.batches' },
+  { route: { name: 'review' }, labelKey: 'nav.review' },
+  { route: { name: 'exports' }, labelKey: 'nav.exports' },
+  { route: { name: 'projects' }, labelKey: 'nav.projects', sectionKey: 'nav.configure' },
+  { route: { name: 'templates' }, labelKey: 'nav.templates', sectionKey: 'nav.configure' },
+  { route: { name: 'connectors' }, labelKey: 'nav.connectors' },
+  { route: { name: 'devices' }, labelKey: 'nav.devices' },
+  { route: { name: 'settings' }, labelKey: 'nav.settings' },
 ];
 
 function createClient(onSessionExpired: () => void): ApiClient {
@@ -111,6 +127,8 @@ export function App(): React.JSX.Element {
   const [user, setUser] = useState<UserSummary | null>(null);
   const [booted, setBooted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [locale, setLocale] = useState<Locale>(() => loadLocale());
+  const t = useMemo(() => translator(locale), [locale]);
 
   const client = useMemo(
     () =>
@@ -200,15 +218,15 @@ export function App(): React.JSX.Element {
         </div>
 
         {NAV.map((entry) => (
-          <React.Fragment key={entry.label}>
-            {entry.section && <div className="nav-section">{entry.section}</div>}
+          <React.Fragment key={entry.labelKey}>
+            {entry.sectionKey && <div className="nav-section">{t(entry.sectionKey)}</div>}
             <button
               type="button"
               className="nav-item"
               aria-current={route.name === entry.route.name ? 'page' : undefined}
               onClick={() => navigate(entry.route)}
             >
-              {entry.label}
+              {t(entry.labelKey)}
             </button>
           </React.Fragment>
         ))}
@@ -227,7 +245,7 @@ export function App(): React.JSX.Element {
                 setUser(null);
               }}
             >
-              Sign out
+              {t('action.signOut')}
             </button>
           </div>
         </div>
@@ -236,7 +254,9 @@ export function App(): React.JSX.Element {
       <div className="main">
         <header className="topbar">
           <span className="topbar-title">
-            {NAV.find((entry) => entry.route.name === route.name)?.label ?? 'Overview'}
+            {NAV.find((entry) => entry.route.name === route.name)
+              ? t(NAV.find((entry) => entry.route.name === route.name)!.labelKey)
+              : t('nav.overview')}
           </span>
           <div className="topbar-spacer" />
           <span className="dim">{user.organisationName}</span>
@@ -276,7 +296,18 @@ export function App(): React.JSX.Element {
           {route.name === 'connectors' && <ConnectorsPage client={client} />}
           {route.name === 'templates' && <TemplatesPage client={client} />}
           {route.name === 'devices' && <DevicesPage client={client} />}
-          {route.name === 'settings' && <SettingsPage client={client} role={user.role} />}
+          {route.name === 'settings' && (
+            <SettingsPage
+              client={client}
+              role={user.role}
+              locale={locale}
+              localeOptions={LOCALE_OPTIONS}
+              onLocaleChange={(next) => {
+                setLocale(next);
+                saveLocale(next);
+              }}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -889,10 +889,31 @@ paths:
   /stats:
     get:
       tags: [Organisation]
-      summary: Counts for the dashboard
+      summary: Dashboard figures — status counts, document types and a daily series
       operationId: getStats
+      parameters:
+        - name: days
+          in: query
+          description: Length of the daily series (1–90, default 14).
+          schema: { type: integer, minimum: 1, maximum: 90 }
       responses:
-        '200': { description: Counts by status }
+        '200':
+          description: '`documents`, `documentTypes`, `timeline`, `review`, `connectors`, `exports`'
+  /stats.csv:
+    get:
+      tags: [Organisation]
+      summary: The same dashboard figures as CSV
+      operationId: downloadStatsCsv
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 90 }
+      responses:
+        '200':
+          description: CSV (UTF-8 with BOM)
+          content:
+            text/csv:
+              schema: { type: string }
   /retention/purge:
     post:
       tags: [Organisation]

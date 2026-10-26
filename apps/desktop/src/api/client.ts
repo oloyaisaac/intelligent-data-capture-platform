@@ -27,6 +27,7 @@ import type {
   Project,
   ReviewQueueResponse,
   ReviewSession,
+  StatsResponse,
   Template,
   TemplateDetail,
   TokenPair,
@@ -545,14 +546,12 @@ export class ApiClient {
     return this.request(`/audit-logs${suffix}`);
   }
 
-  stats(): Promise<{
-    documents: Record<string, number>;
-    reviews: Record<string, number>;
-    exports: Record<string, number>;
-    connectors: number;
-    devices: number;
-  }> {
-    return this.request('/stats');
+  stats(days = 14): Promise<StatsResponse> {
+    return this.request(`/stats?days=${days}`);
+  }
+
+  downloadStatsCsv(days = 14): Promise<{ blob: Blob; filename: string }> {
+    return this.download(`/stats.csv?days=${days}`);
   }
 
   purgeRetention(): Promise<{ purged: number }> {

@@ -598,6 +598,30 @@ export const AcceptInviteRequestSchema = z
   .strict();
 export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequestSchema>;
 
+// --- Dashboard statistics (DASH-001) -------------------------------------
+
+export const StatsTimelinePointSchema = z.object({
+  date: z.string(),
+  uploaded: z.number().int(),
+  approved: z.number().int(),
+  failed: z.number().int(),
+});
+export type StatsTimelinePoint = z.infer<typeof StatsTimelinePointSchema>;
+
+export const StatsResponseSchema = z.object({
+  organisationId: z.string(),
+  documents: z.record(z.string(), z.number()),
+  totalDocuments: z.number().int(),
+  jobs: z.record(z.string(), z.number()),
+  documentTypes: z.record(z.string(), z.number()),
+  timeline: z.array(StatsTimelinePointSchema),
+  connectors: z.object({ total: z.number().int(), active: z.number().int() }),
+  exports: z.object({ total: z.number().int(), ready: z.number().int() }),
+  review: z.object({ pending: z.number().int(), approved: z.number().int() }),
+  generatedAt: z.string(),
+});
+export type StatsResponse = z.infer<typeof StatsResponseSchema>;
+
 export const HealthResponseSchema = z.object({
   status: z.enum(['ok', 'degraded']),
   version: z.string(),

@@ -7,6 +7,7 @@ import {
 } from '@idcp/shared';
 import type { Services } from '../../services/container';
 import type { Guards } from '../guards';
+import { statsToCsv } from '../../services/organisation-service';
 
 export function registerOrganisationRoutes(
   app: FastifyInstance,
@@ -89,7 +90,24 @@ export function registerOrganisationRoutes(
 
   app.get('/stats', async (request) => {
     const actor = await guards.authenticate(request);
-    return services.organisation.stats(actor);
+    const query = request.query as Record<string, string | undefined>;
+    return services.organisation.stats(actor, { days: Number(query.days) || undefined });
+  });
+
+  /** DASH-001: the figures on the dashboard, as a file, for people who live in spreadsheets. */
+  app.get('/stats.csv', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    const query = request.query as Record<string, string | undefined>;
+    const stats = await services.organisation.stats(actor, {
+      days: Number(query.days) || undefined,
+    });
+    reply.header('content-type', 'text/csv; charset=utf-8');
+    reply.header(
+      'content-disposition',
+      `attachment; filename="dashboard-${stats.generatedAt.slice(0, 10)}.csv"`,
+    );
+    reply.header('cache-control', 'private, no-store');
+    return reply.send(statsToCsv(stats));
   });
 
   app.post('/retention/purge', async (request, reply) => {

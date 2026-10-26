@@ -13,6 +13,10 @@ import {
 } from '../src/lib/format';
 import { bulkApprovable, canApprove, pendingChanges, reviewRows } from '../src/lib/review';
 import { connectRealtime, eventsUrl } from '../src/lib/realtime';
+import { buildBarChart, describeChart, shares } from '../src/lib/charts';
+import { DashboardPage } from '../src/pages/DashboardPage';
+import { LOCALE_OPTIONS, loadLocale, resolveLocale, saveLocale, translator } from '../src/lib/i18n';
+import { createTranslator, translationCoverage } from '@idcp/shared';
 import { LoginPage } from '../src/pages/LoginPage';
 import { AcceptInvitePage } from '../src/pages/AcceptInvitePage';
 import { BatchesPage } from '../src/pages/BatchesPage';
@@ -137,6 +141,122 @@ describe('review rules (REV-001)', () => {
       { fieldPath: 'invoice.due_date', value: '2024-04-01' },
       { fieldPath: 'invoice.total', value: 1300 },
     ]);
+  });
+});
+
+describe('interface language (I18N-001)', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+    cleanup();
+  });
+
+  it('prefers a stored choice, then the browser language, then English', () => {
+    expect(resolveLocale('sw', 'fr-FR')).toBe('sw');
+    expect(resolveLocale(null, 'sw-KE')).toBe('sw');
+    expect(resolveLocale(null, 'fr')).toBe('fr');
+    expect(resolveLocale('de', null)).toBe('en');
+    expect(resolveLocale(null, null)).toBe('en');
+  });
+
+  it('remembers a choice and offers each locale by its own name', () => {
+    expect(loadLocale()).toBe('en');
+    saveLocale('fr');
+    expect(loadLocale()).toBe('fr');
+    expect(LOCALE_OPTIONS.map((option) => option.label)).toEqual([
+      'English',
+      'Kiswahili',
+      'Français',
+    ]);
+  });
+
+  it('translates the navigation and falls back to English for gaps', () => {
+    expect(translator('sw')('nav.documents')).toBe('Nyaraka');
+    expect(translator('fr')('nav.projects')).toBe('Projets');
+    expect(createTranslator('sw')('app.name')).toBe('IDCP');
+    // Every locale covers the navigation, so no screen is half in one language.
+    for (const locale of ['sw', 'fr'] as const) {
+      expect(translationCoverage(locale)).toBeGreaterThan(0.45);
+      expect(createTranslator(locale)('nav.batches')).toBeTruthy();
+    }
+  });
+});
+
+describe('chart geometry (DASH-001)', () => {
+  const points = [
+    { date: '2026-10-24', uploaded: 2, approved: 1, failed: 0 },
+    { date: '2026-10-25', uploaded: 0, approved: 0, failed: 0 },
+    { date: '2026-10-26', uploaded: 4, approved: 4, failed: 1 },
+  ];
+
+  it('scales bars to the tallest day and flips y for SVG', () => {
+    const chart = buildBarChart(points, 'uploaded', { width: 300, height: 100, gap: 0 });
+    expect(chart.max).toBe(4);
+    expect(chart.bars).toHaveLength(3);
+    expect(chart.bars[0]?.width).toBe(100);
+    // The tallest bar reaches the top; the empty day has no height but keeps its slot.
+    expect(chart.bars[2]).toMatchObject({ y: 0, height: 100 });
+    expect(chart.bars[1]).toMatchObject({ y: 100, height: 0 });
+  });
+
+  it('does not divide by zero when nothing has happened', () => {
+    const chart = buildBarChart(
+      points.map((point) => ({ ...point, uploaded: 0 })),
+      'uploaded',
+    );
+    expect(chart.max).toBe(1);
+    expect(chart.bars.every((bar) => bar.height === 0)).toBe(true);
+    expect(describeChart(chart, 'documents')).toContain('0 documents');
+  });
+
+  it('rounds shares to exactly 100 percent', () => {
+    expect(shares({ a: 1, b: 1, c: 1 })).toEqual([
+      { key: 'a', value: 1, percent: 34 },
+      { key: 'b', value: 1, percent: 33 },
+      { key: 'c', value: 1, percent: 33 },
+    ]);
+    expect(shares({})).toEqual([]);
+    expect(shares({ zero: 0, one: 5 })).toEqual([{ key: 'one', value: 5, percent: 100 }]);
+  });
+});
+
+describe('dashboard (DASH-001)', () => {
+  afterEach(cleanup);
+
+  it('draws the 14-day series and states the peak day for screen readers', async () => {
+    const timeline = Array.from({ length: 14 }, (_, index) => ({
+      date: `2026-10-${String(index + 13).padStart(2, '0')}`,
+      uploaded: index === 5 ? 7 : 1,
+      approved: 0,
+      failed: 0,
+    }));
+
+    const client = new ApiClient({
+      baseUrl: 'https://idcp.test/api/v1',
+      fetchImpl: (async (url: string) => {
+        if (String(url).includes('/stats')) {
+          return jsonResponse({
+            organisationId: 'org-1',
+            documents: { queued: 3, approved: 2 },
+            totalDocuments: 5,
+            jobs: { completed: 5 },
+            documentTypes: { invoice: 4, receipt: 1 },
+            timeline,
+            connectors: { total: 1, active: 1 },
+            exports: { total: 1, ready: 1 },
+            review: { pending: 3, approved: 2 },
+            generatedAt: new Date().toISOString(),
+          });
+        }
+        return jsonResponse({ items: [] });
+      }) as unknown as typeof fetch,
+    });
+
+    render(<DashboardPage client={client} accessToken={null} />);
+
+    const chart = await screen.findByRole('img');
+    expect(chart.getAttribute('aria-label')).toContain('the highest day');
+    expect(await screen.findByText('Peak day: 7')).toBeTruthy();
+    expect(await screen.findByText(/invoice 4/)).toBeTruthy();
   });
 });
 

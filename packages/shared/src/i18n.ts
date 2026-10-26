@@ -8,6 +8,19 @@ export type Locale = 'en' | 'sw' | 'fr';
 export const SUPPORTED_LOCALES: Locale[] = ['en', 'sw', 'fr'];
 
 const en = {
+  'nav.overview': 'Overview',
+  'nav.documents': 'Documents',
+  'nav.batches': 'Batches',
+  'nav.review': 'Review',
+  'nav.exports': 'Exports',
+  'nav.projects': 'Projects',
+  'nav.templates': 'Templates',
+  'nav.connectors': 'Connectors',
+  'nav.devices': 'Devices',
+  'nav.settings': 'Settings',
+  'nav.configure': 'Configure',
+  'settings.language': 'Language',
+  'settings.languageHint': 'Interface language. Missing translations fall back to English.',
   'app.name': 'IDCP',
   'app.tagline': 'Capture documents. Get clean data.',
   'action.cancel': 'Cancel',
@@ -90,6 +103,19 @@ export type TranslationKey = keyof typeof en;
 export type Catalogue = Record<TranslationKey, string>;
 
 const sw: Partial<Catalogue> = {
+  'nav.overview': 'Muhtasari',
+  'nav.documents': 'Nyaraka',
+  'nav.batches': 'Makundi',
+  'nav.review': 'Kagua',
+  'nav.exports': 'Hamisha',
+  'nav.projects': 'Miradi',
+  'nav.templates': 'Violezo',
+  'nav.connectors': 'Viunganishi',
+  'nav.devices': 'Vifaa',
+  'nav.settings': 'Mipangilio',
+  'nav.configure': 'Sanidi',
+  'settings.language': 'Lugha',
+  'settings.languageHint': 'Lugha ya kiolesura. Tafsiri zisizokuwepo zitarudi kwa Kiingereza.',
   'app.tagline': 'Piga picha hati. Pata data safi.',
   'action.cancel': 'Ghairi',
   'action.continue': 'Endelea',
@@ -123,6 +149,20 @@ const sw: Partial<Catalogue> = {
 };
 
 const fr: Partial<Catalogue> = {
+  'nav.overview': 'Aperçu',
+  'nav.documents': 'Documents',
+  'nav.batches': 'Lots',
+  'nav.review': 'Vérification',
+  'nav.exports': 'Exports',
+  'nav.projects': 'Projets',
+  'nav.templates': 'Modèles',
+  'nav.connectors': 'Connecteurs',
+  'nav.devices': 'Appareils',
+  'nav.settings': 'Paramètres',
+  'nav.configure': 'Configurer',
+  'settings.language': 'Langue',
+  'settings.languageHint':
+    "Langue de l'interface. Les traductions manquantes reviennent à l'anglais.",
   'app.tagline': 'Capturez des documents. Obtenez des données propres.',
   'action.cancel': 'Annuler',
   'action.continue': 'Continuer',

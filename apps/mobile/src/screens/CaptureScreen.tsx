@@ -4,6 +4,7 @@ import { Camera, useCameraDevice, useCameraPermission } from 'react-native-visio
 import { createTranslator } from '@idcp/shared';
 import { colors, spacing, typography } from '../ui/theme';
 import type { UploadQueue } from '../state/uploadQueue';
+import { processCapture, type ImageTransformer } from '../capture/imagePipeline';
 
 const t = createTranslator('en');
 
@@ -17,9 +18,14 @@ const t = createTranslator('en');
 export function CaptureScreen({
   queue,
   onCaptured,
+  transformer,
+  frameSize,
 }: {
   queue: UploadQueue;
   onCaptured?: (documentId: string) => void;
+  /** MOB-002: the platform image toolkit; without it the raw photo is queued. */
+  transformer?: ImageTransformer;
+  frameSize?: { width: number; height: number };
 }): React.JSX.Element {
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
@@ -27,6 +33,7 @@ export function CaptureScreen({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
+  const [planSteps, setPlanSteps] = useState<string[]>([]);
 
   useEffect(() => {
     if (!hasPermission) void requestPermission();
@@ -43,9 +50,23 @@ export function CaptureScreen({
     try {
       const photo = await camera.current.takePhoto({ flash: 'auto' });
       const id = `cap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+
+      // MOB-002: crop to the detected page, straighten the contrast, then shrink for upload.
+      // If no transformer is supplied (or any step fails) the original file is queued unchanged.
+      let uri = `file://${photo.path}`;
+      if (transformer) {
+        const processed = await processCapture(transformer, uri, {
+          frame: frameSize ?? { width: photo.width, height: photo.height },
+          estimatedBytes: photo.width * photo.height * 0.35,
+          options: { targetLongEdge: 1600, maxBytes: 2 * 1024 * 1024 },
+        });
+        uri = processed.uri;
+        setPlanSteps(processed.plan.steps);
+      }
+
       await queue.enqueue({
         id,
-        uri: `file://${photo.path}`,
+        uri,
         fileName: `${id}.jpg`,
         mimeType: 'image/jpeg',
       });
@@ -66,7 +87,7 @@ export function CaptureScreen({
       setBusy(false);
       setPending(queue.pendingCount());
     }
-  }, [busy, onCaptured, queue]);
+  }, [busy, frameSize, onCaptured, queue, transformer]);
 
   if (!hasPermission) {
     return (
@@ -101,6 +122,11 @@ export function CaptureScreen({
 
       <View style={styles.footer}>
         {message && <Text style={styles.message}>{message}</Text>}
+        {planSteps.length > 0 && (
+          <Text style={styles.muted} numberOfLines={2}>
+            {planSteps.join(' · ')}
+          </Text>
+        )}
         {pending > 0 && <Text style={styles.muted}>{pending} waiting to upload</Text>}
         <Pressable
           accessibilityRole="button"
