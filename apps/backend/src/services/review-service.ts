@@ -4,11 +4,13 @@ import {
   blockingFields,
   canApprove,
   parseUdm,
+  roleAtLeast,
   type DocumentSummary,
   type DocumentType,
   type Udm,
 } from '@idcp/shared';
 import type { Database } from '../db/database';
+import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
 import { DocumentsRepository, ExtractionsRepository } from '../repositories/document-repo';
 import { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
@@ -128,6 +130,7 @@ export class ReviewService {
         correctedValue: options.documentType,
         originalConfidence: corrected.documentTypeConfidence,
         changedBy: actor.userId,
+        documentType: options.documentType,
       });
       await this.documents.updateAnyDocumentType(review.document_id, options.documentType);
       await this.audit.record({
@@ -149,6 +152,7 @@ export class ReviewService {
         correctedValue: change.after.value,
         originalConfidence: change.before?.confidence ?? null,
         changedBy: actor.userId,
+        documentType: updated.documentType,
       });
       await this.audit.record({
         organisationId: actor.organisationId,
@@ -307,6 +311,82 @@ export class ReviewService {
       skipped: skipped.length,
     });
     return { approved, skipped };
+  }
+
+  /**
+   * REV-002: what the organisation keeps getting wrong.
+   *
+   * Aggregates only — no field values — so a reviewer can see the pattern without correction
+   * content leaving the review screens.
+   */
+  async correctionStats(actor: AuthenticatedActor) {
+    const organisation = await this.db.one<{ learning_opt_in: number }>(
+      'SELECT learning_opt_in FROM organisations WHERE id = ?',
+      [actor.organisationId],
+    );
+    const byField = await this.changes.statisticsForOrganisation(actor.organisationId);
+    const byDocumentType = await this.changes.statisticsByDocumentType(actor.organisationId);
+
+    return {
+      optIn: Number(organisation?.learning_opt_in ?? 0) === 1,
+      total: byField.reduce((sum, row) => sum + Number(row.corrections), 0),
+      byField: byField.map((row) => ({
+        fieldPath: row.field_path,
+        corrections: Number(row.corrections),
+        averageConfidence: row.average_confidence === null ? null : Number(row.average_confidence),
+      })),
+      byDocumentType: byDocumentType.map((row) => ({
+        documentType: row.document_type,
+        corrections: Number(row.corrections),
+        averageConfidence: row.average_confidence === null ? null : Number(row.average_confidence),
+      })),
+    };
+  }
+
+  /**
+   * REV-002: the training hand-off.
+   *
+   * Refused unless the organisation has explicitly opted in (and the caller is an admin): using a
+   * customer's corrections for training without consent is not a configuration detail.
+   */
+  async correctionsForTraining(actor: AuthenticatedActor, limit = 500) {
+    if (!roleAtLeast(actor.role, 'admin')) {
+      throw new AppError('ROLE_REQUIRED', 'Only admins can export correction data.');
+    }
+    const organisation = await this.db.one<{ learning_opt_in: number }>(
+      'SELECT learning_opt_in FROM organisations WHERE id = ?',
+      [actor.organisationId],
+    );
+    if (Number(organisation?.learning_opt_in ?? 0) !== 1) {
+      throw new AppError(
+        'CONFLICT',
+        'This organisation has not opted in to using corrections for training.',
+      );
+    }
+
+    const rows = await this.changes.listForTraining(actor.organisationId, Math.min(limit, 5000));
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      action: 'review.corrections_exported',
+      targetType: 'organisation',
+      targetId: actor.organisationId,
+      metadata: { rows: rows.length },
+    });
+
+    return {
+      organisationId: actor.organisationId,
+      exportedAt: nowIso(),
+      rows: rows.map((row) => ({
+        documentType: row.document_type,
+        fieldPath: row.field_path,
+        originalValue: row.original_value,
+        correctedValue: row.corrected_value,
+        originalConfidence: row.original_confidence,
+        createdAt: row.created_at,
+      })),
+    };
   }
 
   private async requireDocument(actor: AuthenticatedActor, id: string): Promise<DocumentRow> {

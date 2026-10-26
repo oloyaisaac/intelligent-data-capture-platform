@@ -7,7 +7,6 @@
     "types": ["vite/client", "node"],
     "moduleResolution": "bundler",
     "module": "ESNext",
-    "allowImportingTsExtensions": false,
     "allowSyntheticDefaultImports": true
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]

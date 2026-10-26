@@ -278,6 +278,7 @@ export function App(): React.JSX.Element {
           {route.name === 'documents' && (
             <DocumentsPage
               client={client}
+              accessToken={client.currentAccessToken()}
               initial={{ status: route.status }}
               onOpenReview={(documentId) => navigate({ name: 'review', documentId })}
             />

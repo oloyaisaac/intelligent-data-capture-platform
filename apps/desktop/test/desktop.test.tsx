@@ -19,9 +19,12 @@ import { LOCALE_OPTIONS, loadLocale, resolveLocale, saveLocale, translator } fro
 import { createTranslator, translationCoverage } from '@idcp/shared';
 import { LoginPage } from '../src/pages/LoginPage';
 import { AcceptInvitePage } from '../src/pages/AcceptInvitePage';
+import { SendToDestination } from '../src/components/SendToDestination';
 import { BatchesPage } from '../src/pages/BatchesPage';
+import { DocumentsPage } from '../src/pages/DocumentsPage';
 import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { ReviewPage } from '../src/pages/ReviewPage';
+import { SettingsPage } from '../src/pages/SettingsPage';
 import type { Udm } from '@idcp/shared';
 
 /**
@@ -634,5 +637,248 @@ describe('accept-invitation screen (TEAM-001)', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('do not match');
     expect(called).toBe(false);
+  });
+});
+
+describe('duplicate check before sending (DUP-001)', () => {
+  afterEach(cleanup);
+
+  function stubClient(overrides: Partial<Record<string, unknown>> = {}): ApiClient {
+    return {
+      listConnectors: async () => ({
+        items: [
+          {
+            id: 'conn-1',
+            type: 'sqlite',
+            name: 'Accounts DB',
+            status: 'active',
+            config: {},
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+      listMappingProfiles: async () => ({
+        items: [
+          {
+            id: 'map-1',
+            connectorId: 'conn-1',
+            documentType: 'invoice',
+            name: 'Invoices',
+            fieldMap: [],
+            duplicatePolicy: 'skip',
+            duplicateKeys: ['invoice_number'],
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+      checkDuplicates: async () => ({
+        connectorId: 'conn-1',
+        mappingProfileId: 'map-1',
+        documentId: 'doc-1',
+        keys: ['invoice_number'],
+        policy: 'skip',
+        threshold: 0.85,
+        isDuplicate: true,
+        bestScore: 1,
+        matchedKeys: ['invoice_number'],
+        candidates: [
+          { score: 1, matchedKeys: ['invoice_number'], values: { invoice_number: 'INV-1042' } },
+        ],
+      }),
+      sendDocument: async () => ({
+        status: 'skipped_duplicate',
+        summary: 'A matching record already exists; skipped.',
+        created: 0,
+        updated: 0,
+        skipped: 1,
+      }),
+      ...overrides,
+    } as unknown as ApiClient;
+  }
+
+  it('shows the score, the matched keys and the existing row', async () => {
+    render(<SendToDestination client={stubClient()} documentId="doc-1" approved />);
+
+    // Wait for the connector to load: a select cannot take a value it does not yet offer.
+    await screen.findByRole('option', { name: 'Accounts DB' });
+    fireEvent.change(screen.getByLabelText('Connector'), { target: { value: 'conn-1' } });
+    fireEvent.change(await screen.findByLabelText('Mapping profile'), {
+      target: { value: 'map-1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Check for duplicates' }));
+
+    expect(await screen.findByText('duplicate found')).toBeTruthy();
+    // The matched key and the existing row are shown as evidence, not just a verdict.
+    expect((await screen.findAllByText(/invoice_number/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/INV-1042/)).length).toBeGreaterThan(0);
+    expect(screen.getByText(/best score 100%/)).toBeTruthy();
+  });
+
+  it('does not offer sending for an unapproved record', () => {
+    render(<SendToDestination client={stubClient()} documentId="doc-1" approved={false} />);
+    const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(screen.getByText(/Approve this record before sending/i)).toBeTruthy();
+  });
+});
+
+describe('correction learning (REV-002)', () => {
+  const stats = {
+    optIn: false,
+    total: 3,
+    byField: [
+      { fieldPath: 'invoice.number', corrections: 2, averageConfidence: 0.42 },
+      { fieldPath: 'total.amount', corrections: 1, averageConfidence: 0.71 },
+    ],
+    byDocumentType: [{ documentType: 'invoice', corrections: 3, averageConfidence: 0.5 }],
+  };
+
+  function settingsClient(overrides: Record<string, unknown> = {}): ApiClient {
+    return {
+      organisation: async () => ({
+        id: 'org-1',
+        name: 'Test Trading',
+        slug: 'test-trading',
+        plan: 'free',
+        retentionDays: 90,
+        aiProvider: 'local',
+        learningOptIn: false,
+        createdAt: new Date().toISOString(),
+      }),
+      listUsers: async () => ({ items: [] }),
+      auditLogs: async () => ({ items: [] }),
+      listApiKeys: async () => ({ items: [] }),
+      correctionStats: async () => stats,
+      updateOrganisation: async (input: { learningOptIn?: boolean }) => ({
+        id: 'org-1',
+        name: 'Test Trading',
+        slug: 'test-trading',
+        plan: 'free',
+        retentionDays: 90,
+        aiProvider: 'local',
+        learningOptIn: Boolean(input.learningOptIn),
+        createdAt: new Date().toISOString(),
+      }),
+      exportCorrections: async () => ({
+        organisationId: 'org-1',
+        exportedAt: new Date().toISOString(),
+        rows: [],
+      }),
+      ...overrides,
+    } as unknown as ApiClient;
+  }
+
+  it('shows which fields keep needing correction, without any document content', async () => {
+    render(<SettingsPage client={settingsClient()} role="owner" />);
+
+    expect(await screen.findByText('invoice.number')).toBeTruthy();
+    expect(screen.getByText('total.amount')).toBeTruthy();
+    // Average confidence is formatted for humans, not printed as a raw float.
+    expect(screen.getByText('42%')).toBeTruthy();
+    expect(screen.getByText('Not enabled')).toBeTruthy();
+  });
+
+  it('keeps training export off until an admin opts in', async () => {
+    const updateOrganisation = jest.fn(async () => ({
+      id: 'org-1',
+      name: 'Test Trading',
+      slug: 'test-trading',
+      plan: 'free',
+      retentionDays: 90,
+      aiProvider: 'local',
+      learningOptIn: true,
+      createdAt: new Date().toISOString(),
+    }));
+    render(<SettingsPage client={settingsClient({ updateOrganisation })} role="owner" />);
+
+    const toggle = (await screen.findByLabelText(
+      /Use corrections to improve extraction/i,
+    )) as HTMLInputElement;
+    const exportButton = screen.getByRole('button', {
+      name: 'Export corrections',
+    }) as HTMLButtonElement;
+    expect(toggle.checked).toBe(false);
+    expect(exportButton.disabled).toBe(true);
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(updateOrganisation).toHaveBeenCalled());
+    expect(updateOrganisation).toHaveBeenCalledWith({ learningOptIn: true });
+  });
+
+  it('does not show the opt-in to a reviewer', async () => {
+    render(<SettingsPage client={settingsClient()} role="reviewer" />);
+    await screen.findByText('invoice.number');
+    expect(screen.queryByRole('button', { name: 'Export corrections' })).toBeNull();
+  });
+});
+
+describe('desktop job dashboard (DESK-002)', () => {
+  afterEach(cleanup);
+
+  const cleanDocument = {
+    id: 'doc-clean',
+    status: 'needs_review',
+    documentType: 'receipt' as const,
+    mimeType: 'image/png',
+    sizeBytes: 512,
+    pageCount: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  const blockedDocument = { ...cleanDocument, id: 'doc-blocked', documentType: 'invoice' as const };
+
+  it('bulk approves only the records with nothing left to check, and says what it skipped', async () => {
+    const bulkApprove = jest.fn(async () => ({
+      approved: ['doc-clean'],
+      skipped: [{ documentId: 'doc-blocked', blocking: [] }],
+    }));
+    const client = {
+      reviewQueue: async () => ({
+        items: [
+          { document: cleanDocument, extractionId: 'e1', confidence: 0.97, blockingFields: [] },
+          {
+            document: blockedDocument,
+            extractionId: 'e2',
+            confidence: 0.4,
+            blockingFields: [{ path: 'invoice.total', reason: 'low_confidence', confidence: 0.4 }],
+          },
+        ],
+        total: 2,
+      }),
+      bulkApprove,
+    } as unknown as ApiClient;
+
+    render(<ReviewPage client={client} />);
+
+    const select = await screen.findByRole('button', { name: 'Select clean (1)' });
+    fireEvent.click(select);
+    fireEvent.click(screen.getByRole('button', { name: 'Approve selected (1)' }));
+
+    await waitFor(() => expect(bulkApprove).toHaveBeenCalledWith(['doc-clean']));
+    expect(await screen.findByText(/Skipped 1\./)).toBeTruthy();
+    expect(screen.getByText(/invoice \(1\)/)).toBeTruthy();
+  });
+
+  it('narrows the document list by device, alongside status, type and date', async () => {
+    const listDocuments = jest.fn(async (_query: Record<string, unknown>) => ({
+      items: [],
+      nextCursor: null,
+    }));
+    const client = {
+      listDevices: async () => ({
+        items: [{ id: 'dev-1', name: 'Front desk phone', platform: 'android', status: 'active' }],
+      }),
+      listDocuments,
+    } as unknown as ApiClient;
+
+    render(<DocumentsPage client={client} onOpenReview={() => undefined} />);
+
+    const device = await screen.findByLabelText('Device');
+    await screen.findByRole('option', { name: 'Front desk phone' });
+    fireEvent.change(device, { target: { value: 'dev-1' } });
+
+    await waitFor(() =>
+      expect(listDocuments).toHaveBeenCalledWith(expect.objectContaining({ deviceId: 'dev-1' })),
+    );
   });
 });

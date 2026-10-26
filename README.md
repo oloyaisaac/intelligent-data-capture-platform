@@ -216,10 +216,10 @@ Right now only `npm install` is meaningful. See [`TASKS.md`](TASKS.md) for the p
 
 | Milestone | Goal                                                                   | Status      |
 | --------- | ---------------------------------------------------------------------- | ----------- |
-| **M0**    | Foundation: docs, tooling, monorepo, CI                                | In progress |
-| **M1**    | MVP vertical slice: pair → capture → extract → review → export         | Pending     |
-| **M2**    | Connector platform, mapping, templates, duplicates, teams              | Pending     |
-| **M3**    | Enterprise integrations, developer API, marketplace, agents, analytics | Pending     |
+| **M0**    | Foundation: docs, tooling, monorepo, CI                                | Done        |
+| **M1**    | MVP vertical slice: pair → capture → extract → review → export         | Done        |
+| **M2**    | Connector platform, mapping, templates, duplicates, teams              | Done        |
+| **M3**    | Enterprise integrations, developer API, marketplace, agents, analytics | In progress |
 
 Story-level detail and statuses live in [`PRD.json`](PRD.json).
 

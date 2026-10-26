@@ -12,8 +12,10 @@ import type {
   CreateMappingProfileRequest,
   CreatePairingSessionResponse,
   CreateTemplateRequest,
+  CorrectionStatsResponse,
   CreatedApiKey,
   Device,
+  DuplicateCheckResponse,
   DocumentListResponse,
   DocumentResultResponse,
   DocumentSummary,
@@ -486,14 +488,50 @@ export class ApiClient {
     return this.request(`/mapping-profiles/${id}`, { method: 'DELETE' });
   }
 
+  /** DUP-001: what would happen if this record were sent, and why (read-only). */
+  checkDuplicates(
+    documentId: string,
+    query: { connectorId: string; mappingProfileId: string },
+  ): Promise<DuplicateCheckResponse> {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    return this.request(`/documents/${documentId}/duplicates?${params.toString()}`);
+  }
+
   sendDocument(
     documentId: string,
     input: { connectorId: string; mappingProfileId: string },
   ): Promise<{
     status: string;
     created: number;
+    updated: number;
+    skipped: number;
+    summary: string;
   }> {
     return this.request(`/documents/${documentId}/send`, { method: 'POST', body: input });
+  }
+
+  /** REV-002: aggregates of what reviewers keep correcting, with the opt-in state. */
+  correctionStats(): Promise<CorrectionStatsResponse> {
+    return this.request('/review/corrections');
+  }
+
+  /** REV-002: admin-only, and refused unless the organisation opted in. */
+  exportCorrections(limit = 500): Promise<{
+    organisationId: string;
+    exportedAt: string;
+    rows: Array<{
+      documentType: string | null;
+      fieldPath: string;
+      originalValue: string | null;
+      correctedValue: string | null;
+      originalConfidence: number | null;
+      createdAt: string;
+    }>;
+  }> {
+    return this.request('/review/corrections/export', { method: 'POST', body: { limit } });
   }
 
   // --- Organisation -------------------------------------------------------
@@ -506,6 +544,7 @@ export class ApiClient {
     name?: string;
     retentionDays?: number;
     aiProvider?: 'local' | 'cloud';
+    learningOptIn?: boolean;
   }): Promise<Organisation> {
     return this.request('/organisation', { method: 'PATCH', body: input });
   }

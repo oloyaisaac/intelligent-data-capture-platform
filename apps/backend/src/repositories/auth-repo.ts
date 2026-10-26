@@ -15,13 +15,14 @@ export class OrganisationsRepository {
       plan: input.plan ?? 'free',
       retention_days: 90,
       ai_provider: 'local',
+      learning_opt_in: 0,
       settings: '{}',
       created_at: nowIso(),
       updated_at: nowIso(),
     };
     await this.db.execute(
-      `INSERT INTO organisations (id, name, slug, plan, retention_days, ai_provider, settings, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO organisations (id, name, slug, plan, retention_days, ai_provider, learning_opt_in, settings, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.name,
@@ -29,6 +30,7 @@ export class OrganisationsRepository {
         row.plan,
         row.retention_days,
         row.ai_provider,
+        row.learning_opt_in,
         row.settings,
         row.created_at,
         row.updated_at,
@@ -47,14 +49,25 @@ export class OrganisationsRepository {
 
   async update(
     id: string,
-    patch: Partial<Pick<OrganisationRow, 'name' | 'retention_days' | 'ai_provider' | 'plan'>>,
+    patch: Partial<
+      Pick<OrganisationRow, 'name' | 'retention_days' | 'ai_provider' | 'plan' | 'learning_opt_in'>
+    >,
   ): Promise<OrganisationRow | null> {
     const current = await this.findById(id);
     if (!current) return null;
     const next = { ...current, ...patch, updated_at: nowIso() };
     await this.db.execute(
-      `UPDATE organisations SET name = ?, plan = ?, retention_days = ?, ai_provider = ?, updated_at = ? WHERE id = ?`,
-      [next.name, next.plan, next.retention_days, next.ai_provider, next.updated_at, id],
+      `UPDATE organisations SET name = ?, plan = ?, retention_days = ?, ai_provider = ?,
+        learning_opt_in = ?, updated_at = ? WHERE id = ?`,
+      [
+        next.name,
+        next.plan,
+        next.retention_days,
+        next.ai_provider,
+        next.learning_opt_in,
+        next.updated_at,
+        id,
+      ],
     );
     return next;
   }

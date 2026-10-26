@@ -38,16 +38,17 @@ organisations 1─┬─* users ──* memberships (role)     org-scoped roles
 
 ### 3.1 `organisations`
 
-| Column                  | Type                            | Notes                                  |
-| ----------------------- | ------------------------------- | -------------------------------------- |
-| id                      | uuid PK                         |                                        |
-| name                    | text not null                   |                                        |
-| slug                    | text unique not null            | URL-safe identifier                    |
-| plan                    | text not null default `'free'`  | `free`, `team`, `enterprise`           |
-| retention_days          | integer not null default 90     | 0 = keep until deleted                 |
-| ai_provider             | text not null default `'local'` | `local`, or an approved cloud provider |
-| settings                | jsonb not null default `'{}'`   | non-critical toggles                   |
-| created_at / updated_at | timestamptz                     |                                        |
+| Column                  | Type                            | Notes                                       |
+| ----------------------- | ------------------------------- | ------------------------------------------- |
+| id                      | uuid PK                         |                                             |
+| name                    | text not null                   |                                             |
+| slug                    | text unique not null            | URL-safe identifier                         |
+| plan                    | text not null default `'free'`  | `free`, `team`, `enterprise`                |
+| retention_days          | integer not null default 90     | 0 = keep until deleted                      |
+| ai_provider             | text not null default `'local'` | `local`, or an approved cloud provider      |
+| learning_opt_in         | integer not null default 0      | 1 = corrections may feed training (REV-002) |
+| settings                | jsonb not null default `'{}'`   | non-critical toggles                        |
+| created_at / updated_at | timestamptz                     |                                             |
 
 ### 3.2 `users`
 
@@ -230,16 +231,17 @@ Index: `(extraction_id)`, `(extraction_id, needs_review)`.
 
 Immutable record of every field edit — the basis of learning and audit.
 
-| Column              | Type            | Notes       |
-| ------------------- | --------------- | ----------- |
-| id                  | uuid PK         |             |
-| review_id           | uuid FK         |             |
-| field_path          | text not null   |             |
-| original_value 🔒   | text            | AI value    |
-| corrected_value 🔒  | text            | human value |
-| original_confidence | numeric(4,3)    |             |
-| changed_by          | uuid FK → users |             |
-| created_at          | timestamptz     |             |
+| Column              | Type            | Notes                                        |
+| ------------------- | --------------- | -------------------------------------------- |
+| id                  | uuid PK         |                                              |
+| review_id           | uuid FK         |                                              |
+| field_path          | text not null   |                                              |
+| original_value 🔒   | text            | AI value                                     |
+| corrected_value 🔒  | text            | human value                                  |
+| original_confidence | numeric(4,3)    |                                              |
+| document_type       | text            | type at the time of the correction (REV-002) |
+| changed_by          | uuid FK → users |                                              |
+| created_at          | timestamptz     |                                              |
 
 ### 3.14 `connectors`
 
@@ -485,3 +487,6 @@ Deletion must remove the storage object and the database rows, and must be recor
 - Migrations are forward-only once released; write a new migration instead of editing a released one.
 - Destructive migrations (drop/rename) require a two-step release: add-and-backfill, then remove.
 - `DB-001` must include a seed script creating one demo organisation, one admin user and one disabled sample connector.
+- Applied migrations: `001_initial_schema`, `002_connector_and_export_columns`,
+  `003_templates_and_api_keys`, `004_batches_projects_invitations`, `005_corrections_learning_opt_in`.
+  `005` adds `review_changes.document_type` and `organisations.learning_opt_in` (REV-002).

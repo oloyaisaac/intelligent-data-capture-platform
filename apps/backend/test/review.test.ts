@@ -1,4 +1,5 @@
 import {
+  acceptInvite,
   approveDocument,
   createHarness,
   drainWorker,
@@ -212,5 +213,103 @@ some text without any labels at all`);
       body: { changes: [{ fieldPath: 'total.amount', value: 1 }] },
     });
     expect(response.statusCode).toBe(409);
+  });
+
+  describe('REV-002 correction capture', () => {
+    it('records the document type with every correction and aggregates it per organisation', async () => {
+      const { account, documentId } = await uploadAndProcess();
+      const review = await openReview(harness, account, documentId);
+      const target = review.blocking.find((field) => field.path !== 'documentType');
+      expect(target).toBeDefined();
+
+      const patched = await harness.api.json('PATCH', `/api/v1/review/${review.reviewId}/fields`, {
+        token: account.accessToken,
+        body: { changes: [{ fieldPath: target!.path, value: 'CORRECTED-1' }] },
+      });
+      expect(patched.statusCode).toBe(200);
+
+      const stored = await harness.db.one<{ document_type: string }>(
+        'SELECT document_type FROM review_changes WHERE review_id = ? AND field_path = ?',
+        [review.reviewId, target!.path],
+      );
+      expect(stored?.document_type).toBe(review.documentType);
+
+      const stats = await harness.api.json('GET', '/api/v1/review/corrections', {
+        token: account.accessToken,
+      });
+      expect(stats.statusCode).toBe(200);
+      const body = stats.json<{
+        optIn: boolean;
+        total: number;
+        byField: Array<{ fieldPath: string; corrections: number }>;
+        byDocumentType: Array<{ documentType: string | null; corrections: number }>;
+      }>();
+      expect(body.optIn).toBe(false);
+      expect(body.total).toBe(1);
+      expect(body.byField[0]).toMatchObject({ fieldPath: target!.path, corrections: 1 });
+      expect(body.byDocumentType[0]).toMatchObject({
+        documentType: review.documentType,
+        corrections: 1,
+      });
+    });
+
+    it('refuses the training export until the organisation opts in', async () => {
+      const { account, documentId } = await uploadAndProcess();
+      const review = await openReview(harness, account, documentId);
+      const target = review.blocking.find((field) => field.path !== 'documentType')!;
+      await harness.api.json('PATCH', `/api/v1/review/${review.reviewId}/fields`, {
+        token: account.accessToken,
+        body: { changes: [{ fieldPath: target.path, value: 'CORRECTED-2' }] },
+      });
+
+      const blocked = await harness.api.json('POST', '/api/v1/review/corrections/export', {
+        token: account.accessToken,
+        body: {},
+      });
+      expect(blocked.statusCode).toBe(409);
+
+      const optIn = await harness.api.json('PATCH', '/api/v1/organisation', {
+        token: account.accessToken,
+        body: { learningOptIn: true },
+      });
+      expect(optIn.statusCode).toBe(200);
+      expect(optIn.json<{ learningOptIn: boolean }>().learningOptIn).toBe(true);
+
+      const exported = await harness.api.json('POST', '/api/v1/review/corrections/export', {
+        token: account.accessToken,
+        body: { limit: 10 },
+      });
+      expect(exported.statusCode).toBe(200);
+      const rows = exported.json<{
+        rows: Array<{ documentType: string | null; fieldPath: string; correctedValue: string }>;
+      }>().rows;
+      expect(rows.length).toBe(1);
+      expect(rows[0]).toMatchObject({
+        documentType: review.documentType,
+        fieldPath: target.path,
+        correctedValue: 'CORRECTED-2',
+      });
+    });
+
+    it('keeps the aggregate visible to reviewers but the export to admins', async () => {
+      const { account: owner } = await uploadAndProcess();
+      const invited = await harness.api.json('POST', '/api/v1/users/invite', {
+        token: owner.accessToken,
+        body: { email: 'reviewer-rev002@example.com', role: 'reviewer' },
+      });
+      expect(invited.statusCode).toBe(202);
+      const reviewer = await acceptInvite(harness, 'reviewer-rev002@example.com');
+
+      const asReviewer = await harness.api.json('POST', '/api/v1/review/corrections/export', {
+        token: reviewer.accessToken,
+        body: {},
+      });
+      expect(asReviewer.statusCode).toBe(403);
+
+      const stats = await harness.api.json('GET', '/api/v1/review/corrections', {
+        token: reviewer.accessToken,
+      });
+      expect(stats.statusCode).toBe(200);
+    });
   });
 });

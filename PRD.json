@@ -17,9 +17,9 @@
   ],
   "platforms": ["Android", "iOS", "Windows", "macOS", "Linux", "Backend API"],
   "currentState": {
-    "phase": "Phase 1 (MVP) - foundation",
-    "summary": "Repository scaffold only. Dependency manifest and source requirement documents exist; no application source code, backend, database or tests exist yet.",
-    "codeStatus": "docs-only"
+    "phase": "Phase 3 \u2014 platform breadth",
+    "summary": "M1 and M2 are complete and the mobile capture pipeline now finds the page itself: edge detection, orientation, crop, enhancement and compression are pure, tested functions wired through a frame bridge. The remaining work is the Phase 3 tail (CRM connectors, marketplace, workflow agents, voice) plus the translation sweep.",
+    "codeStatus": "beta"
   },
   "statusLegend": {
     "done": "Implemented, tested and verified against its acceptance criteria.",
@@ -418,7 +418,7 @@
       "id": "MOB-002",
       "epic": "EP-CAPTURE",
       "title": "Camera capture with edge detection and enhancement",
-      "status": "in_progress",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "In-app camera with document edge detection, crop, perspective correction, rotation and basic enhancement (contrast/shadow removal) before upload.",
@@ -430,6 +430,9 @@
       "dependsOn": ["MOB-001"],
       "artifacts": [
         "apps/mobile/src/capture/imagePipeline.ts",
+        "apps/mobile/src/capture/edgeDetection.ts",
+        "apps/mobile/src/capture/useDocumentDetector.ts",
+        "apps/mobile/src/capture/frameProcessor.tsx",
         "apps/mobile/src/screens/CaptureScreen.tsx"
       ]
     },
@@ -480,7 +483,7 @@
       "priority": "must",
       "description": "Asynchronous job pipeline that runs OCR (with a local engine as default and a cloud provider as an option) and stores per-page text with word-level geometry.",
       "acceptanceCriteria": [
-        "Jobs run asynchronously with status transitions queued → running → succeeded/failed.",
+        "Jobs run asynchronously with status transitions queued \u2192 running \u2192 succeeded/failed.",
         "Failures are retried with backoff and surface an actionable error message.",
         "Per-page text and geometry are persisted for downstream extraction.",
         "Average invoice-sized page processes in under 10 seconds in the reference environment."
@@ -497,7 +500,7 @@
       "priority": "must",
       "description": "Classify each document into form, receipt, invoice, ID, contract, table or handwritten and store a confidence score.",
       "acceptanceCriteria": [
-        "Classifier returns the document type plus a 0–1 confidence.",
+        "Classifier returns the document type plus a 0\u20131 confidence.",
         "Low-confidence classifications are flagged for human review.",
         "Classification accuracy meets the agreed benchmark on the labelled test set."
       ],
@@ -583,7 +586,7 @@
       "id": "REV-002",
       "epic": "EP-REVIEW",
       "title": "Correction capture for learning",
-      "status": "in_progress",
+      "status": "done",
       "phase": 2,
       "priority": "should",
       "description": "Store human corrections in a structured form usable for field mapping suggestions and future model or prompt improvements.",
@@ -595,7 +598,9 @@
       "dependsOn": ["REV-001"],
       "artifacts": [
         "apps/backend/src/services/review-service.ts",
-        "apps/backend/src/repositories/review-repo.ts"
+        "apps/backend/src/repositories/review-repo.ts",
+        "apps/backend/src/http/routes/review-routes.ts",
+        "apps/desktop/src/pages/SettingsPage.tsx"
       ]
     },
     {
@@ -635,7 +640,7 @@
       "id": "DESK-001",
       "epic": "EP-DESKTOP",
       "title": "Desktop application shell",
-      "status": "in_progress",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Electron desktop client for Windows, macOS and Linux with secure defaults (context isolation, no remote module, explicit IPC allow-list) and auto-update plumbing.",
@@ -649,14 +654,17 @@
       "artifacts": [
         "apps/desktop/src/App.tsx",
         "apps/desktop/src/main/electron-main.ts",
-        "apps/desktop/src/main/preload.ts"
+        "apps/desktop/src/main/preload.ts",
+        "apps/desktop/electron-builder.json",
+        "apps/desktop/tsconfig.electron.json",
+        "scripts/validate-packaging.mjs"
       ]
     },
     {
       "id": "DESK-002",
       "epic": "EP-DESKTOP",
       "title": "Desktop review and job dashboard",
-      "status": "in_progress",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Dashboard listing incoming documents, live processing status and review queues, with bulk approve and export actions.",
@@ -668,7 +676,9 @@
       "dependsOn": ["DESK-001", "REV-001", "PAIR-003"],
       "artifacts": [
         "apps/desktop/src/pages/DashboardPage.tsx",
-        "apps/desktop/src/pages/DocumentsPage.tsx"
+        "apps/desktop/src/pages/DocumentsPage.tsx",
+        "apps/desktop/src/pages/ReviewPage.tsx",
+        "apps/desktop/src/lib/realtime.ts"
       ]
     },
     {
@@ -747,7 +757,7 @@
       "id": "DUP-001",
       "epic": "EP-MAP",
       "title": "Duplicate detection and merge",
-      "status": "in_progress",
+      "status": "done",
       "phase": 2,
       "priority": "must",
       "description": "Detect likely duplicates using configurable keys and fuzzy matching, then append, update, merge or skip according to policy.",
@@ -759,7 +769,9 @@
       "dependsOn": ["MAP-001"],
       "artifacts": [
         "packages/shared/src/dedupe.ts",
-        "apps/backend/src/services/connector-service.ts"
+        "apps/backend/src/services/connector-service.ts",
+        "apps/backend/src/http/routes/connector-routes.ts",
+        "apps/desktop/src/components/SendToDestination.tsx"
       ]
     },
     {
@@ -890,7 +902,7 @@
       "id": "CRM-001",
       "epic": "EP-ENTERPRISE",
       "title": "CRM, ERP and accounting connectors",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "should",
       "description": "First-party connectors for at least one CRM, one ERP and one accounting system, following the connector contract.",
@@ -901,9 +913,11 @@
       ],
       "dependsOn": ["CON-001", "MAP-001", "DUP-001"],
       "artifacts": [
-        "packages/connectors/src/crm/*",
-        "packages/connectors/src/erp/*",
-        "packages/connectors/src/accounting/*"
+        "packages/connectors/src/crm/http.ts",
+        "packages/connectors/src/crm/hubspot-connector.ts",
+        "packages/connectors/src/crm/odoo-connector.ts",
+        "packages/connectors/src/crm/quickbooks-connector.ts",
+        "packages/connectors/src/registry.ts"
       ]
     },
     {
@@ -929,7 +943,7 @@
       "status": "pending",
       "phase": 3,
       "priority": "could",
-      "description": "Rule and agent driven workflows, e.g. invoice uploaded → extracted → validated → saved to accounting → user notified.",
+      "description": "Rule and agent driven workflows, e.g. invoice uploaded \u2192 extracted \u2192 validated \u2192 saved to accounting \u2192 user notified.",
       "acceptanceCriteria": [
         "Workflows can be created from a visual builder.",
         "Each run is logged with inputs, outputs and failures.",

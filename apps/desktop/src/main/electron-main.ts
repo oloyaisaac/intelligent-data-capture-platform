@@ -44,7 +44,7 @@ interface ElectronApi {
   shell: { openExternal(url: string): Promise<void> };
 }
 
-const TOKEN_FILE = 'session.bin';
+export const TOKEN_FILE = 'session.bin';
 
 export interface TokenShape {
   accessToken: string | null;

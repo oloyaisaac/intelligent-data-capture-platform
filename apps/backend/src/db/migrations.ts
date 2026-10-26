@@ -390,6 +390,15 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX idx_invitations_org ON invitations(organisation_id, created_at DESC)`,
     ],
   },
+  {
+    // REV-002: corrections carry the document type they belong to, and training use is opt-in.
+    id: '005_corrections_learning_opt_in',
+    sql: [
+      'ALTER TABLE review_changes ADD COLUMN document_type TEXT',
+      'ALTER TABLE organisations ADD COLUMN learning_opt_in INTEGER NOT NULL DEFAULT 0',
+      'CREATE INDEX idx_review_changes_document_type ON review_changes(document_type)',
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {

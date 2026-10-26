@@ -484,6 +484,19 @@ paths:
       responses:
         '200': { description: Review session with the UDM and blocking fields }
         '409': { description: The document has not been processed yet }
+  /documents/{id}/duplicates:
+    get:
+      tags: [Connectors]
+      summary: Would this record duplicate an existing destination row? (read-only)
+      operationId: checkDuplicates
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: connectorId, in: query, required: true, schema: { type: string } }
+        - { name: mappingProfileId, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`isDuplicate`, `bestScore`, `matchedKeys`, `threshold`, `candidates`'
+        '404': { description: Document, connector or mapping profile not found }
   /documents/{id}/send:
     post:
       tags: [Connectors]
@@ -567,6 +580,30 @@ paths:
                 reason: { type: string, maxLength: 2000 }
       responses:
         '200': { description: Rejected }
+  /review/corrections:
+    get:
+      tags: [Review]
+      summary: What reviewers keep correcting, by field and document type (aggregates only)
+      operationId: correctionStats
+      responses:
+        '200': { description: '`optIn`, `total`, `byField`, `byDocumentType`' }
+  /review/corrections/export:
+    post:
+      tags: [Review]
+      summary: Export corrections for training (admin, requires opt-in)
+      operationId: exportCorrections
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit: { type: integer, minimum: 1, maximum: 5000 }
+      responses:
+        '200': { description: Correction rows with document type, field and confidence }
+        '403': { description: Admin role required }
+        '409': { description: The organisation has not opted in to training use }
   /review/bulk-approve:
     post:
       tags: [Review]

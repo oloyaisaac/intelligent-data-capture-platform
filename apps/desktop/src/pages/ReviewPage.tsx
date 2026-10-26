@@ -10,6 +10,7 @@ import {
 } from '../lib/review';
 import { confidenceTone, formatDateTime, formatPercent, titleCase } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Modal, useAsync } from '../components/ui';
+import { SendToDestination } from '../components/SendToDestination';
 
 /**
  * REV-001 — the review workspace.
@@ -34,13 +35,56 @@ export function ReviewPage({
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [syncKey, setSyncKey] = useState(0);
+  /** Kept after approval so the record can still be sent to a destination (DUP-001). */
+  const [approvedDocumentId, setApprovedDocumentId] = useState<string | null>(null);
+  /** DESK-002: bulk approval works on the queue, and reports what it refused and why. */
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulk, setBulk] = useState<{ approved: number; skipped: ReviewQueueItem[] } | null>(null);
   void syncKey;
+
+  const cleanIds = useMemo(
+    () => (queue.data?.items ?? []).filter((item) => item.blockingFields.length === 0),
+    [queue.data],
+  );
+
+  const toggleSelected = (documentId: string, next: boolean) => {
+    setSelected((current) =>
+      next ? [...new Set([...current, documentId])] : current.filter((id) => id !== documentId),
+    );
+  };
+
+  const bulkApprove = async () => {
+    if (selected.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setBulk(null);
+    try {
+      const result = await client.bulkApprove(selected);
+      const skipped = (queue.data?.items ?? []).filter((item) =>
+        result.skipped.some((entry) => entry.documentId === item.document.id),
+      );
+      setBulk({ approved: result.approved.length, skipped });
+      setSelected([]);
+      setSession(null);
+      setNotice(
+        result.skipped.length === 0
+          ? `${result.approved.length} record(s) approved.`
+          : `${result.approved.length} approved, ${result.skipped.length} left for a human.`,
+      );
+      await queue.reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not approve those records.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const open = async (documentId: string) => {
     setBusy(true);
     setError(null);
     setNotice(null);
     setEdited({});
+    setApprovedDocumentId(null);
     try {
       setSession(await client.openReview(documentId));
     } catch (caught) {
@@ -106,7 +150,8 @@ export function ReviewPage({
     setError(null);
     try {
       await client.approveReview(session.reviewId);
-      setNotice('Record approved.');
+      setNotice('Record approved. It can now be sent to a destination.');
+      setApprovedDocumentId(session.document.id);
       setSession(null);
       await queue.reload();
     } catch (caught) {
@@ -174,9 +219,48 @@ export function ReviewPage({
           {notice}
         </div>
       )}
+      {bulk && bulk.skipped.length > 0 && (
+        <div className="banner warning" role="status">
+          <strong>Skipped {bulk.skipped.length}.</strong> These records still have fields to
+          resolve:{' '}
+          {bulk.skipped
+            .map((item) => `${item.document.documentType} (${item.blockingFields.length})`)
+            .join(', ')}
+          .
+        </div>
+      )}
 
       <div className="split">
-        <Card title={`Queue (${queue.data?.total ?? 0})`}>
+        <Card
+          title={`Queue (${queue.data?.total ?? 0})`}
+          actions={
+            queue.data && queue.data.items.length > 0 ? (
+              <div className="row">
+                <button
+                  className="button secondary small"
+                  type="button"
+                  disabled={cleanIds.length === 0 || busy}
+                  onClick={() => setSelected(cleanIds.map((item) => item.document.id))}
+                  title={
+                    cleanIds.length === 0
+                      ? 'Every record here still has a field worth a look.'
+                      : 'Select only the records with nothing left to check'
+                  }
+                >
+                  Select clean ({cleanIds.length})
+                </button>
+                <button
+                  className="button small"
+                  type="button"
+                  disabled={selected.length === 0 || busy}
+                  onClick={() => void bulkApprove()}
+                >
+                  Approve selected ({selected.length})
+                </button>
+              </div>
+            ) : null
+          }
+        >
           {queue.loading && !queue.data ? (
             <EmptyState title="Loading…" />
           ) : (queue.data?.items.length ?? 0) === 0 ? (
@@ -185,6 +269,9 @@ export function ReviewPage({
             <table className="table">
               <thead>
                 <tr>
+                  <th style={{ width: 28 }}>
+                    <span className="sr-only">Select</span>
+                  </th>
                   <th>Type</th>
                   <th>Confidence</th>
                   <th>To check</th>
@@ -197,6 +284,14 @@ export function ReviewPage({
                     key={item.document.id}
                     className={session?.document.id === item.document.id ? 'selected' : ''}
                   >
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${item.document.documentType} ${item.document.id}`}
+                        checked={selected.includes(item.document.id)}
+                        onChange={(event) => toggleSelected(item.document.id, event.target.checked)}
+                      />
+                    </td>
                     <td>
                       <div>{titleCase(item.document.documentType)}</div>
                       <div className="dim">{formatDateTime(item.document.createdAt)}</div>
@@ -368,6 +463,14 @@ export function ReviewPage({
           </Card>
         )}
       </div>
+
+      {(session || approvedDocumentId) && (
+        <SendToDestination
+          client={client}
+          documentId={session?.document.id ?? approvedDocumentId ?? ''}
+          approved={session ? session.document.status === 'approved' : true}
+        />
+      )}
 
       {rejecting && (
         <Modal

@@ -27,14 +27,19 @@ M0 and M1 are complete, and these M2 stories are now done too:
 
 ## Now
 
-- [ ] **DASH-001** — replace the counters view with charts over `/stats`, plus an exportable summary.
+- [ ] **MARKET-001** — connector marketplace (permissions, signing, rollback).
+- [ ] **AGENT-001** — workflow automation with run logs.
+- [ ] **VOICE-001** — hands-free guidance and voice commands.
+- [ ] **I18N-001** — sweep the desktop page bodies through the `en/sw/fr` catalogues; check RTL.
 
-## Next
+## Done this round
 
-- [ ] **MOB-002** — crop, enhance and compress before a capture is queued.
-- [ ] **DESK-001 (packaging)** — electron-builder targets and a signed installer, verified on
-      Windows/macOS/Linux.
-- [ ] **I18N-001** — route UI copy through the `en/sw/fr` catalogues and add a language switch.
+- [x] **DUP-001** — side-effect-free duplicate preview and policy-aware send (`skip`/`update`/`merge`/`append`).
+- [x] **REV-002** — document type on every correction, aggregate stats, opt-in training export.
+- [x] **DESK-001** — allow-listed IPC, keychain token file, sandboxed renderer, packaging targets.
+- [x] **DESK-002** — device filter, live document list, bulk approve with a skipped report.
+- [x] **MOB-002** — automatic page detection, EXIF orientation, crop, enhancement and compression.
+- [x] **CRM-001** — HubSpot, Odoo and QuickBooks adapters with a shared HTTP transport.
 
 ## Later (Phase 3)
 

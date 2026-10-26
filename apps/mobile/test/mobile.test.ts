@@ -17,6 +17,14 @@ import {
   resizeFor,
   type ImageTransformer,
 } from '../src/capture/imagePipeline';
+import {
+  detectDocumentQuad,
+  isPlausibleQuad,
+  scaleQuad,
+  smoothQuad,
+} from '../src/capture/edgeDetection';
+import { createFrameBridge } from '../src/capture/useDocumentDetector';
+import { orientationFix } from '../src/capture/imagePipeline';
 
 class MemoryStorage implements QueueStorage {
   items: QueueItem[] = [];
@@ -460,5 +468,260 @@ describe('capture pipeline (MOB-002)', () => {
     expect(calls[0]).toBe('crop');
     expect(result.uri).toBe('file://raw.jpg#enhanced#small#compressed');
     expect(result.plan.steps).toContain('crop unavailable, uploading the full frame');
+  });
+});
+
+describe('edge detection (MOB-002)', () => {
+  // A tiny seeded generator keeps the synthetic frames reproducible run to run.
+  let seedState = 987654321;
+  const pseudoRandom = () => {
+    seedState = (seedState * 1103515245 + 12345) % 2147483648;
+    return seedState / 2147483648;
+  };
+
+  /** Draws a bright page on a dark desk, optionally rotated, with a few text lines inside. */
+  function syntheticFrame(
+    options: {
+      width?: number;
+      height?: number;
+      angle?: number;
+      pageRatio?: number;
+      noise?: number;
+    } = {},
+  ) {
+    const width = options.width ?? 320;
+    const height = options.height ?? 240;
+    const angle = ((options.angle ?? 0) * Math.PI) / 180;
+    const pageRatio = options.pageRatio ?? 0.6;
+    const noise = options.noise ?? 4;
+    const data = new Uint8ClampedArray(width * height).fill(40);
+
+    const halfWidth = (width * pageRatio) / 2;
+    const halfHeight = (height * pageRatio) / 1.6 / 2;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const cx = width / 2;
+    const cy = height / 2;
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const dx = x - cx;
+        const dy = y - cy;
+        // Rotate the point back into the page's own axes.
+        const px = dx * cos + dy * sin;
+        const py = -dx * sin + dy * cos;
+        if (Math.abs(px) <= halfWidth && Math.abs(py) <= halfHeight) {
+          const line = Math.floor((py + halfHeight) / 9) % 2 === 0;
+          data[y * width + x] = line ? 150 : 225;
+        }
+        data[y * width + x] = Math.max(
+          0,
+          Math.min(255, (data[y * width + x] ?? 0) + (pseudoRandom() - 0.5) * 2 * noise),
+        );
+      }
+    }
+
+    return { data, width, height };
+  }
+
+  it('outlines an upright page and reports roughly the area it covers', () => {
+    const frame = syntheticFrame({ angle: 0, pageRatio: 0.6 });
+    const detection = detectDocumentQuad(frame);
+    expect(detection).not.toBeNull();
+    expect(detection!.confidence).toBeGreaterThan(0.5);
+    // The page covers 0.6 × 0.375 of the frame; allow for the threshold shifting the outline.
+    expect(detection!.areaRatio).toBeGreaterThan(0.15);
+    expect(detection!.areaRatio).toBeLessThan(0.4);
+    const corners = [
+      detection!.quad.topLeft,
+      detection!.quad.topRight,
+      detection!.quad.bottomRight,
+      detection!.quad.bottomLeft,
+    ];
+    for (const corner of corners) {
+      expect(corner.x).toBeGreaterThanOrEqual(0);
+      expect(corner.x).toBeLessThanOrEqual(320);
+      expect(corner.y).toBeGreaterThanOrEqual(0);
+      expect(corner.y).toBeLessThanOrEqual(240);
+    }
+  });
+
+  it('keeps the outline on the page when it is tilted', () => {
+    const upright = detectDocumentQuad(syntheticFrame({ angle: 0 }));
+    const tilted = detectDocumentQuad(syntheticFrame({ angle: 18 }));
+    expect(upright).not.toBeNull();
+    expect(tilted).not.toBeNull();
+    // Rotating a rectangle preserves its area, so the detected share should stay comparable.
+    expect(tilted!.areaRatio).toBeGreaterThan(upright!.areaRatio * 0.6);
+    expect(tilted!.areaRatio).toBeLessThan(upright!.areaRatio * 1.6);
+    // A rotation must widen the bounding box rather than leaving a corner at the upright position.
+    const spread = Math.abs(tilted!.quad.topLeft.x - upright!.quad.topLeft.x);
+    expect(spread).toBeGreaterThan(1);
+  });
+
+  it('returns nothing for a blank desk, a tiny frame or noise without a page', () => {
+    const blank = { data: new Uint8ClampedArray(320 * 240).fill(200), width: 320, height: 240 };
+    expect(detectDocumentQuad(blank)).toBeNull();
+    expect(detectDocumentQuad({ data: new Uint8ClampedArray(16), width: 4, height: 4 })).toBeNull();
+
+    // Deterministic pseudo-noise: a flaky detector test is worse than no detector test.
+    let seed = 12345;
+    const nextByte = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return (seed / 2147483648) * 255;
+    };
+    const noise = {
+      data: Uint8ClampedArray.from({ length: 320 * 240 }, nextByte),
+      width: 320,
+      height: 240,
+    };
+    // Edges everywhere means no page: an outline that hugs the frame is discarded, not cropped to.
+    expect(detectDocumentQuad(noise)).toBeNull();
+  });
+
+  it('honours a padded row stride, as VisionCamera planes have', () => {
+    const width = 120;
+    const height = 90;
+    const bytesPerRow = 128;
+    const data = new Uint8Array(bytesPerRow * height).fill(30);
+    for (let y = 20; y < 70; y += 1) {
+      for (let x = 20; x < 100; x += 1) data[y * bytesPerRow + x] = 220;
+    }
+    const detection = detectDocumentQuad({ data, width, height, bytesPerRow });
+    expect(detection).not.toBeNull();
+    expect(detection!.quad.topLeft.x).toBeGreaterThan(0);
+    expect(detection!.quad.bottomRight.x).toBeLessThan(width);
+  });
+
+  it('maps the preview outline onto the photo and smooths it without jumping', () => {
+    const quad = {
+      topLeft: { x: 10, y: 10 },
+      topRight: { x: 90, y: 10 },
+      bottomRight: { x: 90, y: 70 },
+      bottomLeft: { x: 10, y: 70 },
+    };
+    const scaled = scaleQuad(quad, { width: 100, height: 100 }, { width: 3000, height: 4000 });
+    expect(scaled.topRight.x).toBeCloseTo(2700, 5);
+    expect(scaled.bottomLeft.y).toBeCloseTo(2800, 5);
+
+    const smoothed = smoothQuad(
+      quad,
+      { ...quad, topLeft: { x: 20, y: 20 } },
+      { width: 100, height: 100 },
+      0.5,
+    );
+    expect(smoothed.topLeft).toEqual({ x: 15, y: 15 });
+
+    const replaced = smoothQuad(
+      quad,
+      { ...quad, topLeft: { x: 10, y: 110 } },
+      { width: 100, height: 100 },
+    );
+    expect(replaced.topLeft).toEqual({ x: 10, y: 110 });
+  });
+
+  it('rejects a four-point "outline" that is really a sliver', () => {
+    const sliver = {
+      topLeft: { x: 0, y: 0 },
+      topRight: { x: 5, y: 0 },
+      bottomRight: { x: 5, y: 5 },
+      bottomLeft: { x: 0, y: 5 },
+    };
+    expect(isPlausibleQuad(sliver, { width: 320, height: 240 })).toBe(false);
+  });
+});
+
+describe('capture orientation and the frame bridge (MOB-002)', () => {
+  it('turns EXIF orientation into the rotation that makes a page upright', () => {
+    expect(orientationFix(1)).toBe(0);
+    expect(orientationFix(3)).toBe(180);
+    expect(orientationFix(6)).toBe(90);
+    expect(orientationFix(8)).toBe(270);
+    expect(orientationFix(0)).toBe(0);
+    expect(orientationFix(99)).toBe(0);
+  });
+
+  it('rotates before cropping, so the crop rectangle is applied to upright pixels', async () => {
+    const calls: string[] = [];
+    const transformer = {
+      rotate: async (uri: string) => {
+        calls.push('rotate');
+        return `${uri}-r`;
+      },
+      crop: async (uri: string) => {
+        calls.push('crop');
+        return `${uri}-c`;
+      },
+      resize: async (uri: string) => `${uri}-s`,
+      enhance: async (uri: string) => `${uri}-e`,
+      compress: async (uri: string) => `${uri}-z`,
+    };
+
+    const result = await processCapture(transformer, 'file://photo.jpg', {
+      frame: { width: 3000, height: 4000 },
+      orientation: 6,
+      quad: {
+        topLeft: { x: 100, y: 100 },
+        topRight: { x: 2900, y: 120 },
+        bottomRight: { x: 2880, y: 3900 },
+        bottomLeft: { x: 120, y: 3860 },
+      },
+    });
+
+    expect(calls.slice(0, 2)).toEqual(['rotate', 'crop']);
+    expect(result.plan.rotate).toBe(90);
+    expect(result.plan.steps[0]).toBe('rotate 90°');
+  });
+
+  it('keeps the last good outline when a frame has no page, and throttles evaluations', () => {
+    let clock = 0;
+    const bridge = createFrameBridge({ throttleMs: 100, now: () => clock });
+    const seen: Array<number | null> = [];
+    bridge.subscribe((detection) => seen.push(detection ? detection.confidence : null));
+
+    const width = 240;
+    const height = 180;
+    const page = new Uint8ClampedArray(width * height).fill(30);
+    for (let y = 40; y < 140; y += 1) {
+      for (let x = 40; x < 200; x += 1) page[y * width + x] = 220;
+    }
+
+    clock = 0;
+    bridge.push({ data: page, width, height });
+    const first = bridge.current();
+    expect(first).not.toBeNull();
+
+    // A blank frame inside the throttle window is ignored entirely.
+    clock = 50;
+    bridge.push({ data: new Uint8ClampedArray(width * height).fill(120), width, height });
+    expect(bridge.current()).toEqual(first);
+
+    // Past the window, a blank frame keeps the previous detection rather than clearing it.
+    clock = 200;
+    bridge.push({ data: new Uint8ClampedArray(width * height).fill(120), width, height });
+    expect(bridge.current()).toEqual(first);
+
+    // reset() is the explicit way to clear it (leaving the camera, for instance).
+    bridge.reset();
+    expect(bridge.current()).toBeNull();
+    expect(seen[seen.length - 1]).toBeNull();
+  });
+
+  it('reports brightness and contrast inside the page, so a washed-out page can be enhanced', () => {
+    const width = 200;
+    const height = 150;
+    // A bright outline on a dark desk, but the page itself is a flat grey sheet: the sort of
+    // shadowed capture that needs a contrast pass rather than a better camera angle.
+    const flat = new Uint8ClampedArray(width * height).fill(35);
+    for (let y = 30; y < 120; y += 1) {
+      for (let x = 30; x < 170; x += 1) flat[y * width + x] = 150;
+    }
+    const detection = detectDocumentQuad({ data: flat, width, height });
+    expect(detection).not.toBeNull();
+    // Inside the page everything is 150, so the spread is small even though the scene has contrast
+    // (the outline itself contributes the few boundary pixels that remain).
+    expect(detection!.contrast).toBeLessThan(20);
+    expect(detection!.meanLuma).toBeGreaterThan(120);
+    expect(detection!.meanLuma).toBeLessThan(190);
   });
 });

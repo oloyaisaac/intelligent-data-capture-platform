@@ -9,4 +9,8 @@ export * from './sqlite-connector';
 export * from './postgres-connector';
 export * from './mysql-connector';
 export * from './google-sheets-connector';
+export * from './crm/http';
+export * from './crm/hubspot-connector';
+export * from './crm/odoo-connector';
+export * from './crm/quickbooks-connector';
 export * from './registry';

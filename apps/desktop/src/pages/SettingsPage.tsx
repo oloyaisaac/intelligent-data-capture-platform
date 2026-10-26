@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { API_KEY_SCOPES, ROLES, type ApiKeyScope, type Locale } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatPercent } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, Modal, useAsync } from '../components/ui';
 
 /**
@@ -26,6 +26,7 @@ export function SettingsPage({
   const users = useAsync(() => client.listUsers(), []);
   const audit = useAsync(() => client.auditLogs({ limit: 50 }), []);
   const keys = useAsync(() => client.listApiKeys(), []);
+  const corrections = useAsync(() => client.correctionStats(), []);
 
   const [name, setName] = useState('');
   const [retentionDays, setRetentionDays] = useState<number | ''>('');
@@ -39,6 +40,7 @@ export function SettingsPage({
   const [keyScopes, setKeyScopes] = useState<ApiKeyScope[]>(['documents:read']);
   const [keyDialog, setKeyDialog] = useState(false);
   const [filters, setFilters] = useState({ action: '', actor: '', from: '', to: '' });
+  const [trainingNote, setTrainingNote] = useState<string | null>(null);
 
   const isAdmin = role === 'admin' || role === 'owner';
 
@@ -164,6 +166,120 @@ export function SettingsPage({
             </p>
           </div>
         )}
+      </Card>
+
+      <Card title="Corrections and learning">
+        <div className="stack">
+          <p className="dim" style={{ margin: 0 }}>
+            Every field a reviewer changes is kept as a correction. The aggregates below show which
+            fields keep needing attention; the values themselves stay in the record.
+          </p>
+          {corrections.data ? (
+            <>
+              <div className="row" style={{ gap: 24, flexWrap: 'wrap' }}>
+                <div>
+                  <div className="label">Corrections recorded</div>
+                  <div>{corrections.data.total}</div>
+                </div>
+                <div>
+                  <div className="label">Fields affected</div>
+                  <div>{corrections.data.byField.length}</div>
+                </div>
+                <div>
+                  <div className="label">Training use</div>
+                  <div>{corrections.data.optIn ? 'Opted in' : 'Not enabled'}</div>
+                </div>
+              </div>
+
+              {corrections.data.byField.length > 0 && (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Corrections</th>
+                      <th>Average confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {corrections.data.byField.slice(0, 8).map((row) => (
+                      <tr key={row.fieldPath}>
+                        <td>{row.fieldPath}</td>
+                        <td>{row.corrections}</td>
+                        <td className="dim">
+                          {row.averageConfidence === null
+                            ? '—'
+                            : formatPercent(row.averageConfidence)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {isAdmin && (
+                <div className="toolbar">
+                  <Field
+                    label="Use corrections to improve extraction"
+                    hint="Off by default: your documents are yours unless you say otherwise."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={corrections.data.optIn}
+                      onChange={async (event) => {
+                        setError(null);
+                        setTrainingNote(null);
+                        try {
+                          const updated = await client.updateOrganisation({
+                            learningOptIn: event.target.checked,
+                          });
+                          organisation.setData(updated);
+                          await corrections.reload();
+                          setTrainingNote(
+                            event.target.checked
+                              ? 'Opted in. Corrections can now be exported for training.'
+                              : 'Opted out. Corrections stay out of training.',
+                          );
+                        } catch (caught) {
+                          setError(
+                            caught instanceof Error
+                              ? caught.message
+                              : 'Could not save that choice.',
+                          );
+                        }
+                      }}
+                    />
+                  </Field>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={!corrections.data.optIn}
+                    onClick={async () => {
+                      setError(null);
+                      setTrainingNote(null);
+                      try {
+                        const result = await client.exportCorrections();
+                        setTrainingNote(`Exported ${result.rows.length} correction(s).`);
+                      } catch (caught) {
+                        setError(caught instanceof Error ? caught.message : 'Export failed.');
+                      }
+                    }}
+                  >
+                    Export corrections
+                  </button>
+                </div>
+              )}
+              {trainingNote && (
+                <p className="dim" style={{ margin: 0 }}>
+                  {trainingNote}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="dim" style={{ margin: 0 }}>
+              Loading correction statistics…
+            </p>
+          )}
+        </div>
       </Card>
 
       <Card title="Team">

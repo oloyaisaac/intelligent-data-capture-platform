@@ -104,6 +104,8 @@ npm run dev:desktop       # Electron app
 npm run dev:backend       # API + worker
 
 npm run build             # build all packages/apps
+npm run test:packaging    # validate the electron-builder contract (DESK-001)
+npm run package --workspace @idcp/desktop   # build installers (needs electron-builder; not run in CI)
 npm run typecheck         # tsc --noEmit across workspaces
 npm run lint              # ESLint
 npm run format            # Prettier write
@@ -118,7 +120,7 @@ npm run test:coverage
 node -v && npm -v && git --version
 npm ci                     # reproducible install from the lockfile
 node -e "JSON.parse(require('fs').readFileSync('PRD.json','utf8')); console.log('PRD.json OK')"
-npm run typecheck && npm run lint && npm test   # once FOUND-004 exists
+npm run verify            # typecheck + lint + contracts + packaging + all tests
 ```
 
 If all of the above pass, your machine matches the documented baseline.

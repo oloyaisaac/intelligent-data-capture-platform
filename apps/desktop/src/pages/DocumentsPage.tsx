@@ -1,12 +1,14 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DOCUMENT_STATUSES, DOCUMENT_TYPES, type DocumentSummary } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { formatBytes, formatDateTime, isoDayEnd, isoDayStart, statusTone } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync } from '../components/ui';
+import { connectRealtime, eventsUrl } from '../lib/realtime';
 
 export interface DocumentFilters {
   status: string;
   documentType: string;
+  deviceId: string;
   from: string;
   to: string;
 }
@@ -14,25 +16,30 @@ export interface DocumentFilters {
 /**
  * DESK-002 — documents and jobs.
  *
- * Filters cover status, document type and a date range (the device is visible per row and can be
- * narrowed from the device screen). Uploading from the desktop is supported so a scanned file can
- * be dropped in without a phone.
+ * Filters cover status, document type, device and a date range — the four ways somebody actually
+ * hunts for a record. The list also refreshes itself when the server says something changed, so a
+ * capture from a phone appears without pressing anything. Uploading from the desktop is supported
+ * so a scanned file can be dropped in without a phone.
  */
 export function DocumentsPage({
   client,
   onOpenReview,
   initial,
+  accessToken = null,
 }: {
   client: ApiClient;
   onOpenReview: (documentId: string) => void;
   initial?: Partial<DocumentFilters>;
+  accessToken?: string | null;
 }): React.JSX.Element {
   const [filters, setFilters] = useState<DocumentFilters>({
     status: initial?.status ?? '',
     documentType: initial?.documentType ?? '',
+    deviceId: initial?.deviceId ?? '',
     from: initial?.from ?? '',
     to: initial?.to ?? '',
   });
+  const devices = useAsync(() => client.listDevices(), []);
   const [uploading, setUploading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -41,6 +48,7 @@ export function DocumentsPage({
     () => ({
       status: filters.status || undefined,
       documentType: filters.documentType || undefined,
+      deviceId: filters.deviceId || undefined,
       from: isoDayStart(filters.from),
       to: isoDayEnd(filters.to),
       limit: 100,
@@ -49,6 +57,20 @@ export function DocumentsPage({
   );
 
   const documents = useAsync(() => client.listDocuments(query), [query]);
+
+  // DESK-002: a capture from a phone should appear here without a manual refresh. The stream is
+  // best-effort — if it is not available the list still works, it just stops being live.
+  useEffect(() => {
+    if (!accessToken) return;
+    const connection = connectRealtime({
+      url: eventsUrl(accessToken),
+      onEvent: (event) => {
+        if (event.startsWith('document:') || event === 'job:progress') void documents.reload();
+      },
+    });
+    return () => connection.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken, query]);
 
   const upload = async (file: File) => {
     setUploading(true);
@@ -135,6 +157,20 @@ export function DocumentsPage({
               ))}
             </select>
           </Field>
+          <Field label="Device">
+            <select
+              className="select"
+              value={filters.deviceId}
+              onChange={(event) => setFilters({ ...filters, deviceId: event.target.value })}
+            >
+              <option value="">Any device</option>
+              {(devices.data?.items ?? []).map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Field label="From">
             <input
               className="input"
@@ -154,7 +190,9 @@ export function DocumentsPage({
           <button
             className="button secondary"
             type="button"
-            onClick={() => setFilters({ status: '', documentType: '', from: '', to: '' })}
+            onClick={() =>
+              setFilters({ status: '', documentType: '', deviceId: '', from: '', to: '' })
+            }
           >
             Clear
           </button>
