@@ -117,7 +117,13 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   real `ConfigSchema`: it fails if a key is documented but unread, or read but undocumented, and it
   boots a config from the file copied verbatim. `CONFIG_ENV_KEYS` is exported from
   `apps/backend/src/config.ts` as the single list of keys the server reads.
-- 21 suites; the count of automated tests is tracked in `TESTING.md`.
+- **Stale job recovery** — the worker re-queues jobs a crashed or redeployed process left in
+  `running` (anything claimed more than 30 s before boot), so an interrupted extraction retries
+  instead of leaving its document in `processing` forever (`test/worker-recovery.test.ts`).
+- **Operations gap register** — `DEPLOYMENT.md` §11 lists, in order of what would hurt first, what a
+  production run still needs (image build, backups, metrics, scheduler, headers, audit gate) with the
+  consequence of each, instead of leaving the gaps to be discovered during an incident.
+- 22 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 
@@ -131,6 +137,11 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   SQLite locally, PostgreSQL in production) and DEC-029 (the shipped runtime is one process: SQLite,
   a filesystem and an in-process worker polling the `jobs` table). DEC-006 is marked superseded by
   DEC-016, and the `DEC-0NN` template moved to the end of the file so it stops taking DEC-013's slot.
+- **`DEPLOYMENT.md` says what is true**: the pipeline diagram no longer implies an image build that
+  does not exist, backups describe `VACUUM INTO` for SQLite instead of promising point-in-time
+  recovery, monitoring separates what the app emits (JSON logs, `/api/v1/health`, request ids,
+  audit trail) from what an operator must add, and the health-check path is `/api/v1/health`
+  everywhere.
 - `PRD.json` statuses and artifact paths now reflect the code (all 45 stories are `done`; the
   remaining ones are listed in `TASKS.md`).
 - **`node_modules` is no longer tracked.** It was committed at the start (22,706 files) even though
@@ -142,6 +153,9 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   (`STORAGE_DRIVER: Invalid enum value`, `AI_CLOUD_ENDPOINT: Invalid url`) and it documented keys no
   code reads. The file is now generated from the same schema the server parses, so a local run needs
   no editing at all.
+- A job claimed by a process that then died stayed `running` forever: nothing moved it back to
+  `queued`, so the document stayed `processing` with no retry and no error. The worker now sweeps
+  those jobs at startup.
 - Connector configuration errors returned 500 instead of 400; `validateConfig()` failures are now
   mapped to a bad request.
 - Content sniffing rejected valid JPEGs shorter than 12 bytes; each format now has its own minimum.

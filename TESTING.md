@@ -2,7 +2,7 @@
 
 How we prove the platform works. A story is not `done` until the relevant checks here pass.
 
-> **Status:** the suite exists and is what CI runs (`npm run verify`): 343 tests in 21 suites across
+> **Status:** the suite exists and is what CI runs (`npm run verify`): 346 tests in 22 suites across
 > five Jest projects. This document states how it is organised, what each layer is for, and which
 > gaps are deliberate (no browser or device automation yet).
 
@@ -52,10 +52,10 @@ and browser harness.
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | `packages/shared`     | `test/shared.test.ts`                                                                                                                                                       | 49      |
 | `packages/connectors` | `test/connectors.test.ts`                                                                                                                                                   | 29      |
-| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, security, config) | 167     |
+| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, security, config, worker recovery) | 170     |
 | `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                                    | 55      |
 | `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                          | 43      |
-| **Total**             | 21 suites                                                                                                                                                                   | **343** |
+| **Total**             | 22 suites                                                                                                                                                                   | **346** |
 
 Notes for anyone extending the suite:
 

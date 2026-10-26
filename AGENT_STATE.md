@@ -14,7 +14,7 @@
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
 `npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
-343 tests in 21 suites).
+346 tests in 22 suites).
 
 The last round was documentation, not features: `PRD.json` stopped drifting from the code a while
 ago, so this time the prose and `.env.example` were checked against a real `migrate → seed → dev`
@@ -24,13 +24,18 @@ run and corrected. `apps/backend/test/config.test.ts` now fails if `.env.example
 **All 45 stories are `done`.** The product described by `PRD.json` is built; the remaining work is the
 deliberate release-side gaps listed below.
 
+The most recent code change is operational: a job left `running` by a crashed or redeployed process
+used to strand its document in `processing` forever, because nothing ever moved a claimed job out of
+`running`. The worker now re-queues anything claimed more than 30 s before it started
+(`JobsRepository.requeueStale`, `RECOVERY_GRACE_MS`), tested in `test/worker-recovery.test.ts`.
+
 ## What is built
 
 | Area                                                            | Where                                  | Notes                                                                                                                                                       |
 | --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Shared contracts, UDM, money/dates/CSV/dedupe/i18n/review rules | `packages/shared`                      | 49 tests. `mergeRecord` reports every value it refuses to overwrite. Node-only helpers live at `@idcp/shared/ids`.                                          |
 | Connector SDK + CSV, SQLite, PostgreSQL, MySQL, Google Sheets   | `packages/connectors`                  | 29 tests. `update()` is implemented for SQLite/PostgreSQL/MySQL (transactional, identifier-validated).                                                      |
-| Backend API (Fastify 5)                                         | `apps/backend`                         | 167 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
+| Backend API (Fastify 5)                                         | `apps/backend`                         | 170 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
 | Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 55 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
 | Mobile (React Native 0.86)                                      | `apps/mobile`                          | 43 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                                                |
 | CI, PRD + API contracts, generators                             | `.github/workflows/ci.yml`, `scripts/` | `validate-prd.mjs`, `validate-openapi.mjs`, `generate-udm-schema.mjs`, `validate-packaging.mjs`, plus `config.test.ts` guarding `.env.example`.             |
@@ -90,14 +95,30 @@ Health check: `GET /api/v1/health` (there is no bare `/health`).
 12. **Open decisions**: AI provider/budget (Q-001), licensing (Q-002), hosting region (Q-003),
     standalone desktop mode (Q-004).
 
+## Operations gaps (deployment, not product)
+
+`DEPLOYMENT.md` §11 is the authoritative table; in short, a real production run still needs:
+
+1. A container image / deploy pipeline — there is no `Dockerfile` and CI stops after `verify`.
+2. A backup and restore path for SQLite (`VACUUM INTO`; there is no `db:backup` script yet) and a
+   rehearsed restore. The database and `STORAGE_PATH` must be restored together.
+3. Metrics, alerting and an access log. Today: JSON logs, `GET /api/v1/health`, and the audit trail.
+4. A scheduler for retention purge, expired exports and dead sessions — all three are manual or
+   never happen, so `STORAGE_PATH` grows without bound.
+5. Security headers (no helmet) and a configurable `trustProxy`.
+6. A dependency vulnerability gate in CI: `npm audit` shows 8 advisories (1 critical, transitive
+   `shell-quote`; `zod` and `image-size` high). `zod` needs a v3 → v4 migration before the gate can
+   be green.
+
 ## Next actions, in order
 
-1. Release checklist: sign and smoke-test installers on Windows/macOS/Linux (DEC-022).
-2. Exercise the MySQL, Postgres and Google Sheets connectors against live servers, and run the
+1. Release plumbing: `Dockerfile`, image publish, `npm run db:backup`, then the go-live checklist.
+2. Release checklist: sign and smoke-test installers on Windows/macOS/Linux (DEC-022).
+3. Exercise the MySQL, Postgres and Google Sheets connectors against live servers, and run the
    backend against PostgreSQL once (`DB_DRIVER=postgres` + `DATABASE_URL`) — the `pg` path is typechecked but never executed.
-3. Implement the `s3` storage adapter (the driver is already in the schema and fails fast).
-4. Add the Socket.IO adapter behind the existing `RealtimeHub` interface (DEC-016).
-5. Add one end-to-end test (Playwright against the renderer, Detox or Maestro for mobile); the suite
+4. Implement the `s3` storage adapter (the driver is already in the schema and fails fast).
+5. Add the Socket.IO adapter behind the existing `RealtimeHub` interface (DEC-016).
+6. Add one end-to-end test (Playwright against the renderer, Detox or Maestro for mobile); the suite
    is unit + integration only today.
 
 ## Environment facts worth knowing

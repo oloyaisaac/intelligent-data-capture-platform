@@ -45,9 +45,20 @@ new features — `.env.example` was unusable, `DATABASE.md` claimed the schema w
 - [x] **VOICE-001** — offline capture guidance, consented spoken commands, per-run confirmations.
 - [x] **I18N-001** — one complete `en/sw/fr` catalogue, locale-aware formatting, logical-property RTL.
 
-## Later (Phase 3)
+## Now (operations)
 
-Release-side work, not product stories. Each is described in `AGENT_STATE.md`:
+Deployment work, not product stories. The full table with consequences is `DEPLOYMENT.md` §11.
+
+- [x] Re-queue jobs stranded in `running` by a crash or redeploy, so a document cannot sit in
+      `processing` forever (`test/worker-recovery.test.ts`).
+- [ ] Container image (`Dockerfile`) + publish step, so the documented pipeline can run.
+- [ ] `npm run db:backup` (`VACUUM INTO`) and a rehearsed restore for SQLite.
+- [ ] Scheduled retention purge, expired-export deletion and session sweep (today all manual).
+- [ ] `/metrics` (queue depth, job outcomes, latency) and an access log.
+- [ ] Security headers and a configurable `trustProxy`.
+- [ ] Dependency audit gate in CI — needs the `zod` v3 → v4 migration first (8 advisories, 1 critical).
+
+## Later (Phase 3)
 
 - [ ] Sign and smoke-test installers on Windows, macOS and Linux (DEC-022).
 - [ ] Run the connectors and the backend against live MySQL, PostgreSQL and Google Sheets.

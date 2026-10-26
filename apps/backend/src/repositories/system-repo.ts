@@ -95,6 +95,32 @@ export class JobsRepository {
     return this.db.one<JobRow>('SELECT * FROM jobs WHERE id = ?', [id]);
   }
 
+  /**
+   * Re-queue jobs that a dead process left in `running` (DEC-029).
+   *
+   * `claimNext` flips a job to `running` and nothing else ever moves it out of that state, so a
+   * crash, a `kill -9` or a deploy that stops the container mid-extraction used to strand the job
+   * — and its document in `processing` — forever. Anything claimed before this process started
+   * cannot still be running here, so it is safe to retry: extraction is idempotent and `attempts`
+   * already counted the lost try (DEC-008).
+   *
+   * Only correct for one worker process. Two instances sharing a database need a lease/heartbeat
+   * instead, which is part of the multi-instance work in DEC-029.
+   */
+  async requeueStale(startedBefore: string): Promise<number> {
+    const stale = await this.db.query<{ id: string }>(
+      `SELECT id FROM jobs WHERE status = 'running' AND (started_at IS NULL OR started_at <= ?)`,
+      [startedBefore],
+    );
+    if (stale.length === 0) return 0;
+    await this.db.execute(
+      `UPDATE jobs SET status = 'queued', run_after = ?, last_error = ?
+        WHERE status = 'running' AND (started_at IS NULL OR started_at <= ?)`,
+      [nowIso(), 'Recovered after an interrupted run (the process stopped mid-job).', startedBefore],
+    );
+    return stale.length;
+  }
+
   listForDocument(documentId: string): Promise<JobRow[]> {
     return this.db.query<JobRow>('SELECT * FROM jobs WHERE document_id = ? ORDER BY created_at', [
       documentId,

@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
   logger.info('api listening', { port: config.PORT, env: config.NODE_ENV, db: config.DB_DRIVER });
 
-  if (config.WORKER_ENABLED) services.worker.start();
+  if (config.WORKER_ENABLED) await services.worker.start();
 
   const shutdown = async (signal: string) => {
     logger.info('shutting down', { signal });

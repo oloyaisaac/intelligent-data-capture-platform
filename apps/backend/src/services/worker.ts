@@ -23,6 +23,14 @@ import type { TemplateService } from './template-service';
  * Claims one job at a time, processes it, and either marks it succeeded or schedules a retry with
  * exponential backoff. Poison jobs end in `dead` with an actionable error, never an infinite loop.
  */
+
+/**
+ * Grace period before a `running` job is presumed abandoned. A job claimed milliseconds before
+ * this process booted may still be finishing in a sibling process, so it is left alone; anything
+ * older is re-queued. See `JobsRepository.requeueStale`.
+ */
+export const RECOVERY_GRACE_MS = 30_000;
+
 export class Worker {
   private readonly jobs: JobsRepository;
   private readonly documents: DocumentsRepository;
@@ -52,9 +60,23 @@ export class Worker {
     this.memberships = new MembershipsRepository(db);
   }
 
-  start(): void {
+  /**
+   * Start the poll loop.
+   *
+   * Before the first tick, jobs left `running` by a previous process are re-queued: on a single
+   * instance (DEC-029) nothing else can be holding them, and without this a deploy or crash during
+   * an extraction strands the document in `processing` with no retry.
+   */
+  async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
+
+    const claimCutoff = new Date(Date.now() - RECOVERY_GRACE_MS).toISOString();
+    const recovered = await this.jobs.requeueStale(claimCutoff);
+    if (recovered > 0) {
+      this.logger.warn('requeued jobs interrupted by a previous process', { count: recovered });
+    }
+
     const tick = async () => {
       if (!this.running) return;
       try {

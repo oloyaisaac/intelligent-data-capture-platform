@@ -169,7 +169,10 @@ See `ENVIRONMENT.md` for setup and `DECISIONS.md` DEC-029 for the order these up
 - SR-05: Rate limiting on authentication, pairing, upload and export endpoints.
 - SR-06: Input validated against schemas on every endpoint.
 - SR-07: Audit log append-only and complete for privileged actions.
-- SR-08: Dependencies scanned for known vulnerabilities in CI.
+- SR-08: Dependencies scanned for known vulnerabilities in CI. **Not automated yet**: `npm audit`
+  is run by hand and currently reports 8 advisories in the lockfile (1 critical via `shell-quote`,
+  `zod` and `image-size` high). The CI gate goes in with the upgrades that clear them — see
+  `DEPLOYMENT.md` §11.
 
 Full detail: `SECURITY.md`.
 
