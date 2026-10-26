@@ -81,6 +81,16 @@ export interface Connector {
     context: ConnectorContext,
   ): Promise<ConnectorRecord[]>;
   /**
+   * Vendor-side search (CRM-001). Where `read` lists records, `search` is how a destination with a
+   * query API (HubSpot's search endpoint, QuickBooks' `query`, Odoo's domain) answers "do you
+   * already have this one?" without fetching a page and filtering in memory.
+   */
+  search?(
+    query: ConnectorReadQuery,
+    config: Record<string, unknown>,
+    context: ConnectorContext,
+  ): Promise<ConnectorRecord[]>;
+  /**
    * Update the rows identified by `keys` (DUP-001). Connectors without it cannot honour an
    * `update` or `merge` duplicate policy, and the caller says so instead of writing twice.
    */

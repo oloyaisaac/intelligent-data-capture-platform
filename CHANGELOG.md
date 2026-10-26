@@ -78,6 +78,11 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   smoothed across frames, mapped onto the photo, and used for the crop. EXIF orientation is corrected
   before cropping, and a flat page (low contrast inside the outline) triggers the enhancement pass.
   The platform shim degrades to no overlay when the worklet runtime is absent (`MOB-002`).
+- **CRM, ERP and accounting connectors** — HubSpot (CRM), Odoo (ERP, JSON-RPC) and QuickBooks Online
+  (accounting, SQL-subset query endpoint) implement `create`, `read`, `search` and `update` through
+  the same contract; mapping profiles choose the destination fields, so retargeting a model needs no
+  code. Vendor errors are translated into the fix ("the token is missing the write scope") rather
+  than an HTTP status, and plain http is refused except for a loopback host (`CRM-001`).
 - 18 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed

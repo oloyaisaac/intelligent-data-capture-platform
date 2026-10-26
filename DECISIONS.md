@@ -387,3 +387,25 @@ the acceptance criterion is automatic detection).
 
 **Consequences:** Very low-contrast pages (white on white) and extreme perspective still produce no
 outline; the capture screen then simply sends the full frame, and the review step is unchanged.
+
+---
+
+## DEC-024 — CRM destinations are thin vendor adapters over one HTTP contract
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** HubSpot, Odoo and QuickBooks each get their own adapter, but share one transport:
+URL validation (https, loopback excepted), timeouts, JSON envelope handling and error translation in
+`packages/connectors/src/crm/http.ts`. Each adapter implements `create`, `read`, `search` and
+`update`, and the duplicate lookup prefers `search` when a connector exposes it.
+
+**Reason:** The vendors differ in ways that matter (HubSpot wraps properties, QuickBooks has no REST
+search, Odoo is JSON-RPC with a uid), but the surrounding concerns are identical. Writing them once
+means a new vendor is ~150 lines, and a new error case is fixed in one place.
+
+**Alternatives considered:** A generic "REST connector" configured entirely by the user (moves the
+vendor quirks into a config file nobody tests); one class with `if (vendor === …)` branches (the
+tests would have to cover every combination of branches).
+
+**Consequences:** Vendor-specific features (HubSpot associations, QuickBooks batch requests, Odoo
+one2many writes) are not exposed yet; the contract's `values` map is flat by design (UDM-001).

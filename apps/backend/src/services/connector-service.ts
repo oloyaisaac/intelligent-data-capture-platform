@@ -263,7 +263,11 @@ export class ConnectorService {
       // Duplicate check against the destination itself, when the connector can read (DUP-001).
       let matchedRow: Record<string, string | number | boolean | null> | null = null;
       if (connector.read && keys.length > 0 && policy !== 'append') {
-        const existing = await connector.read(
+        // CRM-style destinations answer a filtered query more cheaply than a page, so prefer their
+        // own search when they expose one (CRM-001).
+        const lookup = connector.search ?? connector.read;
+        const existing = await lookup.call(
+          connector,
           { limit: 500, where: pickWhere(mapped.values, keys) },
           this.resolveConfig(connectorRow),
           context,
@@ -451,7 +455,9 @@ export class ConnectorService {
       };
     }
 
-    const existing = await connector.read(
+    const lookup = connector.search ?? connector.read;
+    const existing = await lookup.call(
+      connector,
       { limit: 500, where: pickWhere(mapped.values, keys) },
       config,
       this.context(actor),

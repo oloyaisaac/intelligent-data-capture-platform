@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,10 +8,13 @@ import {
   ConnectorRegistry,
   CsvFileConnector,
   GoogleSheetsConnector,
+  HubSpotConnector,
+  OdooConnector,
+  QuickBooksConnector,
   SqliteConnector,
+  type ConnectorContext,
   applyMapping,
   transformValue,
-  type ConnectorContext,
   type MappedField,
 } from '../src/index';
 
@@ -368,5 +372,256 @@ describe('connector registry (CON-001)', () => {
         updateContext,
       ),
     ).rejects.toThrow(/simple identifier/i);
+  });
+});
+
+describe('CRM, ERP and accounting connectors (CRM-001)', () => {
+  interface Recorded {
+    method: string;
+    url: string;
+    body: unknown;
+    auth: string | undefined;
+  }
+
+  /** A stub that answers like the vendor and records what was sent. */
+  async function stubServer(
+    handler: (recorded: Recorded) => { status: number; body: unknown },
+  ): Promise<{
+    baseUrl: string;
+    calls: Recorded[];
+    close: () => Promise<void>;
+  }> {
+    const calls: Recorded[] = [];
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        const recorded: Recorded = {
+          method: request.method ?? 'GET',
+          url: request.url ?? '/',
+          body: raw ? (JSON.parse(raw) as unknown) : null,
+          auth: request.headers.authorization,
+        };
+        calls.push(recorded);
+        const { status, body } = handler(recorded);
+        response.writeHead(status, { 'content-type': 'application/json' });
+        response.end(JSON.stringify(body));
+      });
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    return {
+      baseUrl: `http://127.0.0.1:${port}`,
+      calls,
+      close: () =>
+        new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        }),
+    };
+  }
+
+  const context: ConnectorContext = {
+    organisationId: 'org-1',
+    logger: { info: jest.fn(), warn: jest.fn(), debug: jest.fn(), error: jest.fn() },
+  };
+
+  it('creates, searches and updates a HubSpot record without a mapping change', async () => {
+    const stub = await stubServer((recorded) => {
+      if (recorded.url.includes('/search')) {
+        return {
+          status: 200,
+          body: { results: [{ id: '42', properties: { invoice_number: 'INV-1' } }] },
+        };
+      }
+      if (recorded.method === 'PATCH') return { status: 200, body: { id: '42' } };
+      return { status: 201, body: { id: '42', properties: {} } };
+    });
+
+    try {
+      const hubspot = new HubSpotConnector();
+      const config = { baseUrl: stub.baseUrl, token: 'secret-token', object: 'invoices' };
+      hubspot.validateConfig(config);
+
+      const created = await hubspot.create(
+        [{ values: { invoice_number: 'INV-1', total: 120 } }],
+        config,
+        context,
+      );
+      expect(created.created).toBe(1);
+      expect(stub.calls[0]!.body).toEqual({
+        properties: { invoice_number: 'INV-1', total: '120' },
+      });
+      expect(stub.calls[0]!.auth).toBe('Bearer secret-token');
+
+      const found = await hubspot.search({ where: { invoice_number: 'INV-1' } }, config, context);
+      expect(found[0]!.values).toMatchObject({ id: '42', invoice_number: 'INV-1' });
+      const searchCall = stub.calls.find((call) => call.url.includes('/search'));
+      expect(searchCall!.body).toMatchObject({
+        filterGroups: [
+          { filters: [{ propertyName: 'invoice_number', operator: 'EQ', value: 'INV-1' }] },
+        ],
+      });
+
+      const updated = await hubspot.update(
+        [{ values: { id: '42', total: 130 } }],
+        ['id'],
+        config,
+        context,
+      );
+      expect(updated.updated).toBe(1);
+      const patch = stub.calls.find((call) => call.method === 'PATCH');
+      expect(patch!.url).toContain('/crm/v3/objects/invoices/42');
+    } finally {
+      await stub.close();
+    }
+  });
+
+  it('explains a rejected HubSpot credential instead of surfacing a 401', async () => {
+    const stub = await stubServer(() => ({
+      status: 401,
+      body: { status: 'error', message: 'Authentication credentials not found' },
+    }));
+
+    try {
+      const hubspot = new HubSpotConnector();
+      await expect(
+        hubspot.create(
+          [{ values: { invoice_number: 'INV-1' } }],
+          { baseUrl: stub.baseUrl, token: 'bad', object: 'invoices' },
+          context,
+        ),
+      ).rejects.toThrow(/rejected the credential.*write access/i);
+    } finally {
+      await stub.close();
+    }
+  });
+
+  it('queries and sparsely updates QuickBooks, escaping the filter value', async () => {
+    const stub = await stubServer((recorded) => {
+      if (recorded.method === 'POST') return { status: 200, body: { Invoice: { Id: '9' } } };
+      return {
+        status: 200,
+        body: { QueryResponse: { Invoice: [{ Id: '9', DocNumber: 'INV-1' }] } },
+      };
+    });
+
+    try {
+      const quickbooks = new QuickBooksConnector();
+      const config = {
+        baseUrl: stub.baseUrl,
+        token: 'qbo-token',
+        realmId: '934145',
+        object: 'Invoice',
+      };
+      quickbooks.validateConfig(config);
+
+      const found = await quickbooks.search({ where: { DocNumber: "INV-1'2" } }, config, context);
+      expect(found[0]!.values).toMatchObject({ Id: '9' });
+      expect(stub.calls[0]!.url).toContain('/v3/company/934145/query?query=');
+      expect(decodeURIComponent(stub.calls[0]!.url)).toContain("DocNumber = 'INV-1\\'2'");
+
+      const updated = await quickbooks.update(
+        [{ values: { Id: '9', TotalAmt: 55 } }],
+        ['Id'],
+        config,
+        context,
+      );
+      expect(updated.updated).toBe(1);
+      const post = stub.calls.find((call) => call.method === 'POST');
+      expect(post!.body).toMatchObject({ Id: '9', sparse: true, TotalAmt: 55 });
+    } finally {
+      await stub.close();
+    }
+  });
+
+  it('authenticates once and writes through Odoo JSON-RPC', async () => {
+    const stub = await stubServer((recorded) => {
+      const body = recorded.body as { params: { method: string; args: unknown[] } };
+      if (body.params.method === 'login')
+        return { status: 200, body: { jsonrpc: '2.0', result: 7 } };
+      if (body.params.method === 'execute_kw') {
+        const args = body.params.args as [string, number, string, string, string, unknown[]];
+        const method = args[4];
+        if (method === 'create') return { status: 200, body: { jsonrpc: '2.0', result: 31 } };
+        if (method === 'search_read') {
+          return { status: 200, body: { jsonrpc: '2.0', result: [{ id: 31, name: 'INV-1' }] } };
+        }
+        return { status: 200, body: { jsonrpc: '2.0', result: true } };
+      }
+      return { status: 200, body: { jsonrpc: '2.0', result: 1 } };
+    });
+
+    try {
+      const odoo = new OdooConnector();
+      const config = {
+        baseUrl: stub.baseUrl,
+        database: 'acme',
+        username: 'integration',
+        apiKey: 'key-1',
+        model: 'account.move',
+      };
+      odoo.validateConfig(config);
+
+      const created = await odoo.create(
+        [{ values: { name: 'INV-1', amount_total: 99 } }],
+        config,
+        context,
+      );
+      expect(created.created).toBe(1);
+
+      const found = await odoo.search({ where: { name: 'INV-1' } }, config, context);
+      expect(found[0]!.values).toMatchObject({ id: 31 });
+
+      const updated = await odoo.update(
+        [{ values: { id: 31, amount_total: 100 } }],
+        ['id'],
+        config,
+        context,
+      );
+      expect(updated.updated).toBe(1);
+
+      // The uid is cached: one login for three calls.
+      const logins = stub.calls.filter(
+        (call) => (call.body as { params?: { method?: string } }).params?.method === 'login',
+      );
+      expect(logins).toHaveLength(1);
+
+      const write = stub.calls.find((call) => {
+        const args = (call.body as { params?: { args?: unknown[] } }).params?.args;
+        return Array.isArray(args) && (args as unknown[])[4] === 'write';
+      });
+      expect((write!.body as { params: { args: unknown[] } }).params.args[5]).toEqual([
+        [31],
+        { id: 31, amount_total: 100 },
+      ]);
+    } finally {
+      await stub.close();
+    }
+  });
+
+  it('refuses plain http except for localhost, and requires a realm id', () => {
+    expect(() =>
+      new HubSpotConnector().validateConfig({ baseUrl: 'http://crm.example.com', token: 't' }),
+    ).toThrow(/https/i);
+    expect(() =>
+      new QuickBooksConnector().validateConfig({ baseUrl: 'https://qbo.example.com', token: 't' }),
+    ).toThrow(/realmId/i);
+    expect(() =>
+      new OdooConnector().validateConfig({ baseUrl: 'https://erp.example.com', database: 'db' }),
+    ).toThrow(/username/i);
+  });
+
+  it('registers all three vendors with the full capability set', () => {
+    const registry = new ConnectorRegistry();
+    for (const type of ['hubspot', 'odoo', 'quickbooks']) {
+      const connector = registry.get(type);
+      expect(connector.capabilities).toEqual(
+        expect.arrayContaining(['create', 'read', 'update', 'search']),
+      );
+      expect(typeof connector.search).toBe('function');
+    }
   });
 });

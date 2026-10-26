@@ -49,11 +49,11 @@ and browser harness.
 | Workspace             | Suite                                                                                                                                       | Tests   |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | `packages/shared`     | `test/shared.test.ts`                                                                                                                       | 47      |
-| `packages/connectors` | `test/connectors.test.ts`                                                                                                                   | 23      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                                                   | 29      |
 | `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, security) | 143     |
 | `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                    | 41      |
-| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                          | 23      |
-| **Total**             | 18 suites                                                                                                                                   | **277** |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                          | 33      |
+| **Total**             | 18 suites                                                                                                                                   | **293** |
 
 Notes for anyone extending the suite:
 
@@ -161,6 +161,15 @@ Notes for anyone extending the suite:
    or fills only empty columns for `merge`; a reviewed field and a duplicate key are never overwritten.
 6. Set the policy to `update` on a connector without update support.
 7. **Expect:** `409`, not a silent append.
+
+### TC-13c — CRM destination · `CRM-001`
+
+1. Create a `hubspot` connector with a private-app token and object `invoices`, and a mapping profile
+   with `invoice.number → invoice_number` as the duplicate key.
+2. Send an approved record, then send it again.
+3. **Expect:** one HubSpot record; the second run reports `skipped_duplicate` (or updates in place).
+4. Replace the token with an expired one and test the connector.
+5. **Expect:** an actionable message naming the write scope, not `401`.
 
 ### TC-13b — Corrections and the training switch · `REV-002`
 

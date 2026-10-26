@@ -902,7 +902,7 @@
       "id": "CRM-001",
       "epic": "EP-ENTERPRISE",
       "title": "CRM, ERP and accounting connectors",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "should",
       "description": "First-party connectors for at least one CRM, one ERP and one accounting system, following the connector contract.",
@@ -913,9 +913,11 @@
       ],
       "dependsOn": ["CON-001", "MAP-001", "DUP-001"],
       "artifacts": [
-        "packages/connectors/src/crm/*",
-        "packages/connectors/src/erp/*",
-        "packages/connectors/src/accounting/*"
+        "packages/connectors/src/crm/http.ts",
+        "packages/connectors/src/crm/hubspot-connector.ts",
+        "packages/connectors/src/crm/odoo-connector.ts",
+        "packages/connectors/src/crm/quickbooks-connector.ts",
+        "packages/connectors/src/registry.ts"
       ]
     },
     {

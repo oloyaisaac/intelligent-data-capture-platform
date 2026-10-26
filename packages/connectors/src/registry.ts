@@ -4,6 +4,9 @@ import { GoogleSheetsConnector } from './google-sheets-connector';
 import { PostgresConnector } from './postgres-connector';
 import { MysqlConnector } from './mysql-connector';
 import { SqliteConnector } from './sqlite-connector';
+import { HubSpotConnector } from './crm/hubspot-connector';
+import { OdooConnector } from './crm/odoo-connector';
+import { QuickBooksConnector } from './crm/quickbooks-connector';
 
 /**
  * Connector registry (CON-001).
@@ -54,5 +57,9 @@ export function defaultConnectors(): Connector[] {
     new PostgresConnector(),
     new MysqlConnector(),
     new GoogleSheetsConnector(),
+    // CRM-001: one CRM, one ERP and one accounting system, all through the same contract.
+    new HubSpotConnector(),
+    new OdooConnector(),
+    new QuickBooksConnector(),
   ];
 }
