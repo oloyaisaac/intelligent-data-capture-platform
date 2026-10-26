@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ApiError, type ApiClient } from '../api/client';
 import { ErrorBanner, Field } from '../components/ui';
+import { useTranslator } from '../lib/locale';
 
 /**
  * Sign in / create the first account.
@@ -21,6 +22,7 @@ export function LoginPage({
   const [displayName, setDisplayName] = useState('');
   const [organisationName, setOrganisationName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const t = useTranslator();
   const [busy, setBusy] = useState(false);
 
   const submit = async (event: React.FormEvent) => {
@@ -41,11 +43,7 @@ export function LoginPage({
       }
       onSignedIn();
     } catch (caught) {
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : 'Cannot reach the server. Check your connection.',
-      );
+      setError(caught instanceof ApiError ? caught.message : t('login.networkError'));
     } finally {
       setBusy(false);
     }
@@ -56,7 +54,7 @@ export function LoginPage({
       <form
         className="login-card card"
         onSubmit={submit}
-        aria-label={mode === 'signin' ? 'Sign in' : 'Create account'}
+        aria-label={mode === 'signin' ? t('action.signIn') : t('action.register')}
       >
         <div className="row">
           <div className="brand-mark" aria-hidden="true">
@@ -64,17 +62,17 @@ export function LoginPage({
           </div>
           <div>
             <h1 className="login-title">
-              {mode === 'signin' ? 'Sign in to IDCP' : 'Create your workspace'}
+              {mode === 'signin' ? t('login.title') : t('login.registerTitle')}
             </h1>
             <p className="muted" style={{ margin: 0 }}>
-              Capture documents. Get clean data.
+              {t('app.tagline')}
             </p>
           </div>
         </div>
 
         <ErrorBanner message={error} />
 
-        <Field label="Email">
+        <Field label={t('auth.email')}>
           <input
             className="input"
             type="email"
@@ -85,7 +83,10 @@ export function LoginPage({
           />
         </Field>
 
-        <Field label="Password" hint={mode === 'register' ? 'At least 12 characters.' : undefined}>
+        <Field
+          label={t('auth.password')}
+          hint={mode === 'register' ? t('auth.passwordHint') : undefined}
+        >
           <input
             className="input"
             type="password"
@@ -99,7 +100,7 @@ export function LoginPage({
 
         {mode === 'register' && (
           <>
-            <Field label="Your name">
+            <Field label={t('auth.yourName')}>
               <input
                 className="input"
                 value={displayName}
@@ -107,7 +108,7 @@ export function LoginPage({
                 onChange={(event) => setDisplayName(event.target.value)}
               />
             </Field>
-            <Field label="Organisation" hint="Shown to your team and used on exports.">
+            <Field label={t('auth.organisation')} hint={t('auth.organisationHint')}>
               <input
                 className="input"
                 value={organisationName}
@@ -120,7 +121,11 @@ export function LoginPage({
         )}
 
         <button className="button" type="submit" disabled={busy || !email || !password}>
-          {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+          {busy
+            ? t('login.pleaseWait')
+            : mode === 'signin'
+              ? t('action.signIn')
+              : t('action.register')}
         </button>
 
         <button
@@ -131,7 +136,7 @@ export function LoginPage({
             setError(null);
           }}
         >
-          {mode === 'signin' ? 'Create a new workspace' : 'I already have an account'}
+          {mode === 'signin' ? t('login.switchToRegister') : t('login.switchToSignin')}
         </button>
       </form>
     </div>

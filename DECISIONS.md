@@ -500,3 +500,35 @@ exactly when the operator is offline).
 `react-native-tts`; without them the shim reports "unavailable" and the screens stay button-only.
 Command phrases are a fixed book per locale rather than free-form language, and the field-jump
 commands use the field name only when the phrase book matched a command first.
+
+---
+
+## DEC-028 — One catalogue, logical CSS, and a direction the platform cannot get wrong
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** Every user-facing string in the desktop and mobile renderers comes from the shared
+catalogue (`packages/shared/src/i18n.ts`), which is complete in English, Swahili and French — the
+coverage test asserts 1.0 for all three, so a half-translated locale cannot ship. Components read the
+translator from a React context (`apps/desktop/src/lib/locale.tsx`) whose default is English, so a
+component rendered alone still works. Dates, numbers, percentages and relative times use `Intl` with
+a locale → BCP-47 map (`en → en-GB` keeps the existing output). Text direction comes from
+`directionFor(locale)` and is applied to the document root; the layout uses only logical CSS
+properties (`border-inline-end`, `text-align: start`, `margin-inline-*`), and a test reads the
+stylesheet to make sure no physical `left`/`right` property creeps back in.
+
+**Reason:** A translated string inside a hardcoded layout is not localisation — it is English with
+different words. Two rules make the work finishable and keep it finished: the catalogue is the only
+place words live, and the layout never mentions a side. Values that arrive from the API (statuses,
+document types, roles) are labelled through helpers that fall back to the raw value, so a new enum
+member is readable before its translation lands.
+
+**Alternatives considered:** i18next or a runtime loader (a second catalogue format and a network
+dependency for strings that ship with the app); per-component translation tables (eleven places to
+forget); mirroring with a separate RTL stylesheet (two layouts to keep in sync forever).
+
+**Consequences:** Adding a language is a catalogue plus an entry in `LAYOUT`/`LOCALE_OPTIONS`. The
+phone has no language picker: it follows the device language, which is the behaviour a capture
+operator in the field expects, and the desktop's picker covers shared workstations. Right-to-left is
+verified by the direction helper and the logical-property test rather than by a shipped RTL locale,
+because none of the three supported languages is RTL yet.

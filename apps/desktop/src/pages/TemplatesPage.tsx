@@ -3,6 +3,8 @@ import { DOCUMENT_TYPES, type Template, type TemplateDetail } from '@idcp/shared
 import type { ApiClient } from '../api/client';
 import { formatDateTime, titleCase } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, Modal, useAsync } from '../components/ui';
+import { useLocale, useTranslator } from '../lib/locale';
+import { documentTypeLabel } from '../lib/labels';
 
 interface DraftField {
   path: string;
@@ -18,6 +20,8 @@ interface DraftField {
  * scratch. Saving a changed field list creates a new version; disabling keeps every version.
  */
 export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const templates = useAsync(() => client.listTemplates(), []);
   const [editing, setEditing] = useState<TemplateDetail | null>(null);
   const [detail, setDetail] = useState<TemplateDetail | null>(null);
@@ -57,7 +61,7 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
         })),
       );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not open that template.');
+      setError(caught instanceof Error ? caught.message : t('templates.openFailed'));
     }
   };
 
@@ -72,7 +76,7 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
       }));
 
     if (fields.length === 0 && !fromDocumentId) {
-      setError('Add at least one field, or base the template on an existing document.');
+      setError(t('templates.needsField'));
       return;
     }
 
@@ -94,7 +98,7 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
       setEditing(null);
       await templates.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not save the template.');
+      setError(caught instanceof Error ? caught.message : t('templates.saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -105,25 +109,25 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
   return (
     <div className="stack">
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>Templates</h1>
+        <h1>{t('templates.title')}</h1>
         <button className="button" type="button" onClick={startCreate}>
-          New template
+          {t('templates.new')}
         </button>
       </div>
 
       <ErrorBanner message={error ?? templates.error} />
 
-      <Card title="Templates">
+      <Card title={t('templates.card')}>
         {templates.data && templates.data.items.length > 0 ? (
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Document type</th>
-                <th>Fields</th>
-                <th>Version</th>
-                <th>Status</th>
-                <th>Updated</th>
+                <th>{t('connectors.name')}</th>
+                <th>{t('filter.documentType')}</th>
+                <th>{t('table.fields')}</th>
+                <th>{t('table.version')}</th>
+                <th>{t('table.status')}</th>
+                <th>{t('table.updated')}</th>
                 <th />
               </tr>
             </thead>
@@ -131,12 +135,12 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
               {templates.data.items.map((template) => (
                 <tr key={template.id}>
                   <td>{template.name}</td>
-                  <td>{titleCase(template.documentType)}</td>
+                  <td>{documentTypeLabel(t, template.documentType)}</td>
                   <td>{template.fields.length}</td>
                   <td className="mono">v{template.version}</td>
                   <td>
                     <Badge tone={template.active ? 'success' : 'neutral'}>
-                      {template.active ? 'active' : 'disabled'}
+                      {template.active ? t('status.active') : t('templates.disabled')}
                     </Badge>
                   </td>
                   <td className="dim">{formatDateTime(template.updatedAt)}</td>
@@ -160,12 +164,12 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
                             setError(
                               caught instanceof Error
                                 ? caught.message
-                                : 'Could not change that template.',
+                                : t('templates.couldNotChange'),
                             );
                           }
                         }}
                       >
-                        {template.active ? 'Disable' : 'Enable'}
+                        {template.active ? t('templates.disable') : t('templates.enable')}
                       </button>
                     </div>
                   </td>
@@ -174,21 +178,18 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
             </tbody>
           </table>
         ) : (
-          <EmptyState
-            title="No templates yet"
-            hint="Templates tell extraction which fields this organisation expects. A field that is not found is reported for review instead of silently disappearing."
-          />
+          <EmptyState title={t('templates.none')} hint={t('templates.noneHint')} />
         )}
       </Card>
 
       {detail && (
-        <Card title={`${detail.name} — versions`}>
+        <Card title={t('templates.versionsFor', { name: detail.name })}>
           <table className="table">
             <thead>
               <tr>
-                <th>Version</th>
-                <th>Fields</th>
-                <th>Created</th>
+                <th>{t('table.version')}</th>
+                <th>{t('table.fields')}</th>
+                <th>{t('table.created')}</th>
               </tr>
             </thead>
             <tbody>
@@ -196,7 +197,7 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
                 <tr key={version.version}>
                   <td className="mono">v{version.version}</td>
                   <td>{version.fields.map((field) => field.label).join(', ')}</td>
-                  <td className="dim">{formatDateTime(version.createdAt)}</td>
+                  <td className="dim">{formatDateTime(version.createdAt, locale)}</td>
                 </tr>
               ))}
             </tbody>
@@ -206,7 +207,7 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
 
       {isOpen && (
         <Modal
-          title={editing ? `Edit ${editing.name}` : 'New template'}
+          title={editing ? t('templates.edit', { name: editing.name }) : t('templates.new')}
           onClose={() => {
             setCreating(false);
             setEditing(null);
@@ -221,7 +222,7 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
                   setEditing(null);
                 }}
               >
-                Cancel
+                {t('action.cancel')}
               </button>
               <button
                 className="button"
@@ -229,12 +230,12 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
                 onClick={() => void save()}
                 disabled={busy || name.trim().length === 0}
               >
-                {busy ? 'Saving…' : 'Save template'}
+                {busy ? t('templates.saving') : t('templates.save')}
               </button>
             </>
           }
         >
-          <Field label="Name">
+          <Field label={t('connectors.name')}>
             <input
               className="input"
               value={name}
@@ -244,7 +245,7 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
 
           {!editing && (
             <>
-              <Field label="Document type">
+              <Field label={t('filter.documentType')}>
                 <select
                   className="select"
                   value={documentType}
@@ -257,14 +258,11 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
                   ))}
                 </select>
               </Field>
-              <Field
-                label="Base on a processed document (optional)"
-                hint="Leave empty to define fields yourself."
-              >
+              <Field label={t('templates.baseOnDocument')} hint={t('templates.baseOnDocumentHint')}>
                 <input
                   className="input mono"
                   value={fromDocumentId}
-                  placeholder="document id"
+                  placeholder={t('templates.documentPlaceholder')}
                   onChange={(event) => setFromDocumentId(event.target.value.trim())}
                 />
               </Field>
@@ -272,14 +270,14 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
           )}
 
           <div className="stack">
-            <span className="label">Fields</span>
+            <span className="label">{t('table.fields')}</span>
             {draft.map((field, index) => (
               <div className="row" key={index} style={{ alignItems: 'flex-end' }}>
-                <Field label="Path">
+                <Field label={t('table.path')}>
                   <input
                     className="input mono"
                     value={field.path}
-                    placeholder="invoice.number"
+                    placeholder={t('templates.pathPlaceholder')}
                     onChange={(event) => {
                       const next = [...draft];
                       next[index] = { ...field, path: event.target.value };
@@ -287,11 +285,11 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
                     }}
                   />
                 </Field>
-                <Field label="Label">
+                <Field label={t('table.label')}>
                   <input
                     className="input"
                     value={field.label}
-                    placeholder="Invoice number"
+                    placeholder={t('templates.labelPlaceholder')}
                     onChange={(event) => {
                       const next = [...draft];
                       next[index] = { ...field, label: event.target.value };
@@ -299,7 +297,7 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
                     }}
                   />
                 </Field>
-                <Field label="Type">
+                <Field label={t('table.type')}>
                   <select
                     className="select"
                     value={field.type}
@@ -326,12 +324,12 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
                       setDraft(next);
                     }}
                   />
-                  <span className="dim">required</span>
+                  <span className="dim">{t('templates.required')}</span>
                 </label>
                 <button
                   className="button secondary small"
                   type="button"
-                  aria-label="Remove field"
+                  aria-label={t('templates.removeField')}
                   onClick={() => setDraft(draft.filter((_, position) => position !== index))}
                 >
                   ×
@@ -345,7 +343,7 @@ export function TemplatesPage({ client }: { client: ApiClient }): React.JSX.Elem
                 setDraft([...draft, { path: '', label: '', type: 'string', required: false }])
               }
             >
-              Add field
+              {t('templates.addField')}
             </button>
           </div>
         </Modal>

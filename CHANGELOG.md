@@ -107,11 +107,17 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   off until the operator turns it on, needs the microphone permission to open, and audio is never
   recorded, stored or transmitted — a recogniser result is reduced to its transcript on arrival
   (`VOICE-001`).
+- **Full localisation sweep** — every user-facing string in the desktop renderer and the mobile
+  screens now comes from the shared catalogue (577 keys, complete in `en`, `sw` and `fr`); the
+  language switches at runtime without reloading, dates, numbers, percentages and relative times are
+  formatted with `Intl`, statuses and document types are labelled from the catalogue with a readable
+  fallback, and the layout uses logical CSS properties with a direction-aware root so a
+  right-to-left language needs no new stylesheet (`I18N-001`).
 - 20 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 
-- `PRD.json` statuses and artifact paths now reflect the code (44 of 45 stories are `done`; the
+- `PRD.json` statuses and artifact paths now reflect the code (all 45 stories are `done`; the
   remaining ones are listed in `TASKS.md`).
 - **`node_modules` is no longer tracked.** It was committed at the start (22,706 files) even though
   `.gitignore` listed it; this change untracks it, so installs come from `package-lock.json` again.

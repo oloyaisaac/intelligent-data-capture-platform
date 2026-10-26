@@ -3,6 +3,8 @@ import type { Connector, MappingProfile } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { formatDateTime } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync } from '../components/ui';
+import { useLocale, useTranslator } from '../lib/locale';
+import { documentTypeLabel } from '../lib/labels';
 
 /**
  * CON-001..003 / MAP-001 — connectors and field mappings.
@@ -11,6 +13,8 @@ import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync } from '../compon
  * exist outside the encrypted store. Testing a connector performs a real health check.
  */
 export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const connectors = useAsync(() => client.listConnectors(), []);
   const types = useAsync(() => client.connectorTypes(), []);
   const profiles = useAsync(() => client.listMappingProfiles(), []);
@@ -33,7 +37,7 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
       const parsedCredentials = JSON.parse(credentialsText) as Record<string, string>;
       credentials = Object.keys(parsedCredentials).length > 0 ? parsedCredentials : undefined;
     } catch {
-      setError('The config and credentials must be valid JSON.');
+      setError(t('connectors.badJson'));
       return;
     }
 
@@ -47,10 +51,10 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
       });
       setName('');
       setCredentialsText('{}');
-      setNotice('Connector saved. Run a test to confirm it can write.');
+      setNotice(t('connectors.saved'));
       await connectors.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not save that connector.');
+      setError(caught instanceof Error ? caught.message : t('connectors.saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -58,7 +62,7 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
 
   return (
     <div className="stack">
-      <h1>Connectors</h1>
+      <h1>{t('connectors.title')}</h1>
       <ErrorBanner message={error ?? connectors.error} />
       {notice && (
         <div className="notice" role="status">
@@ -66,9 +70,9 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
         </div>
       )}
 
-      <Card title="Add a connector">
+      <Card title={t('connectors.add')}>
         <div className="toolbar">
-          <Field label="Type">
+          <Field label={t('connectors.type')}>
             <select
               className="select"
               value={type}
@@ -83,12 +87,12 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
               )}
             </select>
           </Field>
-          <Field label="Name">
+          <Field label={t('connectors.name')}>
             <input
               className="input"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Finance drive"
+              placeholder={t('connectors.namePlaceholder')}
             />
           </Field>
           <button
@@ -97,11 +101,11 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
             onClick={() => void create()}
             disabled={busy || name.trim().length === 0}
           >
-            Save connector
+            {t('connectors.save')}
           </button>
         </div>
         <div className="split" style={{ marginTop: 12 }}>
-          <Field label="Configuration (JSON)">
+          <Field label={t('connectors.configuration')}>
             <textarea
               className="textarea mono"
               rows={6}
@@ -109,7 +113,7 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
               onChange={(event) => setConfigText(event.target.value)}
             />
           </Field>
-          <Field label="Credentials (write-only, encrypted at rest)">
+          <Field label={t('connectors.credentials')}>
             <textarea
               className="textarea mono"
               rows={6}
@@ -120,15 +124,15 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
         </div>
       </Card>
 
-      <Card title="Connected destinations">
+      <Card title={t('connectors.connected')}>
         {connectors.data && connectors.data.items.length > 0 ? (
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Last checked</th>
+                <th>{t('connectors.name')}</th>
+                <th>{t('table.type')}</th>
+                <th>{t('table.status')}</th>
+                <th>{t('table.lastChecked')}</th>
                 <th />
               </tr>
             </thead>
@@ -147,10 +151,12 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
                             : 'neutral'
                       }
                     >
-                      {connector.status}
+                      {connector.status === 'active' ? t('status.active') : connector.status}
                     </Badge>
                   </td>
-                  <td className="dim">{formatDateTime(connector.lastHealthCheckAt ?? null)}</td>
+                  <td className="dim">
+                    {formatDateTime(connector.lastHealthCheckAt ?? null, locale)}
+                  </td>
                   <td>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       <button
@@ -162,16 +168,21 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
                             const result = await client.testConnector(connector.id);
                             setNotice(
                               result.ok
-                                ? `${connector.name}: connection ok.`
-                                : `${connector.name}: ${result.message ?? 'failed'}`,
+                                ? t('connectors.testOk', { name: connector.name })
+                                : t('connectors.testFailedFor', {
+                                    name: connector.name,
+                                    message: result.message ?? t('connectors.failedWord'),
+                                  }),
                             );
                             await connectors.reload();
                           } catch (caught) {
-                            setError(caught instanceof Error ? caught.message : 'Test failed.');
+                            setError(
+                              caught instanceof Error ? caught.message : t('connectors.testFailed'),
+                            );
                           }
                         }}
                       >
-                        Test
+                        {t('connectors.test')}
                       </button>
                     </div>
                   </td>
@@ -180,29 +191,26 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
             </tbody>
           </table>
         ) : (
-          <EmptyState
-            title="No connectors yet"
-            hint="Add a CSV, Google Sheets, SQLite or PostgreSQL destination."
-          />
+          <EmptyState title={t('connectors.none')} hint={t('connectors.noneHint')} />
         )}
       </Card>
 
-      <Card title="Mapping profiles">
+      <Card title={t('connectors.mappings')}>
         {profiles.data && profiles.data.items.length > 0 ? (
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Document type</th>
-                <th>Fields</th>
-                <th>Duplicates</th>
+                <th>{t('connectors.name')}</th>
+                <th>{t('filter.documentType')}</th>
+                <th>{t('table.fields')}</th>
+                <th>{t('table.duplicates')}</th>
               </tr>
             </thead>
             <tbody>
               {profiles.data.items.map((profile: MappingProfile) => (
                 <tr key={profile.id}>
                   <td>{profile.name}</td>
-                  <td>{profile.documentType}</td>
+                  <td>{documentTypeLabel(t, profile.documentType)}</td>
                   <td>{profile.fieldMap.length}</td>
                   <td className="dim">
                     {profile.duplicatePolicy}
@@ -215,10 +223,7 @@ export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Ele
             </tbody>
           </table>
         ) : (
-          <EmptyState
-            title="No mappings yet"
-            hint="A mapping says which extracted field goes to which column."
-          />
+          <EmptyState title={t('connectors.noMappings')} hint={t('connectors.noMappingsHint')} />
         )}
       </Card>
     </div>

@@ -1,4 +1,6 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ApiClient, ApiError, MemoryTokenStorage } from '../src/api/client';
 import { parseRoute, routeHref } from '../src/App';
@@ -26,6 +28,10 @@ import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { ReviewPage } from '../src/pages/ReviewPage';
 import { SettingsPage } from '../src/pages/SettingsPage';
 import { MarketplacePage, permissionLabel } from '../src/marketplace/MarketplacePage';
+import { LocaleProvider, applyDocumentLocale, useTranslator } from '../src/lib/locale';
+import { documentTypeLabel, roleLabel, statusLabel } from '../src/lib/labels';
+import { formatNumber, formatRelative } from '../src/lib/format';
+import { directionFor } from '@idcp/shared';
 import {
   DESTRUCTIVE_ACTIONS,
   WorkflowsPage,
@@ -185,7 +191,8 @@ describe('interface language (I18N-001)', () => {
     expect(createTranslator('sw')('app.name')).toBe('IDCP');
     // Every locale covers the navigation, so no screen is half in one language.
     for (const locale of ['sw', 'fr'] as const) {
-      expect(translationCoverage(locale)).toBeGreaterThan(0.45);
+      // I18N-001: the sweep is finished, so both shipped translations cover the whole catalogue.
+      expect(translationCoverage(locale)).toBe(1);
       expect(createTranslator(locale)('nav.batches')).toBeTruthy();
     }
   });
@@ -1128,5 +1135,106 @@ describe('workflow automation (AGENT-001)', () => {
     // The saved rule is listed, and its state can be changed.
     expect(await screen.findByText('File large invoices')).toBeTruthy();
     expect(screen.getAllByText('enabled').length).toBeGreaterThan(0);
+  });
+});
+
+describe('localisation sweep (I18N-001)', () => {
+  afterEach(cleanup);
+
+  const client = {} as unknown as ApiClient;
+
+  it('renders a page in Swahili when the provider says so, and switches at runtime', async () => {
+    function Switcher(): React.JSX.Element {
+      const [locale, setLocale] = React.useState<'en' | 'sw'>('en');
+      return (
+        <>
+          <button type="button" onClick={() => setLocale('sw')}>
+            switch
+          </button>
+          <LocaleProvider locale={locale}>
+            <LoginPage client={client} onSignedIn={() => undefined} />
+          </LocaleProvider>
+        </>
+      );
+    }
+    render(<Switcher />);
+
+    // English first, then the same component with a different provider value.
+    expect(await screen.findByText('Sign in to IDCP')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'switch' }));
+    expect(await screen.findByText('Ingia kwenye IDCP')).toBeTruthy();
+    // The fields are translated too, not just the heading.
+    expect(screen.getAllByText('Nenosiri').length).toBeGreaterThan(0);
+  });
+
+  it('formats dates and numbers for the reader, not the server', () => {
+    const iso = '2026-10-26T14:05:00.000Z';
+    const english = formatDateTime(iso, 'en');
+    const french = formatDateTime(iso, 'fr');
+    expect(english).not.toBe(french);
+    expect(english).toContain('2026');
+    expect(french).toContain('2026');
+    // Percentages use the locale's own separator and spacing.
+    expect(formatPercent(0.85, 'en')).toBe('85%');
+    expect(formatPercent(0.85, 'fr')).toMatch(/85\s*%/u);
+    // Thousands separators, and a relative phrase from Intl rather than a hand-rolled table.
+    expect(formatNumber(1234567, 'en')).toBe('1,234,567');
+    expect(formatNumber(1234567, 'fr')).not.toBe('1,234,567');
+    expect(formatRelative('2026-10-26T13:00:00.000Z', 'en', Date.parse(iso))).toBe('1 hour ago');
+    expect(formatDateTime(null, 'fr')).toBe('—');
+  });
+
+  it('labels enum values from the catalogue and falls back to the raw value', () => {
+    const t = translator('sw');
+    expect(statusLabel(t, 'needs_review')).toBe('Inahitaji ukaguzi');
+    expect(documentTypeLabel(t, 'invoice')).toBe('Ankara');
+    expect(roleLabel(t, 'admin')).toBe('Msimamizi');
+    // A status the catalogue does not know yet stays readable instead of showing underscores.
+    expect(statusLabel(translator('en'), 'brand_new')).toBe('brand new');
+  });
+
+  it('sets the document direction from the language', () => {
+    applyDocumentLocale('fr');
+    expect(document.documentElement.dir).toBe('ltr');
+    expect(document.documentElement.lang).toBe('fr');
+
+    // The shipped locales are LTR; an RTL language flips the root element with no layout change.
+    applyDocumentLocale('ar' as never);
+    expect(document.documentElement.dir).toBe('rtl');
+    expect(directionFor('ar')).toBe('rtl');
+    expect(directionFor('sw')).toBe('ltr');
+
+    applyDocumentLocale('en');
+  });
+
+  it('has no physical left/right CSS left to clip an RTL layout', () => {
+    const css = readFileSync(join(__dirname, '../src/styles.css'), 'utf8');
+    expect(css).toContain('border-inline-end');
+    expect(css).toContain('text-align: start');
+    expect(css).toContain("[dir='rtl']");
+    expect(css).not.toMatch(/border-(left|right):/);
+    expect(css).not.toMatch(/(margin|padding)-(left|right):/);
+    expect(css).not.toMatch(/text-align:\s*(left|right);/);
+  });
+
+  it('uses logical alignment in the components as well', () => {
+    const files = [
+      'pages/DocumentsPage.tsx',
+      'pages/SettingsPage.tsx',
+      'workflows/WorkflowsPage.tsx',
+    ];
+    for (const file of files) {
+      const source = readFileSync(join(__dirname, '../src', file), 'utf8');
+      expect(source).not.toMatch(/textAlign:\s*'(left|right)'/);
+    }
+  });
+
+  it('exposes the translator to any component, defaulting to English without a provider', () => {
+    function Probe(): React.JSX.Element {
+      const t = useTranslator();
+      return <span>{t('nav.documents')}</span>;
+    }
+    render(<Probe />);
+    expect(screen.getByText('Documents')).toBeTruthy();
   });
 });

@@ -3,6 +3,7 @@ import type { DuplicateCheckResponse } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { Badge, Card, ErrorBanner, Field, useAsync } from './ui';
 import { formatPercent } from '../lib/format';
+import { useLocale, useTranslator } from '../lib/locale';
 
 /**
  * DUP-001 / MAP-001 — send an approved record to a destination.
@@ -20,6 +21,8 @@ export function SendToDestination({
   documentId: string;
   approved: boolean;
 }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const connectors = useAsync(() => client.listConnectors(), []);
   const mappings = useAsync(() => client.listMappingProfiles(), []);
 
@@ -59,7 +62,7 @@ export function SendToDestination({
       setCheck(await client.checkDuplicates(documentId, { connectorId, mappingProfileId }));
     } catch (caught) {
       setCheck(null);
-      setError(caught instanceof Error ? caught.message : 'Could not check the destination.');
+      setError(caught instanceof Error ? caught.message : t('send.checkFailed'));
     } finally {
       setBusy(false);
     }
@@ -73,35 +76,35 @@ export function SendToDestination({
       const result = await client.sendDocument(documentId, { connectorId, mappingProfileId });
       setNotice(
         result.status === 'skipped_duplicate'
-          ? 'A matching row already exists, so nothing was written.'
-          : `Sent: ${result.created + result.updated} row(s) written.`,
+          ? t('send.skippedDuplicate')
+          : t('send.sent', { count: result.created + result.updated }),
       );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not send this record.');
+      setError(caught instanceof Error ? caught.message : t('send.failed'));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Card title="Send to a destination">
+    <Card title={t('send.card')}>
       <div className="stack">
         <ErrorBanner message={error ?? connectors.error ?? mappings.error} />
 
         {!approved && (
           <p className="muted" style={{ margin: 0 }}>
-            Approve this record before sending it to a connector.
+            {t('send.approveFirst')}
           </p>
         )}
 
         <div className="row" style={{ alignItems: 'flex-end' }}>
-          <Field label="Connector">
+          <Field label={t('send.connector')}>
             <select
               className="select"
               value={connectorId}
               onChange={(event) => setConnectorId(event.target.value)}
             >
-              <option value="">Choose a connector</option>
+              <option value="">{t('send.chooseConnector')}</option>
               {activeConnectors.map((connector) => (
                 <option key={connector.id} value={connector.id}>
                   {connector.name}
@@ -110,7 +113,7 @@ export function SendToDestination({
             </select>
           </Field>
 
-          <Field label="Mapping profile">
+          <Field label={t('send.mappingProfile')}>
             <select
               className="select"
               value={mappingProfileId}
@@ -118,9 +121,7 @@ export function SendToDestination({
               disabled={availableMappings.length === 0}
             >
               <option value="">
-                {availableMappings.length === 0
-                  ? 'No mappings for this connector'
-                  : 'Choose a mapping'}
+                {availableMappings.length === 0 ? t('send.noMappings') : t('send.chooseMapping')}
               </option>
               {availableMappings.map((mapping) => (
                 <option key={mapping.id} value={mapping.id}>
@@ -136,7 +137,7 @@ export function SendToDestination({
             disabled={busy || !connectorId || !mappingProfileId}
             onClick={() => void runCheck()}
           >
-            Check for duplicates
+            {t('send.checkDuplicates')}
           </button>
           <button
             className="button"
@@ -144,7 +145,7 @@ export function SendToDestination({
             disabled={busy || !approved || !connectorId || !mappingProfileId}
             onClick={() => void send()}
           >
-            Send
+            {t('send.send')}
           </button>
         </div>
 
@@ -158,24 +159,27 @@ export function SendToDestination({
           <div className="stack" style={{ gap: 6 }} role="status">
             <div className="row">
               <Badge tone={check.isDuplicate ? 'warning' : 'success'}>
-                {check.isDuplicate ? 'duplicate found' : 'no duplicate'}
+                {check.isDuplicate ? t('send.duplicateFound') : t('send.noDuplicate')}
               </Badge>
               <span className="dim">
-                best score {formatPercent(check.bestScore)} · threshold{' '}
-                {formatPercent(check.threshold)} · policy {check.policy}
+                {t('send.bestScore', {
+                  best: formatPercent(check.bestScore, locale),
+                  threshold: formatPercent(check.threshold, locale),
+                  policy: check.policy,
+                })}
               </span>
             </div>
             {check.keys.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
-                This mapping profile has no duplicate keys, so nothing is compared.
+                {t('send.noKeys')}
               </p>
             ) : check.matchedKeys.length > 0 ? (
               <p className="dim" style={{ margin: 0 }}>
-                Matched on: <span className="mono">{check.matchedKeys.join(', ')}</span>
+                {t('send.matchedOn', { keys: check.matchedKeys.join(', ') })}
               </p>
             ) : (
               <p className="muted" style={{ margin: 0 }}>
-                No candidate matched the configured keys.
+                {t('send.noCandidate')}
               </p>
             )}
 
@@ -183,9 +187,9 @@ export function SendToDestination({
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Score</th>
-                    <th>Matched keys</th>
-                    <th>Existing row</th>
+                    <th>{t('table.score')}</th>
+                    <th>{t('table.matchedKeys')}</th>
+                    <th>{t('table.existingRow')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -194,7 +198,7 @@ export function SendToDestination({
                       <td
                         className={`confidence ${candidate.score >= check.threshold ? 'medium' : 'ok'}`}
                       >
-                        {formatPercent(candidate.score)}
+                        {formatPercent(candidate.score, locale)}
                       </td>
                       <td className="mono">{candidate.matchedKeys.join(', ') || '—'}</td>
                       <td className="dim">

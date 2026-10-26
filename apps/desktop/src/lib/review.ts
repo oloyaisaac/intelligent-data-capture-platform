@@ -1,4 +1,9 @@
-import type { ReviewBlockingField as BlockingField, Udm } from '@idcp/shared';
+import type {
+  ReviewBlockingField as BlockingField,
+  Translate,
+  TranslationKey,
+  Udm,
+} from '@idcp/shared';
 
 /**
  * Review helpers (REV-001).
@@ -18,15 +23,33 @@ export interface ReviewFieldRow {
   reason: BlockingField['reason'] | null;
 }
 
-const REASON_LABEL: Record<string, string> = {
-  low_confidence: 'Low confidence',
-  missing_value: 'Missing value',
-  not_found: 'Not found',
-  not_processed: 'Not processed',
+const REASON_KEYS: Record<string, TranslationKey> = {
+  low_confidence: 'review.reason.lowConfidence',
+  missing_value: 'review.reason.missingValue',
+  not_found: 'review.reason.notFound',
+  not_processed: 'review.reason.notProcessed',
 };
 
-export function blockingReasonLabel(reason: string): string {
-  return REASON_LABEL[reason] ?? 'Needs attention';
+/**
+ * The reason a field needs attention, in the reader's language.
+ *
+ * Without a translator the English label is returned, so the pure helper still works in isolation.
+ */
+export function blockingReasonLabel(reason: string, t?: Translate): string {
+  const key = REASON_KEYS[reason];
+  if (t) return t(key ?? 'review.reason.attention');
+  switch (key) {
+    case 'review.reason.lowConfidence':
+      return 'Low confidence';
+    case 'review.reason.missingValue':
+      return 'Missing value';
+    case 'review.reason.notFound':
+      return 'Not found';
+    case 'review.reason.notProcessed':
+      return 'Not processed';
+    default:
+      return 'Needs attention';
+  }
 }
 
 /**

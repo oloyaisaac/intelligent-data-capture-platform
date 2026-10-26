@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import type { Translate, TranslationKey } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { Badge, Card, EmptyState, ErrorBanner, useAsync } from '../components/ui';
+import { useTranslator } from '../lib/locale';
 
 /**
  * The connector marketplace (MARKET-001).
@@ -32,6 +34,12 @@ export interface MarketplacePackageView {
 }
 
 /** Permissions are shown as consequences, not as scope strings. */
+/**
+ * I18N-001 — a permission is explained as a sentence, in the reader's language.
+ *
+ * `PERMISSION_LABELS` stays the English source of truth (and the fallback), so a permission added by
+ * the backend is still disclosed before its translation ships.
+ */
 export const PERMISSION_LABELS: Record<string, string> = {
   'documents:read': 'Read the extracted values of documents you send',
   'destination:write': 'Create records in the destination',
@@ -40,11 +48,22 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'secrets:read': 'Use the credentials stored for this connector',
 };
 
-export function permissionLabel(permission: string): string {
+const PERMISSION_KEYS: Record<string, TranslationKey> = {
+  'documents:read': 'marketplace.permission.documentsRead',
+  'destination:write': 'marketplace.permission.destinationWrite',
+  'destination:update': 'marketplace.permission.destinationUpdate',
+  'network:outbound': 'marketplace.permission.networkOutbound',
+  'secrets:read': 'marketplace.permission.secretsRead',
+};
+
+export function permissionLabel(permission: string, t?: Translate): string {
+  const key = PERMISSION_KEYS[permission];
+  if (t && key) return t(key);
   return PERMISSION_LABELS[permission] ?? permission;
 }
 
 export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.Element {
+  const t = useTranslator();
   const packages = useAsync(() => client.listMarketplace(), []);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +75,7 @@ export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.El
   const install = async (pkg: MarketplacePackageView) => {
     const connectorId = selected[pkg.id] ?? pkg.availableConnectors[0]?.id;
     if (!connectorId) {
-      setError(`Create a ${pkg.type} connector first, then install ${pkg.label} onto it.`);
+      setError(t('marketplace.createConnectorFirst', { type: pkg.type, package: pkg.label }));
       return;
     }
     setBusy(true);
@@ -64,10 +83,10 @@ export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.El
     setNotice(null);
     try {
       const result = await client.installPackage({ packageId: pkg.id, connectorId });
-      setNotice(`${pkg.label} ${result.version} installed.`);
+      setNotice(t('marketplace.installed', { package: pkg.label, version: result.version }));
       await packages.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Install failed.');
+      setError(caught instanceof Error ? caught.message : t('marketplace.installFailed'));
     } finally {
       setBusy(false);
     }
@@ -83,7 +102,7 @@ export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.El
       setNotice(result.message);
       await packages.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Rollback failed.');
+      setError(caught instanceof Error ? caught.message : t('marketplace.rollbackFailed'));
     } finally {
       setBusy(false);
     }
@@ -91,10 +110,9 @@ export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.El
 
   return (
     <div className="stack">
-      <h1>Marketplace</h1>
+      <h1>{t('marketplace.title')}</h1>
       <p className="dim" style={{ margin: 0 }}>
-        Packages are reviewed and signed by the publisher. Installing one records the permissions it
-        holds, and every installation can be rolled back.
+        {t('marketplace.intro')}
       </p>
 
       <ErrorBanner message={error ?? packages.error} />
@@ -106,11 +124,11 @@ export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.El
 
       {packages.loading && !packages.data ? (
         <Card>
-          <EmptyState title="Loading the catalogue…" />
+          <EmptyState title={t('marketplace.loading')} />
         </Card>
       ) : items.length === 0 ? (
         <Card>
-          <EmptyState title="No packages available" hint="The catalogue is empty." />
+          <EmptyState title={t('marketplace.empty')} hint={t('marketplace.emptyHint')} />
         </Card>
       ) : (
         items.map((pkg) => (
@@ -121,43 +139,49 @@ export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.El
               <div className="row">
                 <Badge tone={pkg.status === 'revoked' ? 'danger' : 'neutral'}>{pkg.vendor}</Badge>
                 <Badge tone={pkg.signatureVerified ? 'success' : 'danger'}>
-                  {pkg.signatureVerified ? 'signature verified' : 'unsigned'}
+                  {pkg.signatureVerified
+                    ? t('marketplace.signatureVerified')
+                    : t('marketplace.unsigned')}
                 </Badge>
-                {pkg.activeInstallId && <Badge tone="info">installed {pkg.version}</Badge>}
+                {pkg.activeInstallId && (
+                  <Badge tone="info">
+                    {t('marketplace.installedVersion', { version: pkg.version })}
+                  </Badge>
+                )}
               </div>
             }
           >
             <div className="stack">
               <p style={{ margin: 0 }}>{pkg.summary}</p>
               <div className="dim">
-                Version {pkg.version}
+                {t('marketplace.versionLine', { version: pkg.version })}
                 {pkg.availableVersions.length > 1
-                  ? ` · available: ${pkg.availableVersions.join(', ')}`
+                  ? ` · ${t('marketplace.available', { versions: pkg.availableVersions.join(', ') })}`
                   : ''}
               </div>
 
               <div>
-                <div className="label">This package will be able to:</div>
+                <div className="label">{t('marketplace.willBeAble')}</div>
                 <ul style={{ margin: '4px 0 0 18px' }}>
                   {pkg.permissions.map((permission) => (
-                    <li key={permission}>{permissionLabel(permission)}</li>
+                    <li key={permission}>{permissionLabel(permission, t)}</li>
                   ))}
                 </ul>
               </div>
 
               {pkg.status === 'revoked' && (
                 <p className="dim" style={{ margin: 0 }}>
-                  {pkg.revokedReason ?? 'This package has been withdrawn.'}
+                  {pkg.revokedReason ?? t('marketplace.withdrawn')}
                 </p>
               )}
 
               <div className="toolbar">
                 {pkg.availableConnectors.length > 0 && (
                   <label className="field" style={{ minWidth: 220 }}>
-                    <span className="label">Install on</span>
+                    <span className="label">{t('marketplace.installOn')}</span>
                     <select
                       className="select"
-                      aria-label={`Connector for ${pkg.label}`}
+                      aria-label={t('marketplace.connectorFor', { package: pkg.label })}
                       value={selected[pkg.id] ?? pkg.availableConnectors[0]!.id}
                       onChange={(event) =>
                         setSelected({ ...selected, [pkg.id]: event.target.value })
@@ -178,7 +202,7 @@ export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.El
                   title={pkg.blocker ?? undefined}
                   onClick={() => void install(pkg)}
                 >
-                  {pkg.activeInstallId ? 'Reinstall' : 'Install'}
+                  {pkg.activeInstallId ? t('marketplace.reinstall') : t('marketplace.install')}
                 </button>
                 {pkg.activeInstallId && (
                   <button
@@ -187,7 +211,7 @@ export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.El
                     disabled={busy}
                     onClick={() => void rollback(pkg)}
                   >
-                    Roll back
+                    {t('marketplace.rollback')}
                   </button>
                 )}
               </div>
@@ -199,7 +223,7 @@ export function MarketplacePage({ client }: { client: ApiClient }): React.JSX.El
               )}
               {!pkg.blocker && pkg.availableConnectors.length === 0 && (
                 <p className="dim" style={{ margin: 0 }}>
-                  Create a {pkg.type} connector first, then install it here.
+                  {t('marketplace.createConnectorHere', { type: pkg.type })}
                 </p>
               )}
             </div>

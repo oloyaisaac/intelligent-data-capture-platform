@@ -989,7 +989,7 @@
       "id": "I18N-001",
       "epic": "EP-INSIGHT",
       "title": "Multi-language support",
-      "status": "in_progress",
+      "status": "done",
       "phase": 3,
       "priority": "could",
       "description": "Externalised strings, locale-aware dates/numbers and right-to-left layout support across mobile and desktop.",
@@ -1002,7 +1002,9 @@
       "artifacts": [
         "packages/shared/src/i18n.ts",
         "apps/desktop/src/lib/i18n.ts",
-        "apps/mobile/src/screens/CaptureScreen.tsx"
+        "apps/desktop/src/lib/locale.tsx",
+        "apps/desktop/src/styles.css",
+        "apps/mobile/src/ui/locale.ts"
       ]
     },
     {

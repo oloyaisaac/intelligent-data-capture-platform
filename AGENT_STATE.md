@@ -14,10 +14,10 @@
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
 `npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
-326 tests in 20 suites).
+337 tests in 20 suites).
 
-44 of 45 stories are `done`. The only one left is `I18N-001` (translation sweep of the desktop page
-bodies, `in_progress`).
+**All 45 stories are `done`.** The product described by `PRD.json` is built; the remaining work is the
+deliberate release-side gaps listed below.
 
 ## What is built
 
@@ -26,7 +26,7 @@ bodies, `in_progress`).
 | Shared contracts, UDM, money/dates/CSV/dedupe/i18n/review rules | `packages/shared`                      | 47 tests. `mergeRecord` reports every value it refuses to overwrite. Node-only helpers live at `@idcp/shared/ids`.                                          |
 | Connector SDK + CSV, SQLite, PostgreSQL, MySQL, Google Sheets   | `packages/connectors`                  | 23 tests. `update()` is implemented for SQLite/PostgreSQL/MySQL (transactional, identifier-validated).                                                      |
 | Backend API (Fastify 5)                                         | `apps/backend`                         | 161 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
-| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 48 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
+| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 55 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
 | Mobile (React Native 0.86)                                      | `apps/mobile`                          | 23 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                                                |
 | CI, PRD + API contracts, generators                             | `.github/workflows/ci.yml`, `scripts/` | `validate-prd.mjs`, `validate-openapi.mjs`, `generate-udm-schema.mjs`.                                                                                      |
 
@@ -63,10 +63,9 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
 6. **Analytics** is now a 14-day (up to 90) SVG chart plus CSV export (`DASH-001` done). There are no
    saved/custom dashboards, and the 2-second target is asserted by design (bounded window, indexed
    query), not by a load test.
-7. **Language switch works at runtime** (desktop navigation and settings, mobile screens) and both
-   `sw` and `fr` cover ~49% of the catalogue with English fallback. The desktop page _bodies_ are
-   still English string literals, so `I18N-001` stays `in_progress`; the remaining work is a
-   mechanical sweep, not new plumbing.
+7. **Localisation is complete** (I18N-001, DEC-028): 577 keys, 100% coverage in `en`, `sw` and `fr`,
+   `Intl` formatting, and a direction-aware layout. No RTL language ships yet, so RTL is verified by
+   the direction helper and the logical-property test rather than by a real RTL catalogue.
 8. **Three environments' worth of connectors are not exercised against live servers**: MySQL, Postgres
    and Google Sheets have no server in this sandbox. Their SQL/HTTP is covered by validation tests
    and the SQLite path runs for real.
@@ -82,7 +81,9 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
 
 ## Next actions, in order
 
-1. `I18N-001` — sweep the remaining English literals in the desktop page bodies, then check RTL.
+1. Release checklist: sign and smoke-test installers on Windows/macOS/Linux (DEC-022).
+2. Exercise the MySQL, Postgres and Google Sheets connectors against live servers.
+3. Add the Socket.IO adapter behind the existing `RealtimeHub` interface (DEC-016).
 
 ## Environment facts worth knowing
 

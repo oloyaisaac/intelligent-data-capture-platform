@@ -27,7 +27,8 @@ M0 and M1 are complete, and these M2 stories are now done too:
 
 ## Now
 
-- [ ] **I18N-001** — sweep the desktop page bodies through the `en/sw/fr` catalogues; check RTL.
+Nothing open: all 45 stories in `PRD.json` are `done`. Next candidates are the deliberate gaps listed
+in `AGENT_STATE.md` (signed installers, live-database connector runs, Socket.IO transport).
 
 ## Done this round
 
@@ -40,6 +41,7 @@ M0 and M1 are complete, and these M2 stories are now done too:
 - [x] **MARKET-001** — signed connector catalogue, permission disclosure and rollback.
 - [x] **AGENT-001** — workflow rules with a run log; destructive actions wait for per-run approval.
 - [x] **VOICE-001** — offline capture guidance, consented spoken commands, per-run confirmations.
+- [x] **I18N-001** — one complete `en/sw/fr` catalogue, locale-aware formatting, logical-property RTL.
 
 ## Later (Phase 3)
 

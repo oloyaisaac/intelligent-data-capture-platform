@@ -30,6 +30,13 @@ import { createGuidanceTracker, cueFor } from '../src/assist/guidance';
 import { gate, parseCommand } from '../src/assist/commands';
 import { initialVoiceSession, reduceVoice } from '../src/assist/reviewVoice';
 import {
+  deviceDirection,
+  deviceIsRtl,
+  deviceLocale,
+  mobileTranslator,
+  resolveDeviceLocale,
+} from '../src/ui/locale';
+import {
   AUDIO_POLICY,
   canListen,
   createVoiceAssistant,
@@ -946,5 +953,35 @@ describe('voice guidance and commands (VOICE-001)', () => {
       spokenGuidance: true,
       retainTranscript: false,
     });
+  });
+});
+
+describe('device language (I18N-001)', () => {
+  it('follows the phone language, falling back to English', () => {
+    expect(resolveDeviceLocale('sw-KE')).toBe('sw');
+    expect(resolveDeviceLocale('fr_FR')).toBe('fr');
+    expect(resolveDeviceLocale('en-US')).toBe('en');
+    // A language no catalogue covers is English, not a blank interface.
+    expect(resolveDeviceLocale('ar-EG')).toBe('en');
+    expect(resolveDeviceLocale('de')).toBe('en');
+    expect(resolveDeviceLocale(null)).toBe('en');
+    expect(resolveDeviceLocale(undefined)).toBe('en');
+    // The same catalogue the desktop uses, so the phone and the workstation cannot drift.
+    expect(mobileTranslator('sw')('capture.title')).toBe('Piga picha hati');
+    expect(deviceLocale()).not.toBeUndefined();
+    expect(typeof deviceIsRtl()).toBe('boolean');
+    // Direction comes from the same helper as the desktop, so both surfaces mirror together.
+    expect(deviceDirection('ar-EG')).toBe('rtl');
+    expect(deviceIsRtl('ar')).toBe(true);
+    expect(deviceDirection('sw-KE')).toBe('ltr');
+  });
+
+  it('keeps the voice cues and the commands in the catalogue', () => {
+    for (const locale of ['en', 'sw', 'fr'] as const) {
+      const t = mobileTranslator(locale);
+      expect(t('voice.cue.holdStill')).not.toBe('voice.cue.holdStill');
+      expect(t('voice.cue.ready')).not.toBe('voice.cue.ready');
+      expect(t('voice.confirm.approve')).not.toBe('voice.confirm.approve');
+    }
   });
 });

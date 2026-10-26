@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
-import { createTranslator } from '@idcp/shared';
 import { ApiClient } from './api/client';
 import { KeychainStore } from './auth/secureStore';
 import { createPersistentQueue } from './state/queueStorage';
@@ -14,8 +13,7 @@ import { SignInScreen } from './screens/SignInScreen';
 import { PairingScreen } from './screens/PairingScreen';
 import { colors, spacing, typography } from './ui/theme';
 import type { UploadQueue } from './state/uploadQueue';
-
-const t = createTranslator('en');
+import { deviceLocale, mobileTranslator, resolveDeviceLocale } from './ui/locale';
 
 /** Configured at build time (`IDCP_API_URL`), or learned from the pairing QR code. */
 const DEFAULT_ENDPOINT = process.env.IDCP_API_URL ?? 'https://app.idcp.example';
@@ -26,6 +24,9 @@ type SessionState = 'checking' | 'signed_out' | 'signed_in';
 
 export function App(): React.JSX.Element {
   const store = useMemo(() => new KeychainStore(), []);
+  // I18N-001: the phone speaks the language the device is set to, falling back to English.
+  const [locale] = useState(() => resolveDeviceLocale(deviceLocale()));
+  const t = useMemo(() => mobileTranslator(locale), [locale]);
   const [endpoint, setEndpoint] = useState<string>(DEFAULT_ENDPOINT);
   const [session, setSession] = useState<SessionState>('checking');
   const [paired, setPaired] = useState<boolean>(false);
@@ -109,9 +110,11 @@ export function App(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.body}>
-        {tab === 'capture' && <CaptureScreen queue={queue} bridge={frameBridge} voice={voice} />}
+        {tab === 'capture' && (
+          <CaptureScreen queue={queue} bridge={frameBridge} voice={voice} locale={locale} />
+        )}
         {tab === 'queue' && <QueueScreen queue={queue} onOpenReview={() => setTab('review')} />}
-        {tab === 'review' && <ReviewScreen client={client} voice={voice} />}
+        {tab === 'review' && <ReviewScreen client={client} voice={voice} locale={locale} />}
       </View>
       <View style={styles.tabs}>
         {(

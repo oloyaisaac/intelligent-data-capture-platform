@@ -206,6 +206,20 @@ Notes for anyone extending the suite:
    (or tap Approve) to file it; saying anything else in between disarms the confirmation.
 6. Turn voice off. **Expect:** the microphone is closed and any remembered command text is gone.
 
+### TC-13g — Switching language and reading an RTL layout · `I18N-001`
+
+1. Open Settings and switch the interface language to Kiswahili.
+2. **Expect:** the navigation, the page bodies, the table headers and the empty states all change
+   without a reload; dates show in the locale's format.
+3. Switch to Français. **Expect:** the same, and a percentage renders as `85 %`.
+4. Check a status badge and a document type. **Expect:** translated labels; a value the catalogue
+   does not know shows as words, never as `needs_review`.
+5. Set the document direction to `rtl` (the helper used by the root element) and reload.
+   **Expect:** the sidebar moves to the right, its divider moves with it, table headers align to the
+   right and no control is clipped — the stylesheet contains no `left`/`right` properties.
+6. On the phone, set the device language to Swahili and launch the app. **Expect:** the tabs and the
+   capture guidance are in Swahili; the voice cues and confirmation prompts use the same catalogue.
+
 ### TC-13b — Corrections and the training switch · `REV-002`
 
 1. Correct two fields on two documents of the same type.

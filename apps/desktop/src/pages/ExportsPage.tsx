@@ -3,6 +3,8 @@ import { DOCUMENT_TYPES, type ExportRecord } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { formatDateTime, statusTone } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync } from '../components/ui';
+import { useLocale, useTranslator } from '../lib/locale';
+import { statusLabel } from '../lib/labels';
 
 /**
  * EXPORT-001 / EXPORT-002 — exports from the desktop.
@@ -11,6 +13,8 @@ import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync } from '../compon
  * the UI. The file is downloaded through the authenticated client rather than a bare link.
  */
 export function ExportsPage({ client }: { client: ApiClient }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const exports = useAsync(() => client.listExports(), []);
   const [format, setFormat] = useState<'xlsx' | 'csv'>('xlsx');
   const [documentType, setDocumentType] = useState('');
@@ -31,7 +35,7 @@ export function ExportsPage({ client }: { client: ApiClient }): React.JSX.Elemen
       });
       await exports.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Export failed.');
+      setError(caught instanceof Error ? caught.message : t('exports.failed'));
     } finally {
       setBusy(false);
     }
@@ -48,7 +52,7 @@ export function ExportsPage({ client }: { client: ApiClient }): React.JSX.Elemen
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Download failed.');
+      setError(caught instanceof Error ? caught.message : t('exports.downloadFailed'));
     }
   };
 
@@ -56,28 +60,28 @@ export function ExportsPage({ client }: { client: ApiClient }): React.JSX.Elemen
 
   return (
     <div className="stack">
-      <h1>Exports</h1>
+      <h1>{t('exports.title')}</h1>
       <ErrorBanner message={error ?? exports.error} />
 
-      <Card title="New export">
+      <Card title={t('exports.new')}>
         <div className="toolbar">
-          <Field label="Format">
+          <Field label={t('exports.format')}>
             <select
               className="select"
               value={format}
               onChange={(event) => setFormat(event.target.value as 'xlsx' | 'csv')}
             >
-              <option value="xlsx">Excel workbook (.xlsx)</option>
+              <option value="xlsx">{t('exports.xlsx')}</option>
               <option value="csv">CSV file (.csv)</option>
             </select>
           </Field>
-          <Field label="Document type">
+          <Field label={t('filter.documentType')}>
             <select
               className="select"
               value={documentType}
               onChange={(event) => setDocumentType(event.target.value)}
             >
-              <option value="">All approved</option>
+              <option value="">{t('exports.allApproved')}</option>
               {DOCUMENT_TYPES.map((type) => (
                 <option key={type} value={type}>
                   {type}
@@ -85,7 +89,7 @@ export function ExportsPage({ client }: { client: ApiClient }): React.JSX.Elemen
               ))}
             </select>
           </Field>
-          <Field label="From">
+          <Field label={t('filter.from')}>
             <input
               className="input"
               type="date"
@@ -93,7 +97,7 @@ export function ExportsPage({ client }: { client: ApiClient }): React.JSX.Elemen
               onChange={(event) => setFrom(event.target.value)}
             />
           </Field>
-          <Field label="To">
+          <Field label={t('filter.to')}>
             <input
               className="input"
               type="date"
@@ -102,7 +106,7 @@ export function ExportsPage({ client }: { client: ApiClient }): React.JSX.Elemen
             />
           </Field>
           <button className="button" type="button" onClick={() => void create()} disabled={busy}>
-            {busy ? 'Building…' : 'Export approved records'}
+            {busy ? t('exports.building') : t('exports.exportApproved')}
           </button>
         </div>
         <p className="dim" style={{ marginBottom: 0 }}>
@@ -111,39 +115,39 @@ export function ExportsPage({ client }: { client: ApiClient }): React.JSX.Elemen
         </p>
       </Card>
 
-      <Card title="History">
+      <Card title={t('exports.history')}>
         {items.length === 0 ? (
-          <EmptyState title="No exports yet" hint="Approve a few records, then export them here." />
+          <EmptyState title={t('exports.none')} hint={t('exports.noneHint')} />
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Created</th>
-                <th>Format</th>
-                <th>Status</th>
-                <th>Rows</th>
-                <th>Expires</th>
+                <th>{t('table.created')}</th>
+                <th>{t('table.format')}</th>
+                <th>{t('table.status')}</th>
+                <th>{t('table.rows')}</th>
+                <th>{t('table.expires')}</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {items.map((record) => (
                 <tr key={record.id}>
-                  <td className="dim">{formatDateTime(record.createdAt)}</td>
+                  <td className="dim">{formatDateTime(record.createdAt, locale)}</td>
                   <td>{record.format.toUpperCase()}</td>
                   <td>
-                    <Badge tone={statusTone(record.status)}>{record.status}</Badge>
+                    <Badge tone={statusTone(record.status)}>{statusLabel(t, record.status)}</Badge>
                   </td>
                   <td>{record.rowCount ?? '—'}</td>
-                  <td className="dim">{formatDateTime(record.expiresAt ?? null)}</td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td className="dim">{formatDateTime(record.expiresAt ?? null, locale)}</td>
+                  <td style={{ textAlign: 'end' }}>
                     <button
                       className="button secondary small"
                       type="button"
                       disabled={record.status !== 'ready'}
                       onClick={() => void download(record)}
                     >
-                      Download
+                      {t('action.download')}
                     </button>
                   </td>
                 </tr>

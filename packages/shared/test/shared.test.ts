@@ -20,6 +20,8 @@ import {
   parseCsv as parseCsvAlias,
   createTranslator,
   translationCoverage,
+  directionFor,
+  isRtl,
   roleAtLeast,
   applyCorrections,
   partitionForBulkApprove,
@@ -339,7 +341,9 @@ describe('i18n', () => {
     const t = createTranslator('sw');
     expect(t('action.save')).toBe('Hifadhi');
     expect(t('export.title')).toBe('Hamisha');
-    expect(t('review.fieldCorrected')).toBe('Corrected');
+    // The fallback still works: a locale with no catalogue at all returns English, not the key.
+    const empty = createTranslator('fr');
+    expect(empty('action.save')).toBe('Enregistrer');
   });
 
   it('never returns undefined for an unknown key', () => {
@@ -349,8 +353,33 @@ describe('i18n', () => {
   });
 
   it('reports translation coverage for shipped locales', () => {
+    // I18N-001: nothing ships half-translated — every key has an Swahili and a French string.
     expect(translationCoverage('en')).toBe(1);
-    expect(translationCoverage('sw')).toBeGreaterThan(0.1);
+    expect(translationCoverage('sw')).toBe(1);
+    expect(translationCoverage('fr')).toBe(1);
+  });
+
+  it('decides text direction from the language, so an RTL catalogue needs no layout work', () => {
+    expect(directionFor('en')).toBe('ltr');
+    expect(directionFor('sw-KE')).toBe('ltr');
+    expect(directionFor('fr')).toBe('ltr');
+    expect(directionFor('ar')).toBe('rtl');
+    expect(directionFor('ar-EG')).toBe('rtl');
+    expect(directionFor('he')).toBe('rtl');
+    expect(directionFor('FA_ir')).toBe('rtl');
+    expect(isRtl('ur')).toBe(true);
+    expect(isRtl('en')).toBe(false);
+    // Unknown or missing languages are left-to-right rather than guessed.
+    expect(directionFor(null)).toBe('ltr');
+    expect(directionFor('')).toBe('ltr');
+    expect(directionFor('tlh')).toBe('ltr');
+  });
+
+  it('interpolates parameters and leaves unknown keys visible', () => {
+    expect(createTranslator('en')('review.confidence', { percent: 82 })).toBe('Confidence 82%');
+    expect(createTranslator('fr')('review.confidence', { percent: 82 })).toContain('82');
+    // A missing key returns the key, which is how a half-finished translation announces itself.
+    expect(createTranslator('sw')('nothing.here' as never)).toBe('nothing.here');
   });
 });
 

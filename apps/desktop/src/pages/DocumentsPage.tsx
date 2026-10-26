@@ -4,6 +4,8 @@ import type { ApiClient } from '../api/client';
 import { formatBytes, formatDateTime, isoDayEnd, isoDayStart, statusTone } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync } from '../components/ui';
 import { connectRealtime, eventsUrl } from '../lib/realtime';
+import { documentTypeLabel, statusLabel } from '../lib/labels';
+import { useLocale, useTranslator } from '../lib/locale';
 
 export interface DocumentFilters {
   status: string;
@@ -32,6 +34,8 @@ export function DocumentsPage({
   initial?: Partial<DocumentFilters>;
   accessToken?: string | null;
 }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const [filters, setFilters] = useState<DocumentFilters>({
     status: initial?.status ?? '',
     documentType: initial?.documentType ?? '',
@@ -79,7 +83,7 @@ export function DocumentsPage({
       await client.uploadDocument(file, filters.documentType || undefined);
       await documents.reload();
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : 'Upload failed.');
+      setActionError(caught instanceof Error ? caught.message : t('documents.uploadFailed'));
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = '';
@@ -92,7 +96,7 @@ export function DocumentsPage({
       await action();
       await documents.reload();
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : 'Action failed.');
+      setActionError(caught instanceof Error ? caught.message : t('documents.actionFailed'));
     }
   };
 
@@ -101,7 +105,7 @@ export function DocumentsPage({
   return (
     <div className="stack">
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>Documents</h1>
+        <h1>{t('documents.title')}</h1>
         <div className="row">
           <input
             ref={fileInput}
@@ -120,7 +124,7 @@ export function DocumentsPage({
             onClick={() => fileInput.current?.click()}
             type="button"
           >
-            {uploading ? 'Uploading…' : 'Upload a document'}
+            {uploading ? t('documents.uploading') : t('documents.upload')}
           </button>
         </div>
       </div>
@@ -129,41 +133,41 @@ export function DocumentsPage({
 
       <Card>
         <div className="toolbar">
-          <Field label="Status">
+          <Field label={t('filter.status')}>
             <select
               className="select"
               value={filters.status}
               onChange={(event) => setFilters({ ...filters, status: event.target.value })}
             >
-              <option value="">Any</option>
+              <option value="">{t('filter.any')}</option>
               {DOCUMENT_STATUSES.map((status) => (
                 <option key={status} value={status}>
-                  {status.replace('_', ' ')}
+                  {statusLabel(t, status)}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Document type">
+          <Field label={t('filter.documentType')}>
             <select
               className="select"
               value={filters.documentType}
               onChange={(event) => setFilters({ ...filters, documentType: event.target.value })}
             >
-              <option value="">Any</option>
+              <option value="">{t('filter.any')}</option>
               {DOCUMENT_TYPES.map((type) => (
                 <option key={type} value={type}>
-                  {type}
+                  {documentTypeLabel(t, type)}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Device">
+          <Field label={t('filter.device')}>
             <select
               className="select"
               value={filters.deviceId}
               onChange={(event) => setFilters({ ...filters, deviceId: event.target.value })}
             >
-              <option value="">Any device</option>
+              <option value="">{t('filter.anyDevice')}</option>
               {(devices.data?.items ?? []).map((device) => (
                 <option key={device.id} value={device.id}>
                   {device.name}
@@ -171,7 +175,7 @@ export function DocumentsPage({
               ))}
             </select>
           </Field>
-          <Field label="From">
+          <Field label={t('filter.from')}>
             <input
               className="input"
               type="date"
@@ -179,7 +183,7 @@ export function DocumentsPage({
               onChange={(event) => setFilters({ ...filters, from: event.target.value })}
             />
           </Field>
-          <Field label="To">
+          <Field label={t('filter.to')}>
             <input
               className="input"
               type="date"
@@ -194,29 +198,30 @@ export function DocumentsPage({
               setFilters({ status: '', documentType: '', deviceId: '', from: '', to: '' })
             }
           >
-            Clear
+            {t('filter.clear')}
           </button>
         </div>
       </Card>
 
-      <Card title={`${items.length} document${items.length === 1 ? '' : 's'}`}>
+      <Card
+        title={t(items.length === 1 ? 'documents.countOne' : 'documents.count', {
+          count: items.length,
+        })}
+      >
         {documents.loading && items.length === 0 ? (
-          <EmptyState title="Loading…" />
+          <EmptyState title={t('dashboard.loading')} />
         ) : items.length === 0 ? (
-          <EmptyState
-            title="Nothing matches those filters"
-            hint="Try a wider date range or clear the status filter."
-          />
+          <EmptyState title={t('documents.noMatches')} hint={t('documents.noMatchesHint')} />
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Document</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Size</th>
-                <th>Uploaded</th>
-                <th aria-label="Actions" />
+                <th>{t('table.document')}</th>
+                <th>{t('table.type')}</th>
+                <th>{t('table.status')}</th>
+                <th>{t('table.size')}</th>
+                <th>{t('table.uploaded')}</th>
+                <th aria-label={t('table.actions')} />
               </tr>
             </thead>
             <tbody>
@@ -226,11 +231,11 @@ export function DocumentsPage({
                   <td>{document.documentType}</td>
                   <td>
                     <Badge tone={statusTone(document.status)}>
-                      {document.status.replace('_', ' ')}
+                      {statusLabel(t, document.status)}
                     </Badge>
                   </td>
-                  <td className="dim">{formatBytes(document.sizeBytes)}</td>
-                  <td className="dim">{formatDateTime(document.createdAt)}</td>
+                  <td className="dim">{formatBytes(document.sizeBytes, locale)}</td>
+                  <td className="dim">{formatDateTime(document.createdAt, locale)}</td>
                   <td>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       <a
@@ -239,36 +244,32 @@ export function DocumentsPage({
                         target="_blank"
                         rel="noreferrer"
                       >
-                        View
+                        {t('action.view')}
                       </a>
                       <button
                         className="button secondary small"
                         type="button"
                         onClick={() => onOpenReview(document.id)}
                       >
-                        Review
+                        {t('action.review')}
                       </button>
                       <button
                         className="button secondary small"
                         type="button"
                         onClick={() => void act(() => client.reprocess(document.id))}
                       >
-                        Reprocess
+                        {t('action.reprocess')}
                       </button>
                       <button
                         className="button danger small"
                         type="button"
                         onClick={() => {
-                          if (
-                            window.confirm(
-                              'Delete this document and its file? This cannot be undone.',
-                            )
-                          ) {
+                          if (window.confirm(t('documents.deleteConfirm'))) {
                             void act(() => client.deleteDocument(document.id));
                           }
                         }}
                       >
-                        Delete
+                        {t('action.delete')}
                       </button>
                     </div>
                   </td>

@@ -3,6 +3,7 @@ import type { UserSummary } from '@idcp/shared';
 import { ApiClient, ApiError, BridgeTokenStorage, MemoryTokenStorage } from './api/client';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { LocaleProvider, applyDocumentLocale, useLocale } from './lib/locale';
 import { BatchesPage } from './pages/BatchesPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { ProjectsPage } from './pages/ProjectsPage';
@@ -16,7 +17,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { MarketplacePage } from './marketplace/MarketplacePage';
 import { WorkflowsPage } from './workflows/WorkflowsPage';
 import { Badge } from './components/ui';
-import { LOCALE_OPTIONS, loadLocale, saveLocale, translator } from './lib/i18n';
+import { LOCALE_OPTIONS, loadLocale, saveLocale } from './lib/i18n';
 import type { Locale } from '@idcp/shared';
 
 /**
@@ -135,18 +136,49 @@ function createClient(onSessionExpired: () => void): ApiClient {
 }
 
 export function App(): React.JSX.Element {
+  const [locale, setLocale] = useState<Locale>(() => loadLocale());
+
+  // I18N-001: the direction follows the language, so one layout serves both. The root element is
+  // updated here rather than in a stylesheet because it also has to change at runtime.
+  React.useEffect(() => {
+    applyDocumentLocale(locale);
+  }, [locale]);
+
+  return (
+    <LocaleProvider locale={locale}>
+      <AppShell
+        locale={locale}
+        onLocaleChange={(next) => {
+          setLocale(next);
+          saveLocale(next);
+        }}
+      />
+    </LocaleProvider>
+  );
+}
+
+function AppShell({
+  locale,
+  onLocaleChange,
+}: {
+  locale: Locale;
+  onLocaleChange: (locale: Locale) => void;
+}): React.JSX.Element {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
   const [user, setUser] = useState<UserSummary | null>(null);
   const [booted, setBooted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [locale, setLocale] = useState<Locale>(() => loadLocale());
-  const t = useMemo(() => translator(locale), [locale]);
+  const { t, direction } = useLocale();
+  // The client is created once; the callback reads the current translator through a ref so a
+  // language change does not recreate the API client (and drop the session).
+  const tRef = React.useRef(t);
+  tRef.current = t;
 
   const client = useMemo(
     () =>
       createClient(() => {
         setUser(null);
-        setError('Your session expired. Sign in again.');
+        setError(tRef.current('app.sessionExpired'));
       }),
     [],
   );
@@ -177,7 +209,7 @@ export function App(): React.JSX.Element {
   if (!booted) {
     return (
       <div className="login-shell">
-        <p className="muted">Starting IDCP…</p>
+        <p className="muted">{t('app.starting')}</p>
       </div>
     );
   }
@@ -193,7 +225,7 @@ export function App(): React.JSX.Element {
             setUser(await client.me());
             setError(null);
           } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Could not load your account.');
+            setError(caught instanceof Error ? caught.message : t('app.couldNotLoadAccount'));
           }
         }}
       />
@@ -209,7 +241,7 @@ export function App(): React.JSX.Element {
             setUser(await client.me());
             setError(null);
           } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Could not load your account.');
+            setError(caught instanceof Error ? caught.message : t('app.couldNotLoadAccount'));
           }
         }}
       />
@@ -217,8 +249,8 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <div className="app-shell">
-      <nav className="sidebar" aria-label="Main">
+    <div className="app-shell" dir={direction}>
+      <nav className="sidebar" aria-label={t('app.mainNavigation')}>
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">
             ID
@@ -317,10 +349,7 @@ export function App(): React.JSX.Element {
               role={user.role}
               locale={locale}
               localeOptions={LOCALE_OPTIONS}
-              onLocaleChange={(next) => {
-                setLocale(next);
-                saveLocale(next);
-              }}
+              onLocaleChange={onLocaleChange}
             />
           )}
         </div>

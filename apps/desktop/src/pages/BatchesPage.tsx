@@ -3,6 +3,8 @@ import { DOCUMENT_TYPES, type BatchSummary } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { formatDateTime, statusTone } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync, useTick } from '../components/ui';
+import { documentTypeLabel, statusLabel } from '../lib/labels';
+import { useLocale, useTranslator } from '../lib/locale';
 
 /**
  * BATCH-001 — batch upload on the desktop.
@@ -12,6 +14,8 @@ import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync, useTick } from '
  * source of truth in the UI would drift.
  */
 export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const batches = useAsync(() => client.listBatches(20), []);
   const projects = useAsync(() => client.listProjects(), []);
   const tick = useTick(5_000);
@@ -49,7 +53,7 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
       setName('');
       await batches.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The batch could not be uploaded.');
+      setError(caught instanceof Error ? caught.message : t('batches.uploadFailed'));
     } finally {
       setBusy(false);
     }
@@ -65,7 +69,7 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
       link.click();
       URL.revokeObjectURL(url);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not download the results.');
+      setError(caught instanceof Error ? caught.message : t('batches.downloadFailed'));
     }
   };
 
@@ -73,16 +77,16 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
     try {
       setSelected(await client.getBatch(batch.id));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not open the batch.');
+      setError(caught instanceof Error ? caught.message : t('batches.openFailed'));
     }
   };
 
   return (
     <div className="stack">
-      <h1>Batches</h1>
+      <h1>{t('batches.title')}</h1>
       <ErrorBanner message={error ?? batches.error} />
 
-      <Card title="Upload a batch">
+      <Card title={t('batches.uploadCard')}>
         <div className="stack">
           <p className="muted">
             Every file becomes its own document. A file that cannot be read is reported next to the
@@ -93,22 +97,22 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
             multiple
             accept="image/jpeg,image/png,image/heic,application/pdf"
             onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-            aria-label="Choose files"
+            aria-label={t('batches.chooseFiles')}
           />
           {files.length > 0 && <p className="dim">{files.length} file(s) selected</p>}
 
           <div className="row">
-            <Field label="Batch name">
+            <Field label={t('batches.name')}>
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Morning intake"
+                placeholder={t('batches.namePlaceholder')}
                 maxLength={120}
               />
             </Field>
-            <Field label="Project">
+            <Field label={t('batches.project')}>
               <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-                <option value="">No project</option>
+                <option value="">{t('batches.noProject')}</option>
                 {(projects.data?.items ?? []).map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.name}
@@ -116,12 +120,12 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
                 ))}
               </select>
             </Field>
-            <Field label="Document type" hint="Optional — the pipeline detects it otherwise.">
+            <Field label={t('filter.documentType')} hint={t('batches.documentTypeHint')}>
               <select
                 value={documentType}
                 onChange={(event) => setDocumentType(event.target.value)}
               >
-                <option value="">Detect automatically</option>
+                <option value="">{t('batches.detectAutomatically')}</option>
                 {DOCUMENT_TYPES.map((type) => (
                   <option key={type} value={type}>
                     {type.replace(/_/g, ' ')}
@@ -138,25 +142,27 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
               onClick={() => void upload()}
               disabled={busy || files.length === 0}
             >
-              {busy ? 'Uploading…' : `Upload ${files.length || ''} file(s)`}
+              {busy
+                ? t('batches.uploading')
+                : t('batches.uploadCount', { count: files.length || '' })}
             </button>
-            <span className="dim">Up to 100 files per batch.</span>
+            <span className="dim">{t('batches.limit')}</span>
           </div>
         </div>
       </Card>
 
       <div className="grid two">
-        <Card title="Recent batches">
+        <Card title={t('batches.recent')}>
           {items.length === 0 ? (
-            <EmptyState title="No batches yet" hint="Upload several files at once to start one." />
+            <EmptyState title={t('batches.none')} hint={t('batches.noneHint')} />
           ) : (
             <table className="table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Progress</th>
-                  <th>Status</th>
-                  <th>Created</th>
+                  <th>{t('settings.name')}</th>
+                  <th>{t('table.progress')}</th>
+                  <th>{t('table.status')}</th>
+                  <th>{t('table.created')}</th>
                   <th />
                 </tr>
               </thead>
@@ -166,7 +172,12 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
                     <td>{batch.name}</td>
                     <td>
                       {batch.processed}/{batch.total}
-                      {batch.failed > 0 && <span className="dim"> · {batch.failed} failed</span>}
+                      {batch.failed > 0 && (
+                        <span className="dim">
+                          {' '}
+                          · {t('batches.failedCount', { count: batch.failed })}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <Badge
@@ -178,24 +189,24 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
                               : 'info'
                         }
                       >
-                        {batch.status.replace(/_/g, ' ')}
+                        {statusLabel(t, batch.status)}
                       </Badge>
                     </td>
-                    <td className="dim">{formatDateTime(batch.createdAt)}</td>
+                    <td className="dim">{formatDateTime(batch.createdAt, locale)}</td>
                     <td className="row">
                       <button
                         className="button secondary small"
                         type="button"
                         onClick={() => void open(batch)}
                       >
-                        Items
+                        {t('batches.items')}
                       </button>
                       <button
                         className="button secondary small"
                         type="button"
                         onClick={() => void download(batch)}
                       >
-                        CSV
+                        {t('batches.csv')}
                       </button>
                     </td>
                   </tr>
@@ -205,17 +216,19 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
           )}
         </Card>
 
-        <Card title={selected ? `Items — ${selected.name}` : 'Items'}>
+        <Card
+          title={selected ? t('batches.itemsFor', { name: selected.name }) : t('batches.items')}
+        >
           {!selected ? (
-            <EmptyState title="Choose a batch" hint="Its per-file results appear here." />
+            <EmptyState title={t('batches.choose')} hint={t('batches.chooseHint')} />
           ) : (
             <table className="table">
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>File</th>
-                  <th>Status</th>
-                  <th>Detail</th>
+                  <th>{t('table.file')}</th>
+                  <th>{t('table.status')}</th>
+                  <th>{t('table.detail')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -226,7 +239,10 @@ export function BatchesPage({ client }: { client: ApiClient }): React.JSX.Elemen
                     <td>
                       <Badge tone={statusTone(item.status)}>{item.status}</Badge>
                     </td>
-                    <td className="dim">{item.error ?? item.documentType ?? '—'}</td>
+                    <td className="dim">
+                      {item.error ??
+                        (item.documentType ? documentTypeLabel(t, item.documentType) : '—')}
+                    </td>
                   </tr>
                 ))}
               </tbody>

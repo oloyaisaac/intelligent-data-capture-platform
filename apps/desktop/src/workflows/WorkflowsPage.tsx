@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { DOCUMENT_TYPES } from '@idcp/shared';
+import type { Translate, TranslationKey } from '@idcp/shared';
 import type { ApiClient, WorkflowDefinition, WorkflowRun } from '../api/client';
 import { formatDateTime } from '../lib/format';
+import { useLocale, useTranslator } from '../lib/locale';
+import { documentTypeLabel } from '../lib/labels';
 import { Badge, Card, EmptyState, ErrorBanner, Field, useAsync } from '../components/ui';
 
 /**
@@ -40,7 +43,29 @@ export const CONDITION_OPERATORS = [
 
 export const DESTRUCTIVE_ACTIONS = ['send_to_connector', 'create_export', 'delete_document'];
 
-export function actionLabel(action: string): string {
+const ACTION_KEYS: Record<string, TranslationKey> = {
+  notify: 'workflow.action.notify',
+  send_to_connector: 'workflow.action.sendToConnector',
+  create_export: 'workflow.action.createExport',
+  delete_document: 'workflow.action.deleteDocument',
+};
+
+const TRIGGER_KEYS: Record<string, TranslationKey> = {
+  'document.approved': 'workflow.trigger.documentApproved',
+  'document.extracted': 'workflow.trigger.documentExtracted',
+  'document.needs_review': 'workflow.trigger.documentNeedsReview',
+  'batch.completed': 'workflow.trigger.batchCompleted',
+};
+
+/**
+ * I18N-001 — the rule's sentence is assembled from translated fragments rather than English words.
+ *
+ * Each helper takes an optional translator; without one it speaks English, so the pure description
+ * stays testable on its own (and the desktop test asserts that exact sentence).
+ */
+export function actionLabel(action: string, t?: Translate): string {
+  const key = ACTION_KEYS[action];
+  if (t && key) return t(key);
   switch (action) {
     case 'notify':
       return 'Send a notification';
@@ -55,46 +80,105 @@ export function actionLabel(action: string): string {
   }
 }
 
-export function triggerLabel(trigger: string): string {
+export function triggerLabel(trigger: string, t?: Translate): string {
+  const key = TRIGGER_KEYS[trigger];
+  if (t && key) return t(key);
   return trigger.replace('document.', 'Document ').replace('batch.', 'Batch ');
 }
 
-/** The rule as one sentence, so it can be checked before it is saved. */
-export function describeRule(rule: {
-  trigger: string;
-  documentType?: string | null;
-  conditions: Array<{ field: string; operator: string; value?: unknown }>;
-  actions: Array<{ type: string }>;
-  approvalPolicy: string;
-}): string {
-  const when = `When a ${rule.documentType ?? 'record'} is ${triggerLabel(rule.trigger).toLowerCase()}`;
-  const conditions =
+export function runStatusLabel(status: string, t?: Translate): string {
+  const keys: Record<string, TranslationKey> = {
+    matched: 'workflow.status.matched',
+    skipped: 'workflow.status.skipped',
+    awaiting_approval: 'workflow.status.awaitingApproval',
+    completed: 'workflow.status.completed',
+    failed: 'workflow.status.failed',
+  };
+  const key = keys[status];
+  if (t && key) return t(key);
+  return status.replace(/_/g, ' ');
+}
+
+/**
+ * The rule as one sentence, so it can be checked before it is saved.
+ *
+ * With a translator the sentence is assembled from translated fragments; without one it stays
+ * English, which is what the pure unit test asserts.
+ */
+export function describeRule(
+  rule: {
+    trigger: string;
+    documentType?: string | null;
+    conditions: Array<{ field: string; operator: string; value?: unknown }>;
+    actions: Array<{ type: string }>;
+    approvalPolicy: string;
+  },
+  t?: Translate,
+): string {
+  const start = t
+    ? t('workflow.sentence.start', {
+        type: rule.documentType ?? 'record',
+        trigger: triggerLabel(rule.trigger, t).toLowerCase(),
+      })
+    : `When a ${rule.documentType ?? 'record'} is ${triggerLabel(rule.trigger).toLowerCase()}`;
+
+  const conditionText = (condition: { field: string; operator: string; value?: unknown }) =>
+    condition.operator === 'exists'
+      ? t
+        ? t('workflow.sentence.exists', { field: condition.field })
+        : `${condition.field} is present`
+      : t
+        ? t('workflow.sentence.condition', {
+            field: condition.field,
+            operator: condition.operator.replace(/_/g, ' '),
+            value: String(condition.value ?? ''),
+          }).trim()
+        : `${condition.field} ${condition.operator.replace(/_/g, ' ')} ${String(
+            condition.value ?? '',
+          )}`.trim();
+
+  const joinAnd = t ? t('workflow.sentence.and') : ' and ';
+  const conditional =
     rule.conditions.length === 0
       ? ''
-      : `, if ${rule.conditions
-          .map((condition) =>
-            condition.operator === 'exists'
-              ? `${condition.field} is present`
-              : `${condition.field} ${condition.operator.replace(/_/g, ' ')} ${String(
-                  condition.value ?? '',
-                )}`.trim(),
-          )
-          .join(' and ')}`;
+      : t
+        ? t('workflow.sentence.if', {
+            conditions: rule.conditions.map(conditionText).join(joinAnd),
+          })
+        : `, if ${rule.conditions.map(conditionText).join(joinAnd)}`;
+
+  const joinThen = t ? t('workflow.sentence.joinThen') : ', then ';
   const actions = rule.actions
-    .map((action) => actionLabel(action.type).toLowerCase())
-    .join(', then ');
-  const gate =
-    rule.approvalPolicy === 'auto_approve'
+    .map((action) => actionLabel(action.type, t).toLowerCase())
+    .join(joinThen);
+
+  const destructive = rule.actions.some((action) => DESTRUCTIVE_ACTIONS.includes(action.type));
+  const gate = t
+    ? rule.approvalPolicy === 'auto_approve'
+      ? t('workflow.sentence.gateAuto')
+      : destructive
+        ? t('workflow.sentence.gateApproval')
+        : ''
+    : rule.approvalPolicy === 'auto_approve'
       ? ' (runs without approval)'
-      : rule.actions.some((action) => DESTRUCTIVE_ACTIONS.includes(action.type))
+      : destructive
         ? ' (a person approves the destructive steps)'
         : '';
-  return `${when}${conditions}, ${actions}${gate}.`;
+
+  if (!t) return `${start}${conditional}, ${actions}${gate}.`;
+  return t('workflow.sentence.full', {
+    start,
+    conditional,
+    actions,
+    gate,
+  });
 }
 
 const emptyCondition = { field: '', operator: 'equals' as string, value: '' };
 
 export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const workflows = useAsync(() => client.listWorkflows(), []);
   const runs = useAsync(() => client.workflowRuns(25), []);
 
@@ -125,13 +209,13 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
         name: name.trim(),
         ...draft,
       });
-      setNotice('Workflow saved.');
+      setNotice(t('workflow.saved'));
       setName('');
       setConditions([{ ...emptyCondition }]);
       setActions(['notify']);
       await workflows.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not save that workflow.');
+      setError(caught instanceof Error ? caught.message : t('workflow.saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -143,7 +227,7 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
       await client.setWorkflowEnabled(workflow.id, !workflow.enabled);
       await workflows.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not change that workflow.');
+      setError(caught instanceof Error ? caught.message : t('workflow.changeFailed'));
     }
   };
 
@@ -151,10 +235,14 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
     setError(null);
     try {
       const result = await client.approveWorkflowRun(run.id);
-      setNotice(`Approved: ${result.outputs.join(' · ') || 'nothing to do'}`);
+      setNotice(
+        t('workflow.approvedNotice', {
+          outputs: result.outputs.join(' · ') || t('workflow.nothingToDo'),
+        }),
+      );
       await runs.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not approve that run.');
+      setError(caught instanceof Error ? caught.message : t('workflow.approveFailed'));
     }
   };
 
@@ -163,7 +251,7 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
 
   return (
     <div className="stack">
-      <h1>Workflows</h1>
+      <h1>{t('workflow.title')}</h1>
 
       <ErrorBanner message={error ?? workflows.error} />
       {notice && (
@@ -173,19 +261,19 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
       )}
 
       {pending.length > 0 && (
-        <Card title={`Waiting for approval (${pending.length})`}>
+        <Card title={t('workflow.waitingApproval', { count: pending.length })}>
           <div className="stack">
             {pending.map((run) => (
               <div key={run.id} className="row" style={{ justifyContent: 'space-between' }}>
                 <div>
                   <div>{run.explanation}</div>
                   <div className="dim">
-                    {run.actions.map((action) => actionLabel(action.type)).join(' · ')} ·{' '}
-                    {formatDateTime(run.createdAt)}
+                    {run.actions.map((action) => actionLabel(action.type, t)).join(' · ')} ·{' '}
+                    {formatDateTime(run.createdAt, locale)}
                   </div>
                 </div>
                 <button className="button small" type="button" onClick={() => void approve(run)}>
-                  Approve run
+                  {t('workflow.approveRun')}
                 </button>
               </div>
             ))}
@@ -193,18 +281,18 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
         </Card>
       )}
 
-      <Card title="New workflow">
+      <Card title={t('workflow.new')}>
         <div className="stack">
           <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-            <Field label="Name">
+            <Field label={t('workflow.name')}>
               <input
                 className="input"
                 value={name}
-                placeholder="File large invoices"
+                placeholder={t('workflow.namePlaceholder')}
                 onChange={(event) => setName(event.target.value)}
               />
             </Field>
-            <Field label="When">
+            <Field label={t('workflow.when')}>
               <select
                 className="select"
                 value={trigger}
@@ -212,29 +300,26 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
               >
                 {WORKFLOW_TRIGGERS.map((option) => (
                   <option key={option} value={option}>
-                    {triggerLabel(option)}
+                    {triggerLabel(option, t)}
                   </option>
                 ))}
               </select>
             </Field>
-            <Field label="Document type">
+            <Field label={t('filter.documentType')}>
               <select
                 className="select"
                 value={documentType}
                 onChange={(event) => setDocumentType(event.target.value)}
               >
-                <option value="">Any type</option>
+                <option value="">{t('workflow.anyType')}</option>
                 {DOCUMENT_TYPES.map((type) => (
                   <option key={type} value={type}>
-                    {type}
+                    {documentTypeLabel(t, type)}
                   </option>
                 ))}
               </select>
             </Field>
-            <Field
-              label="Approval"
-              hint="Destructive steps wait for a person unless you choose otherwise."
-            >
+            <Field label={t('workflow.approval')} hint={t('workflow.approvalHint')}>
               <select
                 className="select"
                 value={approvalPolicy}
@@ -242,19 +327,19 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
                   setApprovalPolicy(event.target.value as 'always_ask' | 'auto_approve')
                 }
               >
-                <option value="always_ask">Ask me first</option>
-                <option value="auto_approve">Run without asking</option>
+                <option value="always_ask">{t('workflow.askFirst')}</option>
+                <option value="auto_approve">{t('workflow.autoApprove')}</option>
               </select>
             </Field>
           </div>
 
           <div>
-            <div className="label">If</div>
+            <div className="label">{t('workflow.if')}</div>
             {conditions.map((condition, index) => (
               <div key={index} className="row" style={{ gap: 8, marginBottom: 6 }}>
                 <input
                   className="input"
-                  aria-label={`Condition ${index + 1} field`}
+                  aria-label={t('workflow.conditionField', { index: index + 1 })}
                   placeholder="total.amount"
                   value={condition.field}
                   onChange={(event) => {
@@ -265,7 +350,7 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
                 />
                 <select
                   className="select"
-                  aria-label={`Condition ${index + 1} operator`}
+                  aria-label={t('workflow.conditionOperator', { index: index + 1 })}
                   value={condition.operator}
                   onChange={(event) => {
                     const next = [...conditions];
@@ -281,7 +366,7 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
                 </select>
                 <input
                   className="input"
-                  aria-label={`Condition ${index + 1} value`}
+                  aria-label={t('workflow.conditionValue', { index: index + 1 })}
                   placeholder="100"
                   value={String(condition.value ?? '')}
                   onChange={(event) => {
@@ -295,7 +380,7 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
                   type="button"
                   onClick={() => setConditions(conditions.filter((_, at) => at !== index))}
                 >
-                  Remove
+                  {t('workflow.remove')}
                 </button>
               </div>
             ))}
@@ -304,12 +389,12 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
               type="button"
               onClick={() => setConditions([...conditions, { ...emptyCondition }])}
             >
-              Add condition
+              {t('workflow.addCondition')}
             </button>
           </div>
 
           <div>
-            <div className="label">Then</div>
+            <div className="label">{t('workflow.then')}</div>
             {WORKFLOW_ACTIONS.map((action) => (
               <label key={action} className="row" style={{ gap: 8 }}>
                 <input
@@ -323,14 +408,16 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
                     )
                   }
                 />
-                <span>{actionLabel(action)}</span>
-                {DESTRUCTIVE_ACTIONS.includes(action) && <Badge tone="warning">approval</Badge>}
+                <span>{actionLabel(action, t)}</span>
+                {DESTRUCTIVE_ACTIONS.includes(action) && (
+                  <Badge tone="warning">{t('workflow.approvalBadge')}</Badge>
+                )}
               </label>
             ))}
           </div>
 
           <p className="dim" style={{ margin: 0 }} role="note">
-            {describeRule(draft)}
+            {describeRule(draft, t)}
           </p>
 
           <div>
@@ -340,22 +427,22 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
               disabled={busy || name.trim() === '' || actions.length === 0}
               onClick={() => void save()}
             >
-              Save workflow
+              {t('workflow.save')}
             </button>
           </div>
         </div>
       </Card>
 
-      <Card title={`Rules (${items.length})`}>
+      <Card title={t('workflow.rules', { count: items.length })}>
         {items.length === 0 ? (
-          <EmptyState title="No workflows yet" hint="Build one above; it takes a minute." />
+          <EmptyState title={t('workflow.none')} hint={t('workflow.noneHint')} />
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Rule</th>
-                <th>Reads as</th>
-                <th>State</th>
+                <th>{t('workflow.rule')}</th>
+                <th>{t('workflow.readsAs')}</th>
+                <th>{t('workflow.state')}</th>
                 <th />
               </tr>
             </thead>
@@ -363,19 +450,19 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
               {items.map((workflow) => (
                 <tr key={workflow.id}>
                   <td>{workflow.name}</td>
-                  <td className="dim">{describeRule(workflow)}</td>
+                  <td className="dim">{describeRule(workflow, t)}</td>
                   <td>
                     <Badge tone={workflow.enabled ? 'success' : 'neutral'}>
-                      {workflow.enabled ? 'enabled' : 'paused'}
+                      {workflow.enabled ? t('workflow.enabled') : t('workflow.paused')}
                     </Badge>
                   </td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ textAlign: 'end' }}>
                     <button
                       className="button secondary small"
                       type="button"
                       onClick={() => void toggle(workflow)}
                     >
-                      {workflow.enabled ? 'Pause' : 'Enable'}
+                      {workflow.enabled ? t('workflow.pause') : t('workflow.enable')}
                     </button>
                   </td>
                 </tr>
@@ -385,26 +472,23 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
         )}
       </Card>
 
-      <Card title="Run log">
+      <Card title={t('workflow.runLog')}>
         {(runs.data?.items.length ?? 0) === 0 ? (
-          <EmptyState
-            title="Nothing has run yet"
-            hint="Runs are recorded when a workflow is evaluated, including the ones that skip."
-          />
+          <EmptyState title={t('workflow.noRuns')} hint={t('workflow.noRunsHint')} />
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>When</th>
-                <th>Outcome</th>
-                <th>Why</th>
-                <th>Did</th>
+                <th>{t('table.when')}</th>
+                <th>{t('table.outcome')}</th>
+                <th>{t('table.why')}</th>
+                <th>{t('table.did')}</th>
               </tr>
             </thead>
             <tbody>
               {runs.data!.items.map((run) => (
                 <tr key={run.id}>
-                  <td className="dim">{formatDateTime(run.createdAt)}</td>
+                  <td className="dim">{formatDateTime(run.createdAt, locale)}</td>
                   <td>
                     <Badge
                       tone={
@@ -417,7 +501,7 @@ export function WorkflowsPage({ client }: { client: ApiClient }): React.JSX.Elem
                               : 'neutral'
                       }
                     >
-                      {run.status.replace(/_/g, ' ')}
+                      {runStatusLabel(run.status, t)}
                     </Badge>
                   </td>
                   <td>{run.explanation}</td>

@@ -4,6 +4,7 @@ import type { CreatePairingSessionResponse, Device } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { formatDateTime } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Modal, useAsync } from '../components/ui';
+import { useLocale, useTranslator } from '../lib/locale';
 
 /**
  * PAIR-001 / PAIR-004 — pairing and device management.
@@ -13,6 +14,8 @@ import { Badge, Card, EmptyState, ErrorBanner, Modal, useAsync } from '../compon
  * a device takes effect on its next request.
  */
 export function DevicesPage({ client }: { client: ApiClient }): React.JSX.Element {
+  const t = useTranslator();
+  const { locale } = useLocale();
   const devices = useAsync(() => client.listDevices(), []);
   const [session, setSession] = useState<CreatePairingSessionResponse | null>(null);
   const [qr, setQr] = useState<string | null>(null);
@@ -37,7 +40,7 @@ export function DevicesPage({ client }: { client: ApiClient }): React.JSX.Elemen
       setSession(created);
       setQr(await QRCode.toDataURL(created.qrPayload, { margin: 1, width: 260 }));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not start pairing.');
+      setError(caught instanceof Error ? caught.message : t('devices.startPairingFailed'));
     } finally {
       setBusy(false);
     }
@@ -48,30 +51,30 @@ export function DevicesPage({ client }: { client: ApiClient }): React.JSX.Elemen
   return (
     <div className="stack">
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>Devices</h1>
+        <h1>{t('devices.title')}</h1>
         <button
           className="button"
           type="button"
           onClick={() => void startPairing()}
           disabled={busy}
         >
-          {busy ? 'Preparing…' : 'Pair a phone'}
+          {busy ? t('devices.preparing') : t('devices.pairPhone')}
         </button>
       </div>
 
       <ErrorBanner message={error ?? devices.error} />
 
-      <Card title="Paired devices">
+      <Card title={t('devices.paired')}>
         {items.length === 0 ? (
-          <EmptyState title="No devices paired" hint="Pair a phone to start capturing documents." />
+          <EmptyState title={t('devices.none')} hint={t('devices.noneHint')} />
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Platform</th>
-                <th>Last seen</th>
-                <th>Status</th>
+                <th>{t('settings.name')}</th>
+                <th>{t('table.platform')}</th>
+                <th>{t('table.lastSeen')}</th>
+                <th>{t('table.status')}</th>
                 <th />
               </tr>
             </thead>
@@ -80,23 +83,19 @@ export function DevicesPage({ client }: { client: ApiClient }): React.JSX.Elemen
                 <tr key={device.id}>
                   <td>{device.name}</td>
                   <td>{device.platform}</td>
-                  <td className="dim">{formatDateTime(device.lastSeenAt ?? null)}</td>
+                  <td className="dim">{formatDateTime(device.lastSeenAt ?? null, locale)}</td>
                   <td>
                     <Badge tone={device.revokedAt ? 'danger' : 'success'}>
                       {device.revokedAt ? 'revoked' : 'active'}
                     </Badge>
                   </td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ textAlign: 'end' }}>
                     {!device.revokedAt && (
                       <button
                         className="button danger small"
                         type="button"
                         onClick={async () => {
-                          if (
-                            !window.confirm(
-                              `Revoke ${device.name}? It will need to be paired again.`,
-                            )
-                          )
+                          if (!window.confirm(t('devices.revokeConfirm', { name: device.name })))
                             return;
                           try {
                             await client.revokeDevice(device.id);
@@ -105,7 +104,7 @@ export function DevicesPage({ client }: { client: ApiClient }): React.JSX.Elemen
                             setError(
                               caught instanceof Error
                                 ? caught.message
-                                : 'Could not revoke that device.',
+                                : t('devices.couldNotRevoke'),
                             );
                           }
                         }}
@@ -123,7 +122,7 @@ export function DevicesPage({ client }: { client: ApiClient }): React.JSX.Elemen
 
       {session && (
         <Modal
-          title="Pair a phone"
+          title={t('devices.pairPhone')}
           onClose={() => {
             setSession(null);
             setQr(null);
@@ -139,25 +138,27 @@ export function DevicesPage({ client }: { client: ApiClient }): React.JSX.Elemen
                 void devices.reload();
               }}
             >
-              Done
+              {t('devices.done')}
             </button>
           }
         >
           <p className="muted" style={{ margin: 0 }}>
-            Open the IDCP app on the phone and scan this code. It works once and expires in{' '}
-            {Math.max(0, Math.floor(remaining / 60))}m {remaining % 60}s.
+            {t('devices.scanHint', {
+              minutes: Math.max(0, Math.floor(remaining / 60)),
+              seconds: remaining % 60,
+            })}
           </p>
           <div className="qr-frame">
             {qr ? (
-              <img src={qr} alt="Pairing QR code" width={260} height={260} />
+              <img src={qr} alt={t('devices.qrAlt')} width={260} height={260} />
             ) : (
-              <span>Rendering…</span>
+              <span>{t('devices.rendering')}</span>
             )}
           </div>
           <div className="code-block">{session.qrPayload}</div>
           {remaining === 0 && (
             <div className="error-banner" role="alert">
-              This code has expired. Close this dialog and generate a new one.
+              {t('devices.expired')}
             </div>
           )}
         </Modal>
