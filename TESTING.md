@@ -46,14 +46,14 @@ and browser harness.
 
 ### Current coverage
 
-| Workspace             | Suite                                                                                                                                                    | Tests   |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `packages/shared`     | `test/shared.test.ts`                                                                                                                                    | 47      |
-| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                | 29      |
-| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, security) | 150     |
-| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                 | 45      |
-| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                       | 33      |
-| **Total**             | 19 suites                                                                                                                                                | **304** |
+| Workspace             | Suite                                                                                                                                                               | Tests   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `packages/shared`     | `test/shared.test.ts`                                                                                                                                               | 47      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                           | 29      |
+| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, security) | 161     |
+| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                            | 48      |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                  | 33      |
+| **Total**             | 20 suites                                                                                                                                                           | **318** |
 
 Notes for anyone extending the suite:
 
@@ -180,6 +180,19 @@ Notes for anyone extending the suite:
 5. Try installing Zoho CRM (withdrawn). **Expect:** the button is disabled with the vendor's reason.
 6. Roll back the install. **Expect:** the previous version becomes active and the connector keeps
    working — rollback never deletes a connector.
+
+### TC-13e — A workflow that cannot act alone · `AGENT-001`
+
+1. Create a workflow: on `document.approved`, for invoices, notify — plus send to a connector.
+2. Approve an invoice that matches. **Expect:** the change is held; the run says `awaiting_approval`
+   and the action is marked as destructive.
+3. Approve the run. **Expect:** `completed`, the output names the connector, `approvedBy` is recorded,
+   and approving again returns `409`.
+4. Approve an invoice that does not match (different type or a failed condition). **Expect:** a
+   `skipped` run whose explanation names the condition that failed.
+5. Create a rule with `approvalPolicy: auto_approve` as a reviewer. **Expect:** `403` — only an owner
+   may let a rule act unattended.
+6. Delete the rule. **Expect:** `204`, and its runs remain in the log.
 
 ### TC-13b — Corrections and the training switch · `REV-002`
 

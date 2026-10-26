@@ -688,6 +688,41 @@ export class ApiClient {
     });
   }
 
+  // --- Workflows (AGENT-001) ------------------------------------------------
+
+  listWorkflows(): Promise<{ items: WorkflowDefinition[] }> {
+    return this.request('/workflows');
+  }
+
+  createWorkflow(
+    input: Partial<WorkflowDefinition> & { name: string },
+  ): Promise<WorkflowDefinition> {
+    return this.request('/workflows', { method: 'POST', body: input });
+  }
+
+  setWorkflowEnabled(id: string, enabled: boolean): Promise<WorkflowDefinition> {
+    return this.request(`/workflows/${id}`, { method: 'PATCH', body: { enabled } });
+  }
+
+  deleteWorkflow(id: string): Promise<void> {
+    return this.request(`/workflows/${id}`, { method: 'DELETE' });
+  }
+
+  evaluateWorkflows(input: { trigger: string; documentId?: string }): Promise<{
+    plans: Array<{ workflowId: string; matched: boolean; explanation: string }>;
+    runs: WorkflowRun[];
+  }> {
+    return this.request('/workflows/evaluate', { method: 'POST', body: input });
+  }
+
+  workflowRuns(limit = 50): Promise<{ items: WorkflowRun[] }> {
+    return this.request(`/workflows/runs?limit=${limit}`);
+  }
+
+  approveWorkflowRun(id: string): Promise<WorkflowRun> {
+    return this.request(`/workflows/runs/${id}/approve`, { method: 'POST' });
+  }
+
   // --- API keys -----------------------------------------------------------
 
   listApiKeys(): Promise<{ items: ApiKey[] }> {
@@ -732,4 +767,31 @@ export interface MarketplaceInstall {
   permissions: string[];
   installedAt: string;
   status: string;
+}
+
+/** AGENT-001 — a workflow rule as the API stores it. */
+export interface WorkflowDefinition {
+  id: string;
+  name: string;
+  trigger: string;
+  documentType: string | null;
+  conditions: Array<{ field: string; operator: string; value?: unknown }>;
+  actions: Array<{ type: string; config?: Record<string, unknown> }>;
+  approvalPolicy: 'always_ask' | 'auto_approve';
+  enabled: boolean;
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflowId: string;
+  documentId: string | null;
+  trigger: string;
+  status: 'matched' | 'skipped' | 'awaiting_approval' | 'completed' | 'failed';
+  matched: boolean;
+  explanation: string;
+  actions: Array<{ type: string; requiresApproval: boolean; reason: string | null }>;
+  outputs: string[];
+  failure: string | null;
+  approvedBy: string | null;
+  createdAt: string;
 }

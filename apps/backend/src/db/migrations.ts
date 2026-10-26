@@ -422,6 +422,45 @@ export const MIGRATIONS: Migration[] = [
       'CREATE UNIQUE INDEX idx_marketplace_seq ON marketplace_installs(organisation_id, install_seq)',
     ],
   },
+  {
+    // AGENT-001: workflows are data; every evaluation is logged with its inputs, output and failure.
+    id: '007_workflows',
+    sql: [
+      `CREATE TABLE workflows (
+        id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        trigger_event TEXT NOT NULL,
+        document_type TEXT,
+        conditions TEXT NOT NULL,
+        actions TEXT NOT NULL,
+        approval_policy TEXT NOT NULL DEFAULT 'always_ask',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      'CREATE INDEX idx_workflows_org ON workflows(organisation_id, created_at DESC)',
+      `CREATE TABLE workflow_runs (
+        id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL,
+        workflow_id TEXT NOT NULL,
+        document_id TEXT,
+        trigger_event TEXT NOT NULL,
+        status TEXT NOT NULL,
+        matched INTEGER NOT NULL,
+        explanation TEXT NOT NULL,
+        actions TEXT NOT NULL,
+        outputs TEXT NOT NULL,
+        failure TEXT,
+        approved_by TEXT,
+        approved_at TEXT,
+        created_at TEXT NOT NULL
+      )`,
+      'CREATE INDEX idx_workflow_runs_org ON workflow_runs(organisation_id, created_at DESC)',
+      'CREATE INDEX idx_workflow_runs_status ON workflow_runs(status, created_at DESC)',
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {

@@ -14,6 +14,7 @@ import { TemplatesPage } from './pages/TemplatesPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { MarketplacePage } from './marketplace/MarketplacePage';
+import { WorkflowsPage } from './workflows/WorkflowsPage';
 import { Badge } from './components/ui';
 import { LOCALE_OPTIONS, loadLocale, saveLocale, translator } from './lib/i18n';
 import type { Locale } from '@idcp/shared';
@@ -37,6 +38,7 @@ export type Route =
   | { name: 'templates' }
   | { name: 'devices' }
   | { name: 'marketplace' }
+  | { name: 'workflows' }
   | { name: 'settings' }
   | { name: 'accept-invite'; token: string };
 
@@ -67,6 +69,8 @@ export function parseRoute(hash: string): Route {
       return { name: 'devices' };
     case 'marketplace':
       return { name: 'marketplace' };
+    case 'workflows':
+      return { name: 'workflows' };
     case 'settings':
       return { name: 'settings' };
     default:
@@ -102,6 +106,7 @@ const NAV: Array<{
     | 'nav.connectors'
     | 'nav.devices'
     | 'nav.marketplace'
+    | 'nav.workflows'
     | 'nav.settings';
   sectionKey?: 'nav.configure';
 }> = [
@@ -115,6 +120,7 @@ const NAV: Array<{
   { route: { name: 'connectors' }, labelKey: 'nav.connectors' },
   { route: { name: 'devices' }, labelKey: 'nav.devices' },
   { route: { name: 'marketplace' }, labelKey: 'nav.marketplace', sectionKey: 'nav.configure' },
+  { route: { name: 'workflows' }, labelKey: 'nav.workflows', sectionKey: 'nav.configure' },
   { route: { name: 'settings' }, labelKey: 'nav.settings' },
 ];
 
@@ -304,6 +310,7 @@ export function App(): React.JSX.Element {
           {route.name === 'templates' && <TemplatesPage client={client} />}
           {route.name === 'devices' && <DevicesPage client={client} />}
           {route.name === 'marketplace' && <MarketplacePage client={client} />}
+          {route.name === 'workflows' && <WorkflowsPage client={client} />}
           {route.name === 'settings' && (
             <SettingsPage
               client={client}

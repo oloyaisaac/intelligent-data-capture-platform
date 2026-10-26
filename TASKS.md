@@ -27,7 +27,6 @@ M0 and M1 are complete, and these M2 stories are now done too:
 
 ## Now
 
-- [ ] **AGENT-001** — workflow automation with run logs.
 - [ ] **VOICE-001** — hands-free guidance and voice commands.
 - [ ] **I18N-001** — sweep the desktop page bodies through the `en/sw/fr` catalogues; check RTL.
 
@@ -40,11 +39,10 @@ M0 and M1 are complete, and these M2 stories are now done too:
 - [x] **MOB-002** — automatic page detection, EXIF orientation, crop, enhancement and compression.
 - [x] **CRM-001** — HubSpot, Odoo and QuickBooks adapters with a shared HTTP transport.
 - [x] **MARKET-001** — signed connector catalogue, permission disclosure and rollback.
+- [x] **AGENT-001** — workflow rules with a run log; destructive actions wait for per-run approval.
 
 ## Later (Phase 3)
 
 - [ ] `CRM-001` — CRM export targets
-- [ ] `MARKET-001` — template marketplace
-- [ ] `AGENT-001` — workflow automation
 - [ ] `VOICE-001` — voice-assisted field entry
 - [ ] Socket.IO transport alongside SSE (DEC-016)

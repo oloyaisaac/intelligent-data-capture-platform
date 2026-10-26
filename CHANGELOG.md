@@ -92,11 +92,18 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   (`MARKET-001`).
 - **CRM/ERP/accounting destinations** — HubSpot, Odoo and QuickBooks through one shared HTTP
   transport (`CRM-001`); see above.
-- 19 suites; the count of automated tests is tracked in `TESTING.md`.
+- **Workflow automation** — rules of the form "when a document is approved, if these hold, do that",
+  built from four triggers, eight condition operators and four actions. Destructive actions
+  (`send_to_connector`, `create_export`, `delete_document`) are planned and held as
+  `awaiting_approval`; a reviewer approves that specific run, and only an owner can create a rule
+  that runs unattended. Every evaluation is logged, including the ones that skipped and why, and a
+  failing rule is recorded against its run instead of stopping the others. The desktop gained a
+  Workflow page that reads each rule back as a sentence (`AGENT-001`).
+- 20 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 
-- `PRD.json` statuses and artifact paths now reflect the code (39 of 45 stories are `done`; the
+- `PRD.json` statuses and artifact paths now reflect the code (43 of 45 stories are `done`; the
   remaining ones are listed in `TASKS.md`).
 - **`node_modules` is no longer tracked.** It was committed at the start (22,706 files) even though
   `.gitignore` listed it; this change untracks it, so installs come from `package-lock.json` again.

@@ -26,6 +26,12 @@ import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { ReviewPage } from '../src/pages/ReviewPage';
 import { SettingsPage } from '../src/pages/SettingsPage';
 import { MarketplacePage, permissionLabel } from '../src/marketplace/MarketplacePage';
+import {
+  DESTRUCTIVE_ACTIONS,
+  WorkflowsPage,
+  actionLabel,
+  describeRule,
+} from '../src/workflows/WorkflowsPage';
 import type { Udm } from '@idcp/shared';
 
 /**
@@ -1015,5 +1021,112 @@ describe('connector marketplace (MARKET-001)', () => {
       }),
     );
     expect(await screen.findByText('HubSpot CRM 1.1.0 installed.')).toBeTruthy();
+  });
+});
+
+describe('workflow automation (AGENT-001)', () => {
+  afterEach(cleanup);
+
+  const rule = {
+    id: 'wf-1',
+    name: 'File large invoices',
+    trigger: 'document.approved',
+    documentType: 'invoice',
+    conditions: [{ field: 'total.amount', operator: 'greater_than', value: 100 }],
+    actions: [{ type: 'notify' }, { type: 'send_to_connector' }],
+    approvalPolicy: 'always_ask' as const,
+    enabled: true,
+  };
+  const pendingRun = {
+    id: 'run-1',
+    workflowId: 'wf-1',
+    documentId: 'doc-1',
+    trigger: 'document.approved',
+    status: 'awaiting_approval' as const,
+    matched: true,
+    explanation: 'Matched: Applies to invoice, total.amount greater than 100.',
+    actions: [
+      {
+        type: 'send_to_connector',
+        requiresApproval: true,
+        reason: 'Writes to an external system.',
+      },
+    ],
+    outputs: [],
+    failure: null,
+    approvedBy: null,
+    createdAt: new Date().toISOString(),
+  };
+
+  it('reads a rule back as a sentence and flags the steps that wait for a person', () => {
+    expect(describeRule(rule)).toBe(
+      'When a invoice is document approved, if total.amount greater than 100, ' +
+        'send a notification, then send the record to a connector ' +
+        '(a person approves the destructive steps).',
+    );
+    // Plain notification needs nobody; anything touching a destination, an export or a delete does.
+    expect(DESTRUCTIVE_ACTIONS).toEqual(['send_to_connector', 'create_export', 'delete_document']);
+    expect(actionLabel('delete_document')).toBe('Delete the document');
+  });
+
+  function workflowClient(overrides: Record<string, unknown> = {}) {
+    const approveWorkflowRun = jest.fn(async () => ({
+      ...pendingRun,
+      status: 'completed' as const,
+      outputs: ['send queued for connector conn-9'],
+      approvedBy: 'user-1',
+    }));
+    const createWorkflow = jest.fn(async () => rule);
+    return {
+      approveWorkflowRun,
+      createWorkflow,
+      client: {
+        listWorkflows: async () => ({ items: [rule] }),
+        workflowRuns: async () => ({ items: [pendingRun] }),
+        createWorkflow,
+        setWorkflowEnabled: async () => ({ ...rule, enabled: false }),
+        approveWorkflowRun,
+        ...overrides,
+      } as unknown as ApiClient,
+    };
+  }
+
+  it('surfaces a run waiting for approval and shows what it will do', async () => {
+    const { client, approveWorkflowRun } = workflowClient();
+    render(<WorkflowsPage client={client} />);
+
+    expect(await screen.findByText(/Waiting for approval/)).toBeTruthy();
+    // It appears twice on purpose: in the approval queue and in the run log below it.
+    expect(screen.getAllByText(pendingRun.explanation).length).toBe(2);
+    // The builder shows the sentence it is about to save.
+    expect(screen.getByText(/When a record is document approved/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve run' }));
+    await waitFor(() => expect(approveWorkflowRun).toHaveBeenCalledWith('run-1'));
+    expect(await screen.findByText(/send queued for connector conn-9/)).toBeTruthy();
+  });
+
+  it('saves the rule the builder described', async () => {
+    const { client, createWorkflow } = workflowClient();
+    render(<WorkflowsPage client={client} />);
+
+    const name = await screen.findByPlaceholderText('File large invoices');
+    fireEvent.change(name, { target: { value: 'Notify on approval' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' }));
+    await waitFor(() =>
+      expect(createWorkflow).toHaveBeenCalledWith({
+        name: 'Notify on approval',
+        trigger: 'document.approved',
+        documentType: null,
+        conditions: [],
+        actions: [{ type: 'notify' }],
+        approvalPolicy: 'always_ask',
+      }),
+    );
+
+    // The saved rule is listed, and its state can be changed.
+    expect(await screen.findByText('File large invoices')).toBeTruthy();
+    expect(screen.getAllByText('enabled').length).toBeGreaterThan(0);
   });
 });

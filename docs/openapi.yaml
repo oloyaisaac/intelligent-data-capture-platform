@@ -580,6 +580,137 @@ paths:
                 reason: { type: string, maxLength: 2000 }
       responses:
         '200': { description: Rejected }
+  /workflows:
+    get:
+      tags: [Workflows]
+      summary: Workflow rules for this organisation
+      operationId: listWorkflows
+      responses:
+        '200': { description: '`items[]` with trigger, conditions, actions and approval policy' }
+    post:
+      tags: [Workflows]
+      summary: Create a workflow rule (admin; auto-approval needs an owner)
+      operationId: createWorkflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, trigger, actions]
+              properties:
+                name: { type: string }
+                trigger:
+                  type: string
+                  enum:
+                    [document.approved, document.extracted, document.needs_review, batch.completed]
+                documentType: { type: string, nullable: true }
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [field, operator]
+                    properties:
+                      field: { type: string }
+                      operator:
+                        type: string
+                        enum:
+                          [
+                            equals,
+                            not_equals,
+                            contains,
+                            starts_with,
+                            greater_than,
+                            less_than,
+                            exists,
+                            in,
+                          ]
+                      value: {}
+                actions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type]
+                    properties:
+                      type:
+                        {
+                          type: string,
+                          enum: [send_to_connector, create_export, notify, delete_document],
+                        }
+                      config: { type: object }
+                approvalPolicy: { type: string, enum: [always_ask, auto_approve] }
+                enabled: { type: boolean }
+      responses:
+        '201': { description: The created workflow }
+        '403': { description: Admin role required }
+  /workflows/{id}:
+    patch:
+      tags: [Workflows]
+      summary: Enable or disable a workflow (admin)
+      operationId: setWorkflowEnabled
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200': { description: The updated workflow }
+        '403': { description: Admin role required }
+    delete:
+      tags: [Workflows]
+      summary: Delete a workflow rule, keeping its run history (admin)
+      operationId: deleteWorkflow
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+        '403': { description: Admin role required }
+  /workflows/runs:
+    get:
+      tags: [Workflows]
+      summary: The workflow run log — what each rule saw and decided
+      operationId: listWorkflowRuns
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200 } }
+      responses:
+        '200': { description: '`items[]` with status, explanation, actions, outputs and failure' }
+  /workflows/evaluate:
+    post:
+      tags: [Workflows]
+      summary: Evaluate every enabled workflow for a trigger and record the results
+      operationId: evaluateWorkflows
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trigger]
+              properties:
+                trigger:
+                  type: string
+                  enum:
+                    [document.approved, document.extracted, document.needs_review, batch.completed]
+                documentId: { type: string, format: uuid }
+      responses:
+        '200': { description: '`plans[]` and the recorded `runs[]`' }
+  /workflows/runs/{id}/approve:
+    post:
+      tags: [Workflows]
+      summary: Approve one pending run and execute its destructive actions
+      operationId: approveWorkflowRun
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: The completed run with its outputs }
+        '403': { description: Reviewer role required }
+        '409': { description: The run is not awaiting approval, or an action failed }
   /marketplace:
     get:
       tags: [Marketplace]

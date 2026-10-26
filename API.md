@@ -240,6 +240,56 @@ Every change is stored in `review_changes` with the actor and the previous value
 { "runId": "uuid", "status": "queued" }
 ```
 
+### 7b. Connector marketplace (MARKET-001)
+
+| Method | Path                                 | Purpose                                                       |
+| ------ | ------------------------------------ | ------------------------------------------------------------- |
+| GET    | `/marketplace`                       | Signed catalogue with disclosed permissions and install state |
+| POST   | `/marketplace/install`               | Install a package onto a connector of the same type (admin)   |
+| POST   | `/marketplace/installs/:id/rollback` | Return to the version installed before this one               |
+
+```json
+{ "packageId": "hubspot-crm", "connectorId": "uuid", "version": "1.1.0" }
+// 201
+{ "id": "uuid", "packageId": "hubspot-crm", "version": "1.1.0", "permissions": ["documents:read"] }
+```
+
+A package is a manifest, never code: `type` must already exist in the connector registry.
+A signature that does not verify, or permissions edited after signing, are refused. Withdrawn
+packages stay listed with `revokedReason` but cannot be installed.
+
+### 7c. Workflow automation (AGENT-001)
+
+| Method | Path                          | Purpose                                                       |
+| ------ | ----------------------------- | ------------------------------------------------------------- |
+| GET    | `/workflows`                  | Rules for this organisation                                   |
+| POST   | `/workflows`                  | Create a rule (admin; `auto_approve` needs an owner)          |
+| PATCH  | `/workflows/:id`              | Pause or enable                                               |
+| DELETE | `/workflows/:id`              | Delete the rule; its run history stays                        |
+| POST   | `/workflows/evaluate`         | Evaluate every enabled rule for a trigger and log the outcome |
+| GET    | `/workflows/runs`             | Run log, newest first                                         |
+| POST   | `/workflows/runs/:id/approve` | Approve one pending run and execute its actions (reviewer)    |
+
+```json
+{
+  "name": "File large invoices",
+  "trigger": "document.approved",
+  "documentType": "invoice",
+  "conditions": [{ "field": "total.amount", "operator": "greater_than", "value": 100 }],
+  "actions": [
+    { "type": "notify" },
+    { "type": "send_to_connector", "config": { "connectorId": "uuid" } }
+  ],
+  "approvalPolicy": "always_ask"
+}
+```
+
+Triggers: `document.approved`, `document.extracted`, `document.needs_review`, `batch.completed`.
+Actions: `notify`, `send_to_connector`, `create_export`, `delete_document` — the last three are
+destructive, so their run is held as `awaiting_approval` until a person approves that specific run.
+The response to `/workflows/evaluate` is `{ plans[], runs[] }`, and each run records the sentence that
+explains its outcome — including the runs that skipped.
+
 ---
 
 ## 8. Organisation, users and audit

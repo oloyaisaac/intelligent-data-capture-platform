@@ -946,7 +946,7 @@
       "id": "AGENT-001",
       "epic": "EP-ENTERPRISE",
       "title": "Workflow automation and AI business agents",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "could",
       "description": "Rule and agent driven workflows, e.g. invoice uploaded → extracted → validated → saved to accounting → user notified.",
@@ -956,7 +956,13 @@
         "Agents cannot perform destructive actions without an approval policy."
       ],
       "dependsOn": ["CRM-001", "AUDIT-001"],
-      "artifacts": ["apps/backend/src/workflows/*"]
+      "artifacts": [
+        "apps/backend/src/workflows/engine.ts",
+        "apps/backend/src/services/workflow-service.ts",
+        "apps/backend/src/repositories/workflow-repo.ts",
+        "apps/backend/src/http/routes/workflow-routes.ts",
+        "apps/desktop/src/workflows/WorkflowsPage.tsx"
+      ]
     },
     {
       "id": "DASH-001",

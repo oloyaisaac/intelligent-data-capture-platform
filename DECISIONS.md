@@ -436,3 +436,34 @@ signing infrastructure that does not exist yet); a single "marketplace" boolean 
 **Consequences:** Third-party connectors cannot arrive without a release of `@idcp/connectors`; that
 is deliberate until there is a process to review code. Version comparison is dotted-numeric, so
 pre-release suffixes are not ordered semantically.
+
+---
+
+## DEC-026 — A workflow proposes; a person disposes
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** Workflow actions are evaluated in a pure engine (`planWorkflow`) that returns a plan,
+not an effect. Any action that leaves the platform or destroys data (`send_to_connector`,
+`create_export`, `delete_document`) is marked `requiresApproval` and the run is stored as
+`awaiting_approval`; nothing runs until a reviewer approves **that run**. `notify` is not
+destructive, so it completes immediately — as a recorded output, not a delivered message, because
+this deployment has no mail transport. `approvalPolicy: 'auto_approve'` unlocks the gate for a rule,
+and only an owner may create one. Every evaluation writes a run row, matched or skipped, with the
+sentence explaining the outcome; a failed action is recorded as `failed` and the remaining rules are
+still evaluated.
+
+**Reason:** Automation is trusted in proportion to how easy it is to see what it did. Approval per
+run (rather than per rule) keeps the blast radius to one document, and an explanation column means
+"why didn't this fire?" is answered from the log instead of from code. Recording a failure rather
+than throwing keeps one broken connector from silently disabling every other rule.
+
+**Alternatives considered:** Executing destructive actions inline with an undo (the connector has
+already written by then); per-rule approval that lasts forever (one mistaken click authorises every
+future document); a visual rule graph (the rules that matter fit in a sentence, and a graph hides
+the sentence).
+
+**Consequences:** A workflow that sends to a destination always has a human in the loop unless an
+owner opts out; unattended runs of destructive actions are possible only by explicit owner decision
+and are audited (`workflow.run_approved`). Rules cannot branch — a condition list is one AND — and
+`notify` does not deliver anything until a mail transport exists.

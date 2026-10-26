@@ -263,6 +263,45 @@ rollback has a version to return to.
 | rolled_back_at  | timestamptz | null while active                                      |
 | install_seq     | integer     | per-organisation counter; rollback order uses this     |
 
+### 3.15a `workflows` and `workflow_runs`
+
+A workflow is a rule; a run is what that rule decided for one document. Definitions are editable and
+deletable, runs are append-only (AGENT-001).
+
+| `workflows` column    | Type        | Notes                                                                                       |
+| --------------------- | ----------- | ------------------------------------------------------------------------------------------- |
+| id                    | uuid PK     |                                                                                             |
+| organisation_id       | uuid FK     |                                                                                             |
+| name                  | text        |                                                                                             |
+| trigger_event         | text        | `document.approved` \| `document.extracted` \| `document.needs_review` \| `batch.completed` |
+| document_type         | text        | null for any type                                                                           |
+| conditions            | jsonb/text  | `[{field, operator, value}]`, evaluated as one AND                                          |
+| actions               | jsonb/text  | `[{type, config}]`                                                                          |
+| approval_policy       | text        | `always_ask` (default) or `auto_approve`                                                    |
+| enabled               | integer     | 0 pauses without deleting the rule                                                          |
+| created_by            | uuid FK     | admin who created it                                                                        |
+| created_at/updated_at | timestamptz |                                                                                             |
+
+| `workflow_runs` column | Type        | Notes                                                                    |
+| ---------------------- | ----------- | ------------------------------------------------------------------------ |
+| id                     | uuid PK     |                                                                          |
+| organisation_id        | uuid FK     |                                                                          |
+| workflow_id            | uuid        | kept after the rule is deleted                                           |
+| document_id            | uuid        | null for document-less triggers                                          |
+| trigger_event          | text        | what fired                                                               |
+| status                 | text        | `matched` \| `skipped` \| `awaiting_approval` \| `completed` \| `failed` |
+| matched                | integer     | 0 when a condition or the type did not match                             |
+| explanation            | text        | the sentence shown in the UI                                             |
+| actions                | jsonb/text  | the plan, including `requiresApproval` and `reason`                      |
+| outputs                | jsonb/text  | what each action actually did                                            |
+| failure                | text        | the message when an action threw                                         |
+| approved_by            | uuid FK     | the person who approved the run                                          |
+| approved_at            | timestamptz |                                                                          |
+| created_at             | timestamptz |                                                                          |
+
+Indexes: `(organisation_id, created_at DESC)` on both, plus `(status, created_at DESC)` on runs so
+the approval queue is a cheap query.
+
 ### 3.14 `connectors`
 
 | Column                  | Type           | Notes                                                                    |
@@ -510,4 +549,5 @@ Deletion must remove the storage object and the database rows, and must be recor
 - Applied migrations: `001_initial_schema`, `002_connector_and_export_columns`,
   `003_templates_and_api_keys`, `004_batches_projects_invitations`, `005_corrections_learning_opt_in`.
   `005` adds `review_changes.document_type` and `organisations.learning_opt_in` (REV-002).
-  `006` adds `marketplace_installs` (MARKET-001).
+  `006` adds `marketplace_installs` (MARKET-001). `007` adds `workflows` and `workflow_runs`
+  (AGENT-001).
