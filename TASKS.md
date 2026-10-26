@@ -27,7 +27,6 @@ M0 and M1 are complete, and these M2 stories are now done too:
 
 ## Now
 
-- [ ] **MARKET-001** — connector marketplace (permissions, signing, rollback).
 - [ ] **AGENT-001** — workflow automation with run logs.
 - [ ] **VOICE-001** — hands-free guidance and voice commands.
 - [ ] **I18N-001** — sweep the desktop page bodies through the `en/sw/fr` catalogues; check RTL.
@@ -40,6 +39,7 @@ M0 and M1 are complete, and these M2 stories are now done too:
 - [x] **DESK-002** — device filter, live document list, bulk approve with a skipped report.
 - [x] **MOB-002** — automatic page detection, EXIF orientation, crop, enhancement and compression.
 - [x] **CRM-001** — HubSpot, Odoo and QuickBooks adapters with a shared HTTP transport.
+- [x] **MARKET-001** — signed connector catalogue, permission disclosure and rollback.
 
 ## Later (Phase 3)
 

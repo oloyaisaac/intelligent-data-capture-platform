@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { DOCUMENT_TYPES, DUPLICATE_POLICIES, LIMITS, ROLES, UDM_VERSION } from './constants';
+import {
+  CONNECTOR_TYPES,
+  DOCUMENT_TYPES,
+  DUPLICATE_POLICIES,
+  LIMITS,
+  ROLES,
+  UDM_VERSION,
+} from './constants';
 import { UdmSchema } from './udm/schema';
 
 /**
@@ -215,7 +222,7 @@ export const ConnectorConfigSchema = z.record(z.string(), z.unknown());
 
 export const CreateConnectorRequestSchema = z
   .object({
-    type: z.enum(['csv', 'xlsx', 'google_sheets', 'postgres', 'mysql', 'sqlite']),
+    type: z.enum(CONNECTOR_TYPES),
     name: z.string().trim().min(1).max(80),
     config: ConnectorConfigSchema,
     credentials: z.record(z.string(), z.string()).optional(),

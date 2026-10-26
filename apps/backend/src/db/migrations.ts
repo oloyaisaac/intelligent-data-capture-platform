@@ -399,6 +399,29 @@ export const MIGRATIONS: Migration[] = [
       'CREATE INDEX idx_review_changes_document_type ON review_changes(document_type)',
     ],
   },
+  {
+    // MARKET-001: reviewed connector packages installed against a connector, with rollback history.
+    id: '006_marketplace_installs',
+    sql: [
+      `CREATE TABLE marketplace_installs (
+        id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL,
+        package_id TEXT NOT NULL,
+        package_version TEXT NOT NULL,
+        connector_type TEXT NOT NULL,
+        connector_id TEXT NOT NULL,
+        permissions TEXT NOT NULL,
+        status TEXT NOT NULL,
+        installed_by TEXT NOT NULL,
+        installed_at TEXT NOT NULL,
+        rolled_back_at TEXT,
+        install_seq INTEGER NOT NULL
+      )`,
+      'CREATE INDEX idx_marketplace_org ON marketplace_installs(organisation_id, installed_at DESC)',
+      'CREATE INDEX idx_marketplace_connector ON marketplace_installs(connector_id, status)',
+      'CREATE UNIQUE INDEX idx_marketplace_seq ON marketplace_installs(organisation_id, install_seq)',
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {

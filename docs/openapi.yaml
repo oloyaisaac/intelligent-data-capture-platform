@@ -580,6 +580,48 @@ paths:
                 reason: { type: string, maxLength: 2000 }
       responses:
         '200': { description: Rejected }
+  /marketplace:
+    get:
+      tags: [Marketplace]
+      summary: The reviewed connector catalogue with this organisation's install state
+      operationId: listMarketplace
+      responses:
+        '200':
+          { description: '`items[]` with permissions, signatureVerified, installable and blocker' }
+  /marketplace/install:
+    post:
+      tags: [Marketplace]
+      summary: Install a signed package onto a connector of the matching type (admin)
+      operationId: installPackage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [packageId, connectorId]
+              properties:
+                packageId: { type: string }
+                connectorId: { type: string, format: uuid }
+                version: { type: string, description: Defaults to the newest version offered }
+      responses:
+        '201': { description: The installation, including the permissions it holds }
+        '403': { description: Admin role required }
+        '409': { description: Wrong connector type, already installed, unsigned or revoked package }
+  /marketplace/installs/{id}/rollback:
+    post:
+      tags: [Marketplace]
+      summary: Roll an installation back to the previously active version (admin)
+      operationId: rollbackPackage
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          {
+            description: '`rolledBack`, `activeVersion` (null when nothing preceded it), `message`',
+          }
+        '403': { description: Admin role required }
+        '409': { description: That installation was already rolled back }
   /review/corrections:
     get:
       tags: [Review]

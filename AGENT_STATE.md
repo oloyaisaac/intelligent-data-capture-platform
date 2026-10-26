@@ -14,10 +14,10 @@
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
 `npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
-293 tests in 18 suites).
+304 tests in 19 suites).
 
-41 of 45 stories are `done`. The remaining ones are `I18N-001` (translation sweep of the desktop page
-bodies) and the Phase 3 tail: `MARKET-001`, `AGENT-001`, `VOICE-001`.
+42 of 45 stories are `done`. The remaining ones are `I18N-001` (translation sweep of the desktop page
+bodies), `AGENT-001` (workflow automation) and `VOICE-001` (voice assistance).
 
 ## What is built
 
@@ -77,10 +77,9 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
 
 ## Next actions, in order
 
-1. `MARKET-001` — connector marketplace with permission disclosure and rollback.
-2. `AGENT-001` — workflow rules with run logs and an approval policy for destructive actions.
-3. `VOICE-001` — hands-free guidance and voice commands, with consent gates.
-4. `I18N-001` — sweep the remaining English literals in the desktop page bodies.
+1. `AGENT-001` — workflow rules with run logs and an approval policy for destructive actions.
+2. `VOICE-001` — hands-free guidance and voice commands, with consent gates.
+3. `I18N-001` — sweep the remaining English literals in the desktop page bodies.
 
 ## Environment facts worth knowing
 

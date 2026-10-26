@@ -46,14 +46,14 @@ and browser harness.
 
 ### Current coverage
 
-| Workspace             | Suite                                                                                                                                       | Tests   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `packages/shared`     | `test/shared.test.ts`                                                                                                                       | 47      |
-| `packages/connectors` | `test/connectors.test.ts`                                                                                                                   | 29      |
-| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, security) | 143     |
-| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                    | 41      |
-| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                          | 33      |
-| **Total**             | 18 suites                                                                                                                                   | **293** |
+| Workspace             | Suite                                                                                                                                                    | Tests   |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `packages/shared`     | `test/shared.test.ts`                                                                                                                                    | 47      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                | 29      |
+| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, security) | 150     |
+| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                 | 45      |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                       | 33      |
+| **Total**             | 19 suites                                                                                                                                                | **304** |
 
 Notes for anyone extending the suite:
 
@@ -170,6 +170,16 @@ Notes for anyone extending the suite:
 3. **Expect:** one HubSpot record; the second run reports `skipped_duplicate` (or updates in place).
 4. Replace the token with an expired one and test the connector.
 5. **Expect:** an actionable message naming the write scope, not `401`.
+
+### TC-13d — Marketplace install and rollback · `MARKET-001`
+
+1. Create a HubSpot connector, then open Marketplace.
+2. **Expect:** every package lists its permissions as sentences and its signature state.
+3. Install HubSpot CRM on that connector.
+4. **Expect:** `201`, an audit entry, and the package shows the installed version.
+5. Try installing Zoho CRM (withdrawn). **Expect:** the button is disabled with the vendor's reason.
+6. Roll back the install. **Expect:** the previous version becomes active and the connector keeps
+   working — rollback never deletes a connector.
 
 ### TC-13b — Corrections and the training switch · `REV-002`
 

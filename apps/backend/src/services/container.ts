@@ -21,6 +21,7 @@ import { ConnectorService } from './connector-service';
 import { OrganisationService } from './organisation-service';
 import { TemplateService } from './template-service';
 import { ApiKeyService } from './api-key-service';
+import { MarketplaceService } from './marketplace-service';
 import { Worker } from './worker';
 
 export interface Services {
@@ -45,6 +46,7 @@ export interface Services {
   organisation: OrganisationService;
   templates: TemplateService;
   apiKeys: ApiKeyService;
+  marketplace: MarketplaceService;
   worker: Worker;
   authLimiter: AttemptLimiter;
   pairingLimiter: AttemptLimiter;
@@ -84,6 +86,7 @@ export function buildServices(options: BuildServicesOptions): Services {
   const reviews = new ReviewService(db, hub, logger);
   const exports = new ExportService(db, config, storage, hub, logger);
   const connectors = new ConnectorService(db, registry, secretBox, hub, logger);
+  const marketplace = new MarketplaceService(db, logger);
   const organisation = new OrganisationService(db);
   const templates = new TemplateService(db, logger);
   const apiKeys = new ApiKeyService(db, logger);
@@ -111,6 +114,7 @@ export function buildServices(options: BuildServicesOptions): Services {
     organisation,
     templates,
     apiKeys,
+    marketplace,
     worker,
     authLimiter: new AttemptLimiter(
       config.RATE_LIMIT_AUTH_PER_15_MIN,

@@ -53,6 +53,12 @@ export type PairingStatus = (typeof PAIRING_STATUSES)[number];
 export const DUPLICATE_POLICIES = ['skip', 'update', 'append', 'merge'] as const;
 export type DuplicatePolicy = (typeof DUPLICATE_POLICIES)[number];
 
+/**
+ * Destination types a mapping profile can be created for (CON-001, CRM-001).
+ *
+ * The list is the contract between the connector registry and the API: a type that is registered but
+ * missing here would be rejected as "invalid" by `POST /connectors`.
+ */
 export const CONNECTOR_TYPES = [
   'csv',
   'xlsx',
@@ -60,6 +66,9 @@ export const CONNECTOR_TYPES = [
   'postgres',
   'mysql',
   'sqlite',
+  'hubspot',
+  'odoo',
+  'quickbooks',
 ] as const;
 export type ConnectorType = (typeof CONNECTOR_TYPES)[number];
 

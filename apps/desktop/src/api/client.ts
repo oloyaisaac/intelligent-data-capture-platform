@@ -315,6 +315,28 @@ export class ApiClient {
     return this.request('/pairing/complete', { method: 'POST', body: input, anonymous: true });
   }
 
+  // --- Marketplace (MARKET-001) --------------------------------------------
+
+  listMarketplace(): Promise<{ items: MarketplacePackageSummary[] }> {
+    return this.request('/marketplace');
+  }
+
+  installPackage(input: {
+    packageId: string;
+    connectorId: string;
+    version?: string;
+  }): Promise<MarketplaceInstall> {
+    return this.request('/marketplace/install', { method: 'POST', body: input });
+  }
+
+  rollbackPackage(installId: string): Promise<{
+    rolledBack: string;
+    activeVersion: string | null;
+    message: string;
+  }> {
+    return this.request(`/marketplace/installs/${installId}/rollback`, { method: 'POST' });
+  }
+
   listDevices(): Promise<{ items: Device[] }> {
     return this.request('/devices');
   }
@@ -679,4 +701,35 @@ export class ApiClient {
   revokeApiKey(id: string): Promise<ApiKey> {
     return this.request(`/api-keys/${id}`, { method: 'DELETE' });
   }
+}
+
+/** MARKET-001 — a catalogue entry as the API reports it, including this organisation's state. */
+export interface MarketplacePackageSummary {
+  id: string;
+  type: string;
+  label: string;
+  vendor: string;
+  version: string;
+  summary: string;
+  permissions: string[];
+  status: 'verified' | 'revoked';
+  revokedReason?: string;
+  signature: string | null;
+  signatureVerified: boolean;
+  installedVersions: string[];
+  availableVersions: string[];
+  activeInstallId: string | null;
+  installable: boolean;
+  blocker: string | null;
+  availableConnectors: Array<{ id: string; name: string }>;
+}
+
+export interface MarketplaceInstall {
+  id: string;
+  packageId: string;
+  version: string;
+  connectorId: string;
+  permissions: string[];
+  installedAt: string;
+  status: string;
 }

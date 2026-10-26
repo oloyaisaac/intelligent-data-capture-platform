@@ -243,6 +243,26 @@ Immutable record of every field edit — the basis of learning and audit.
 | changed_by          | uuid FK → users |                                              |
 | created_at          | timestamptz     |                                              |
 
+### 3.14a `marketplace_installs`
+
+One row per installation of a reviewed package against a connector. Rows are never deleted, so a
+rollback has a version to return to.
+
+| Column          | Type        | Notes                                                  |
+| --------------- | ----------- | ------------------------------------------------------ |
+| id              | uuid PK     |                                                        |
+| organisation_id | uuid FK     |                                                        |
+| package_id      | text        | catalogue id, e.g. `hubspot-crm`                       |
+| package_version | text        | semver as published                                    |
+| connector_type  | text        | must match `connectors.type`                           |
+| connector_id    | uuid FK     |                                                        |
+| permissions     | jsonb/text  | the permissions disclosed at install time (MARKET-001) |
+| status          | text        | `active` or `rolled_back`                              |
+| installed_by    | uuid FK     | admin who installed it                                 |
+| installed_at    | timestamptz |                                                        |
+| rolled_back_at  | timestamptz | null while active                                      |
+| install_seq     | integer     | per-organisation counter; rollback order uses this     |
+
 ### 3.14 `connectors`
 
 | Column                  | Type           | Notes                                                                    |
@@ -490,3 +510,4 @@ Deletion must remove the storage object and the database rows, and must be recor
 - Applied migrations: `001_initial_schema`, `002_connector_and_export_columns`,
   `003_templates_and_api_keys`, `004_batches_projects_invitations`, `005_corrections_learning_opt_in`.
   `005` adds `review_changes.document_type` and `organisations.learning_opt_in` (REV-002).
+  `006` adds `marketplace_installs` (MARKET-001).

@@ -409,3 +409,30 @@ tests would have to cover every combination of branches).
 
 **Consequences:** Vendor-specific features (HubSpot associations, QuickBooks batch requests, Odoo
 one2many writes) are not exposed yet; the contract's `values` map is flat by design (UDM-001).
+
+---
+
+## DEC-025 — A marketplace package is a signed manifest, not code
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** Catalogue entries are manifests: `{id, type, version, permissions, …}` plus an
+HMAC-SHA256 over those fields. `type` must already exist in the connector registry — installing a
+package does not download or execute anything. Every install is an admin action that records the
+permissions it grants, and a package that was never signed, or whose permissions were edited after
+signing, is refused. Withdrawn packages stay in the catalogue with the vendor's reason. Rolling back
+retires the current install row and reactivates the one before it (ordered by a per-organisation
+install counter, not by clock), leaving the connector itself untouched.
+
+**Reason:** Code distribution is a different risk class from configuration. By keeping packages to
+manifests, an install can be reviewed, audited and undone by a person, and a compromised catalogue
+cannot ship a payload. Showing permissions as sentences before install is the only way the person
+clicking the button can meaningfully consent.
+
+**Alternatives considered:** Shipping connector code as downloadable plugins (needs a sandbox and
+signing infrastructure that does not exist yet); a single "marketplace" boolean per connector
+(no versioning, no permission disclosure, no rollback).
+
+**Consequences:** Third-party connectors cannot arrive without a release of `@idcp/connectors`; that
+is deliberate until there is a process to review code. Version comparison is dotted-numeric, so
+pre-release suffixes are not ordered semantically.

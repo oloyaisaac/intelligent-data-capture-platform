@@ -25,6 +25,7 @@ import { DocumentsPage } from '../src/pages/DocumentsPage';
 import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { ReviewPage } from '../src/pages/ReviewPage';
 import { SettingsPage } from '../src/pages/SettingsPage';
+import { MarketplacePage, permissionLabel } from '../src/marketplace/MarketplacePage';
 import type { Udm } from '@idcp/shared';
 
 /**
@@ -880,5 +881,139 @@ describe('desktop job dashboard (DESK-002)', () => {
     await waitFor(() =>
       expect(listDocuments).toHaveBeenCalledWith(expect.objectContaining({ deviceId: 'dev-1' })),
     );
+  });
+});
+
+describe('connector marketplace (MARKET-001)', () => {
+  afterEach(cleanup);
+
+  const hubspot = {
+    id: 'hubspot-crm',
+    type: 'hubspot',
+    label: 'HubSpot CRM',
+    vendor: 'HubSpot',
+    version: '1.1.0',
+    summary: 'Create and update HubSpot objects from approved documents.',
+    permissions: ['documents:read', 'destination:write', 'network:outbound'],
+    status: 'verified' as const,
+    signature: 'sig',
+    signatureVerified: true,
+    installedVersions: [],
+    availableVersions: ['1.1.0', '1.0.0'],
+    activeInstallId: null,
+    installable: true,
+    blocker: null,
+    availableConnectors: [{ id: 'conn-1', name: 'HubSpot sandbox' }],
+  };
+  const withdrawn = {
+    ...hubspot,
+    id: 'zoho-crm',
+    type: 'zoho',
+    label: 'Zoho CRM (withdrawn)',
+    vendor: 'Zoho',
+    version: '0.9.0',
+    status: 'revoked' as const,
+    revokedReason: 'Withdrawn by the vendor: the API version it used is retired.',
+    installedVersions: [],
+    availableVersions: ['0.9.0'],
+    installable: false,
+    blocker: 'Zoho CRM (withdrawn) has been withdrawn: the API version it used is retired.',
+    availableConnectors: [],
+  };
+
+  function marketplaceClient(overrides: Record<string, unknown> = {}) {
+    const installPackage = jest.fn(async () => ({
+      id: 'install-1',
+      packageId: 'hubspot-crm',
+      version: '1.1.0',
+      connectorId: 'conn-1',
+      permissions: hubspot.permissions,
+      installedAt: new Date().toISOString(),
+      status: 'active',
+    }));
+    const rollbackPackage = jest.fn(async () => ({
+      rolledBack: 'hubspot-crm',
+      activeVersion: '1.0.0',
+      message: 'Rolled back to 1.0.0.',
+    }));
+    return {
+      installPackage,
+      rollbackPackage,
+      client: {
+        listMarketplace: async () => ({ items: [hubspot, withdrawn] }),
+        installPackage,
+        rollbackPackage,
+        ...overrides,
+      } as unknown as ApiClient,
+    };
+  }
+
+  it('discloses what a package will be allowed to do before it can be installed', async () => {
+    const { client } = marketplaceClient();
+    render(<MarketplacePage client={client} />);
+
+    expect(await screen.findByText('HubSpot CRM')).toBeTruthy();
+    // Permissions are sentences, not scope strings. Two packages disclose the same permission, so
+    // both lists are expected.
+    expect(screen.getAllByText('Create records in the destination').length).toBe(2);
+    expect(screen.getAllByText('Make outbound network requests').length).toBeGreaterThan(0);
+    expect(permissionLabel('destination:update')).toMatch(/Change records/);
+    expect(screen.getAllByText('signature verified').length).toBe(2);
+  });
+
+  it('keeps a withdrawn package visible and refuses to install it', async () => {
+    const { client } = marketplaceClient();
+    render(<MarketplacePage client={client} />);
+
+    await screen.findByText('HubSpot CRM');
+    expect(screen.getByText('Zoho CRM (withdrawn)')).toBeTruthy();
+    expect(screen.getByText(/Withdrawn by the vendor/)).toBeTruthy();
+
+    const installButtons = screen.getAllByRole('button', {
+      name: 'Install',
+    }) as HTMLButtonElement[];
+    // The withdrawn package's button is disabled; the signed one is not.
+    expect(installButtons.some((button) => button.disabled)).toBe(true);
+    expect(installButtons.some((button) => !button.disabled)).toBe(true);
+  });
+
+  it('installs onto the chosen connector and rolls back when asked', async () => {
+    const { client, installPackage, rollbackPackage } = marketplaceClient({
+      listMarketplace: async () => ({
+        items: [
+          { ...hubspot, activeInstallId: 'install-1', installedVersions: ['1.1.0'] },
+          withdrawn,
+        ],
+      }),
+    });
+    render(<MarketplacePage client={client} />);
+
+    const connector = await screen.findByLabelText('Connector for HubSpot CRM');
+    expect((connector as HTMLSelectElement).value).toBe('conn-1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Roll back' }));
+    await waitFor(() => expect(rollbackPackage).toHaveBeenCalledWith('install-1'));
+    expect(await screen.findByText('Rolled back to 1.0.0.')).toBeTruthy();
+    expect(installPackage).not.toHaveBeenCalled();
+  });
+
+  it('installs a package and reports the version that landed', async () => {
+    const { client, installPackage } = marketplaceClient();
+    render(<MarketplacePage client={client} />);
+
+    await screen.findByText('HubSpot CRM');
+    // The withdrawn package also renders an (disabled) Install button, so pick the enabled one.
+    const install = screen
+      .getAllByRole('button', { name: 'Install' })
+      .find((button) => !(button as HTMLButtonElement).disabled)!;
+    fireEvent.click(install);
+
+    await waitFor(() =>
+      expect(installPackage).toHaveBeenCalledWith({
+        packageId: 'hubspot-crm',
+        connectorId: 'conn-1',
+      }),
+    );
+    expect(await screen.findByText('HubSpot CRM 1.1.0 installed.')).toBeTruthy();
   });
 });

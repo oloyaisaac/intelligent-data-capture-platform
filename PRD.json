@@ -17,8 +17,8 @@
   ],
   "platforms": ["Android", "iOS", "Windows", "macOS", "Linux", "Backend API"],
   "currentState": {
-    "phase": "Phase 3 \u2014 platform breadth",
-    "summary": "M1 and M2 are complete and the mobile capture pipeline now finds the page itself: edge detection, orientation, crop, enhancement and compression are pure, tested functions wired through a frame bridge. The remaining work is the Phase 3 tail (CRM connectors, marketplace, workflow agents, voice) plus the translation sweep.",
+    "phase": "Phase 3 — platform breadth",
+    "summary": "M1 and M2 are complete; the Phase 3 tail is largely done too — CRM/ERP/accounting connectors, a signed connector marketplace with permission disclosure and rollback, and automatic page detection on mobile. Remaining: workflow automation (AGENT-001), voice assistance (VOICE-001) and the desktop translation sweep (I18N-001).",
     "codeStatus": "beta"
   },
   "statusLegend": {
@@ -483,7 +483,7 @@
       "priority": "must",
       "description": "Asynchronous job pipeline that runs OCR (with a local engine as default and a cloud provider as an option) and stores per-page text with word-level geometry.",
       "acceptanceCriteria": [
-        "Jobs run asynchronously with status transitions queued \u2192 running \u2192 succeeded/failed.",
+        "Jobs run asynchronously with status transitions queued → running → succeeded/failed.",
         "Failures are retried with backoff and surface an actionable error message.",
         "Per-page text and geometry are persisted for downstream extraction.",
         "Average invoice-sized page processes in under 10 seconds in the reference environment."
@@ -500,7 +500,7 @@
       "priority": "must",
       "description": "Classify each document into form, receipt, invoice, ID, contract, table or handwritten and store a confidence score.",
       "acceptanceCriteria": [
-        "Classifier returns the document type plus a 0\u20131 confidence.",
+        "Classifier returns the document type plus a 0–1 confidence.",
         "Low-confidence classifications are flagged for human review.",
         "Classification accuracy meets the agreed benchmark on the labelled test set."
       ],
@@ -924,7 +924,7 @@
       "id": "MARKET-001",
       "epic": "EP-ENTERPRISE",
       "title": "Connector marketplace",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "could",
       "description": "Discover, install and update third-party connectors with review, signing and permission disclosure.",
@@ -934,7 +934,13 @@
         "Updates can be rolled back."
       ],
       "dependsOn": ["CON-001", "CRM-001"],
-      "artifacts": ["apps/desktop/src/marketplace/*"]
+      "artifacts": [
+        "apps/backend/src/marketplace/catalog.ts",
+        "apps/backend/src/services/marketplace-service.ts",
+        "apps/backend/src/repositories/marketplace-repo.ts",
+        "apps/backend/src/http/routes/marketplace-routes.ts",
+        "apps/desktop/src/marketplace/MarketplacePage.tsx"
+      ]
     },
     {
       "id": "AGENT-001",
@@ -943,7 +949,7 @@
       "status": "pending",
       "phase": 3,
       "priority": "could",
-      "description": "Rule and agent driven workflows, e.g. invoice uploaded \u2192 extracted \u2192 validated \u2192 saved to accounting \u2192 user notified.",
+      "description": "Rule and agent driven workflows, e.g. invoice uploaded → extracted → validated → saved to accounting → user notified.",
       "acceptanceCriteria": [
         "Workflows can be created from a visual builder.",
         "Each run is logged with inputs, outputs and failures.",

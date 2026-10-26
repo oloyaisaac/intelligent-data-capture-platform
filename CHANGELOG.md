@@ -83,7 +83,16 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   the same contract; mapping profiles choose the destination fields, so retargeting a model needs no
   code. Vendor errors are translated into the fix ("the token is missing the write scope") rather
   than an HTTP status, and plain http is refused except for a loopback host (`CRM-001`).
-- 18 suites; the count of automated tests is tracked in `TESTING.md`.
+- **Connector marketplace** — a signed, reviewed catalogue: a package is a manifest (never code) with
+  an HMAC over its id, version, type and permissions. `GET /marketplace` shows the disclosed
+  permissions and signature state; installing is admin-only, requires a connector of the matching
+  type, and records the permissions it grants; a withdrawn package stays visible with the vendor's
+  reason but cannot be installed; any installation can be rolled back to the version before it. The
+  desktop gained a Marketplace page that says what a package will be allowed to do in plain sentences
+  (`MARKET-001`).
+- **CRM/ERP/accounting destinations** — HubSpot, Odoo and QuickBooks through one shared HTTP
+  transport (`CRM-001`); see above.
+- 19 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 

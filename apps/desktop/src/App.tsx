@@ -13,6 +13,7 @@ import { ConnectorsPage } from './pages/ConnectorsPage';
 import { TemplatesPage } from './pages/TemplatesPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { MarketplacePage } from './marketplace/MarketplacePage';
 import { Badge } from './components/ui';
 import { LOCALE_OPTIONS, loadLocale, saveLocale, translator } from './lib/i18n';
 import type { Locale } from '@idcp/shared';
@@ -35,6 +36,7 @@ export type Route =
   | { name: 'connectors' }
   | { name: 'templates' }
   | { name: 'devices' }
+  | { name: 'marketplace' }
   | { name: 'settings' }
   | { name: 'accept-invite'; token: string };
 
@@ -63,6 +65,8 @@ export function parseRoute(hash: string): Route {
       return { name: 'templates' };
     case 'devices':
       return { name: 'devices' };
+    case 'marketplace':
+      return { name: 'marketplace' };
     case 'settings':
       return { name: 'settings' };
     default:
@@ -97,6 +101,7 @@ const NAV: Array<{
     | 'nav.templates'
     | 'nav.connectors'
     | 'nav.devices'
+    | 'nav.marketplace'
     | 'nav.settings';
   sectionKey?: 'nav.configure';
 }> = [
@@ -109,6 +114,7 @@ const NAV: Array<{
   { route: { name: 'templates' }, labelKey: 'nav.templates', sectionKey: 'nav.configure' },
   { route: { name: 'connectors' }, labelKey: 'nav.connectors' },
   { route: { name: 'devices' }, labelKey: 'nav.devices' },
+  { route: { name: 'marketplace' }, labelKey: 'nav.marketplace', sectionKey: 'nav.configure' },
   { route: { name: 'settings' }, labelKey: 'nav.settings' },
 ];
 
@@ -297,6 +303,7 @@ export function App(): React.JSX.Element {
           {route.name === 'connectors' && <ConnectorsPage client={client} />}
           {route.name === 'templates' && <TemplatesPage client={client} />}
           {route.name === 'devices' && <DevicesPage client={client} />}
+          {route.name === 'marketplace' && <MarketplacePage client={client} />}
           {route.name === 'settings' && (
             <SettingsPage
               client={client}
