@@ -2,7 +2,9 @@
 
 How the platform goes from a laptop to production.
 
-> **Status:** nothing is deployed yet. This is the plan to execute once `BACK-001`, `DB-001` and the CI pipeline (`FOUND-005`) exist. Hosting provider, region and domain are pending owner decisions (`PRD.json` Q-003).
+> **Status:** the application and CI pipeline exist and run; nothing is deployed to a shared environment
+> yet. Local and single-host deployment is documented and works (§4). Hosting provider, region and
+> domain are still pending owner decisions (`PRD.json` Q-003).
 
 ---
 
@@ -32,7 +34,7 @@ Environments never share credentials, databases, storage buckets or API keys. St
                    └───────┬──────────────┬─────────┘
                            │              │
               ┌────────────▼───┐   ┌──────▼─────────────┐
-              │ PostgreSQL 16  │   │ Redis 7            │
+              │ PostgreSQL 16* │   │ Redis 7*           │
               │ managed, PITR  │   │ queue + rate limit │
               └────────────────┘   └──────┬─────────────┘
                                           │
@@ -69,20 +71,26 @@ Rules:
 
 ## 4. Configuration and secrets
 
-Every key is documented in `.env.example`. Production values are injected from a secret manager, never committed.
+Every key is documented in `.env.example`, and a test keeps that file equal to what the server reads
+(`apps/backend/test/config.test.ts`). Production values are injected from a secret manager, never
+committed. There is no Redis or object-store key because the shipped runtime has neither — see
+DEC-029 for the order in which they arrive.
 
-| Group          | Keys (see `.env.example`)                                                          |
-| -------------- | ---------------------------------------------------------------------------------- |
-| Runtime        | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`                                    |
-| Database       | `DATABASE_URL`, `DATABASE_POOL_SIZE`                                               |
-| Cache/queue    | `REDIS_URL`                                                                        |
-| Auth           | `JWT_SECRET`, `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`, `ARGON2_*`                  |
-| Storage        | `STORAGE_DRIVER`, `S3_*`                                                           |
-| AI             | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC` |
-| Google         | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                  |
-| Limits         | `MAX_UPLOAD_MB`, `RATE_LIMIT_*`                                                    |
-| Observability  | `SENTRY_DSN`, `METRICS_ENABLED`                                                    |
-| Mobile/desktop | `API_BASE_URL` baked per build environment, never a secret in the bundle           |
+**Running one instance today.** The default deployment is a single API container with a persistent
+volume for `SQLITE_PATH` and `STORAGE_PATH`. Do not run more than one replica against a SQLite file:
+the worker claims jobs transactionally, but two SQLite writers are not a supported topology.
+
+| Group          | Keys (see `.env.example`)                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Runtime        | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                              |
+| Database       | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                           |
+| Auth           | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`               |
+| Storage        | `STORAGE_DRIVER` (`filesystem` today), `STORAGE_PATH`                                                                                      |
+| AI             | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC` |
+| Google         | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                                                                          |
+| Limits         | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_*`                                                                    |
+| Exports, jobs  | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                         |
+| Mobile/desktop | `API_BASE_URL` baked per build environment, never a secret in the bundle                                                                   |
 
 Rotation: JWT signing keys and provider keys rotate on a schedule and immediately on suspected exposure. Rotating the JWT key invalidates access tokens; users re-authenticate or refresh.
 
@@ -147,7 +155,9 @@ Backups: automated daily full + continuous point-in-time recovery (≥ 7 days). 
 
 ## 11. Go-live checklist (first production release)
 
-- [ ] Hosting, database, storage and Redis provisioned in the approved region.
+- [ ] Hosting and persistent storage provisioned in the approved region (one instance with a volume
+      by default; PostgreSQL, a shared queue and object storage before any horizontal scaling, in
+      that order — DEC-029).
 - [ ] Domain, DNS, TLS and email authentication configured.
 - [ ] All secrets in the secret manager; none in the repository.
 - [ ] Migrations applied; seed data excluded from production.

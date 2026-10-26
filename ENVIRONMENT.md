@@ -8,16 +8,16 @@ Exact tooling needed to work on this project, and how to verify your machine mat
 
 ## 1. Required tooling
 
-| Tool                 | Version                       | Required for                             | Verified in this checkout |
-| -------------------- | ----------------------------- | ---------------------------------------- | ------------------------- |
-| Node.js              | 22 LTS (`.nvmrc` target `22`) | Everything                               | `v22.22.3`                |
-| npm                  | 10+                           | Everything                               | `10.9.8`                  |
-| Git                  | 2.39+                         | Everything                               | `2.39.5`                  |
-| JDK                  | 17                            | Android builds                           | not checked               |
-| Android Studio + SDK | API 34+, emulator             | Mobile (Android)                         | not installed             |
-| Xcode                | 16+ (macOS only)              | Mobile (iOS)                             | n/a (Linux)               |
-| Docker + Compose     | 24+                           | PostgreSQL, Redis, MinIO for the backend | not checked               |
-| Python               | 3.11+                         | Optional: local OCR tooling              | `3.11.2`                  |
+| Tool                 | Version                       | Required for                                                                  | Verified in this checkout |
+| -------------------- | ----------------------------- | ----------------------------------------------------------------------------- | ------------------------- |
+| Node.js              | 22 LTS (`.nvmrc` target `22`) | Everything                                                                    | `v22.22.3`                |
+| npm                  | 10+                           | Everything                                                                    | `10.9.8`                  |
+| Git                  | 2.39+                         | Everything                                                                    | `2.39.5`                  |
+| JDK                  | 17                            | Android builds                                                                | not checked               |
+| Android Studio + SDK | API 34+, emulator             | Mobile (Android)                                                              | not installed             |
+| Xcode                | 16+ (macOS only)              | Mobile (iOS)                                                                  | n/a (Linux)               |
+| Docker + Compose     | 24+                           | **Optional** — only to run PostgreSQL locally; the backend defaults to SQLite | not checked               |
+| Python               | 3.11+                         | Optional: local OCR tooling                                                   | `3.11.2`                  |
 
 Recommended editor: VS Code with ESLint, Prettier and TypeScript extensions. Editor settings: format on save, no tabs in TS/JS.
 
@@ -32,31 +32,42 @@ nvm use 22
 node -v   # expect v22.x
 ```
 
-The repo should pin this with `.nvmrc` (to be added in `FOUND-003`) and `engines` in `package.json`.
+The repo pins this with `.nvmrc` and `engines` in `package.json`, and CI runs the same major version.
 
 ## 3. First-time setup
 
 ```bash
 git clone <repository-url>
 cd intelligent-data-capture-platform
-
-# install dependencies (workspace-aware once FOUND-003 lands)
 npm install
-
-# create your local configuration from the documented example
-cp .env.example .env
-# then edit .env with LOCAL values only — never commit it
 ```
 
-### Backend services (after `DB-001`)
+That is enough to run everything. The backend defaults to SQLite (`DB_DRIVER=sqlite`), the filesystem
+for document storage and a local OCR engine, so **no database, object store or cache has to be
+installed** (DEC-029). Copy the example only if you want to change something:
 
 ```bash
-docker compose up -d db redis minio   # PostgreSQL 16, Redis 7, MinIO
-npm run db:migrate                    # apply migrations
-npm run db:seed                       # demo organisation + admin user
+cp .env.example .env    # every key is documented there; .env is gitignored
 ```
 
-Local ports: PostgreSQL `5432`, Redis `6379`, MinIO `9000` (console `9001`), API `4000`, Metro `8081`.
+### Backend and desktop
+
+```bash
+npm run db:migrate      # create ./local-storage/idcp.db and apply every migration
+npm run db:seed         # demo organisation, owner account, sample connector and project
+npm run dev:backend     # http://127.0.0.1:4000  (API + in-process worker)
+npm run dev:desktop     # http://127.0.0.1:5173  (renderer; proxies /api to the API)
+```
+
+Sign in with the seeded account `owner@example.com` / `demo-password-change-me`.
+
+Local ports: API `4000`, desktop dev server `5173`, Metro `8081`.
+
+### Optional: PostgreSQL instead of SQLite
+
+Only needed if you are working on the Postgres path or on Postgres-specific SQL. Start a server
+locally (Docker or a native install) and set `DB_DRIVER=postgres` plus `DATABASE_URL` in `.env`; the
+migrations are the same statements for both drivers (DEC-013).
 
 ### Android
 
@@ -72,47 +83,76 @@ Local ports: PostgreSQL `5432`, Redis `6379`, MinIO `9000` (console `9001`), API
 3. Install CocoaPods (`brew install cocoapods`) — required by React Native native modules.
 4. Run: `npm run dev:mobile` then `npm run ios`.
 
-### Desktop (Electron, after `DESK-001`)
+### Desktop (Electron shell)
 
 ```bash
-npm run dev:desktop
+npm run dev:desktop                       # renderer in the browser (Vite)
+npm run build --workspace @idcp/desktop   # renderer bundle + Electron main process
+npm run package --workspace @idcp/desktop # installers; needs electron-builder, not run in CI
 ```
+
+The renderer is the primary surface and runs in a browser on its own. The Electron shell adds the
+keychain-backed token store and the allow-listed IPC bridge (`DESK-001`, DEC-022).
 
 ## 4. Environment variables
 
-All keys are documented in `.env.example`. Rules:
+The single source of truth is `apps/backend/src/config.ts`; `.env.example` documents every key it
+reads, with the default in parentheses, and a test (`apps/backend/test/config.test.ts`) fails if the
+two lists diverge or if the example does not start the server when copied verbatim.
 
-- `.env` is for local values only and is gitignored.
+| Group         | Keys                                                                                                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime       | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                                                                |
+| Database      | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                                                             |
+| Auth          | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`                                                 |
+| Storage       | `STORAGE_DRIVER`, `STORAGE_PATH`                                                                                                                                             |
+| AI            | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`, `AI_REVIEW_CONFIDENCE_THRESHOLD` |
+| Limits        | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_AUTH_PER_15_MIN`, `RATE_LIMIT_UPLOAD_PER_MIN`                                                           |
+| Exports, jobs | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                                                           |
+| Client builds | `IDCP_API_URL` (mobile), `IDCP_API_PROXY`, `IDCP_DEV_SERVER`, `IDCP_AUTO_UPDATE` (desktop)                                                                                   |
+
+Rules:
+
+- `.env` is for local values only and is gitignored; the defaults are a working local setup.
 - Never reuse staging or production credentials locally.
-- If you add a new key, add it to `.env.example` **with a placeholder** in the same commit.
-- Missing or invalid configuration must fail fast at startup with a clear message (`BACK-001`).
+- If you add a key, add it to `ConfigSchema` **and** `.env.example` in the same commit — the drift test
+  enforces it.
+- Invalid configuration fails fast at startup with an actionable message (`BACK-001`); for example
+  `STORAGE_DRIVER=s3` is refused until the object-store adapter exists.
 
 Invitation links are built from `APP_ORIGIN` (`<APP_ORIGIN>/#/accept-invite?token=…`), so set it to
 the URL people actually open, not the API's own address. `INVITATION_TTL_SECONDS` (default 7 days)
 is how long such a link stays usable; there is no email delivery, so the link is returned by
 `POST /users/invite` exactly once.
 
-## 5. Standard scripts (target surface)
-
-These are the commands the project will standardise on (`FOUND-003`, `FOUND-004`). Only `npm install` works today.
+## 5. Standard scripts
 
 ```bash
 npm install               # install all workspace dependencies
-npm run dev               # start everything available
+npm run dev               # alias of dev:backend
+npm run dev:backend       # API + in-process worker (tsx watch)
+npm run dev:desktop       # renderer dev server (Vite, proxies /api)
 npm run dev:mobile        # Metro bundler
-npm run dev:desktop       # Electron app
-npm run dev:backend       # API + worker
+npm run db:migrate        # apply pending migrations
+npm run db:seed           # demo organisation + owner account
 
-npm run build             # build all packages/apps
-npm run test:packaging    # validate the electron-builder contract (DESK-001)
-npm run package --workspace @idcp/desktop   # build installers (needs electron-builder; not run in CI)
+npm run verify            # typecheck + lint + PRD + OpenAPI + UDM schema + packaging + all tests
 npm run typecheck         # tsc --noEmit across workspaces
 npm run lint              # ESLint
 npm run format            # Prettier write
 npm run format:check      # Prettier check (CI)
-npm test                  # unit + integration tests
+npm test                  # every Jest project
+npm run test:unit         # shared + connectors + backend only
 npm run test:coverage
+npm run test:prd          # PRD.json contract
+npm run test:api          # OpenAPI + generated UDM schema are current
+npm run test:packaging    # electron-builder contract (DESK-001)
+npm run schema:udm        # regenerate docs/udm-1.0.schema.json
+npm run build             # build every workspace that has a build
 ```
+
+`npm test` accepts the usual Jest flags through `--`, e.g.
+`npm test -- --selectProjects backend -t "AGENT-001"`.
 
 ## 6. Verify your setup
 

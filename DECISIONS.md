@@ -73,7 +73,7 @@ Convention: `DEC-###` · status `Proposed | Accepted | Superseded by DEC-###`.
 
 ## DEC-006 — Socket.IO for the realtime device channel
 
-**Date:** 2026-10-26 · **Status:** Accepted
+**Date:** 2026-10-26 · **Status:** Superseded by DEC-016 for the first transport (the client choice still applies if a bidirectional channel is added)
 
 **Reason:** `socket.io-client` is already a dependency; it provides reconnection, rooms and acknowledgements out of the box, which matters for job progress updates on flaky mobile networks.
 
@@ -150,6 +150,37 @@ Convention: `DEC-###` · status `Proposed | Accepted | Superseded by DEC-###`.
 **Reason:** With multiple AI agent sessions working on the same repository, context is lost between sessions. A fixed set of documents — `PRD.json` (what), `AI.md` (how), `AGENT_STATE.md` (where), `DECISIONS.md` (why), `CHANGELOG.md` (history) — makes handovers cheap and prevents duplicated or contradictory work.
 
 **Consequences:** Updating these files is part of the definition of done, not optional paperwork. `PRD.json` statuses must reflect reality; a stale status file is worse than none.
+
+---
+
+## DEC-013 — One schema, two drivers: SQLite locally, PostgreSQL in production
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** Every table is written once as SQL in a forward-only migration runner
+(`apps/backend/src/db/migrations.ts`), and the same statements run against `node:sqlite` in
+development and tests and against `pg` in production. `DB_DRIVER` selects the adapter; repositories
+are the only code that knows which one is live. Statements avoid Postgres-only syntax (no `RETURNING`
+dependence, no partial indexes, no `jsonb` operators) so both drivers accept them, and timestamps are
+stored as ISO-8601 text.
+
+**Reason:** A single schema keeps the test suite honest — the tests exercise the same SQL that
+production runs, which is the failure mode that usually hides in a hand-rolled shim. SQLite means a
+new contributor can clone, migrate, seed and run the API in under a minute with no server to install,
+and it makes the suite fast enough to run on every commit. Postgres remains the system of record for
+hosting, where concurrency, JSONB and point-in-time recovery matter (DEC-003).
+
+**Alternatives considered:** Postgres in Docker for tests (requires Docker everywhere, slows CI, and
+still needs a fallback for the desktop's local mode); an ORM such as Prisma (DEC-003 assumed it, but
+it adds a generator step and a second schema language for a fifteen-table system); two schemas, one
+per driver (drift guaranteed).
+
+**Consequences:** Dialect differences are the developer's responsibility: anything that only works on
+one driver needs an adapter branch, and there is a test that boots both the migration runner and the
+repositories on SQLite so the divergence is caught. There is no Prisma, so migrations are
+hand-written and reviewed rather than generated. Postgres-specific behaviour (concurrent writes,
+JSONB query performance, connection pooling) is exercised only in production until a Postgres service
+exists in CI.
 
 ---
 
@@ -280,22 +311,6 @@ building SMTP delivery now (out of scope, and untested without a mail server).
 `GET /invitations` never returns tokens, so a lost link means revoke and invite again.
 
 ---
-
-## Template for new decisions
-
-```markdown
-## DEC-013 — <short title>
-
-**Date:** YYYY-MM-DD · **Status:** Proposed
-
-**Decision:** <one or two sentences>
-
-**Reason:** <why>
-
-**Alternatives considered:** <what else, and why not>
-
-**Consequences:** <what this commits us to>
-```
 
 ## DEC-020 — Duplicate preview is a read, and merges never overrule a human
 
@@ -532,3 +547,58 @@ phone has no language picker: it follows the device language, which is the behav
 operator in the field expects, and the desktop's picker covers shared workstations. Right-to-left is
 verified by the direction helper and the logical-property test rather than by a shipped RTL locale,
 because none of the three supported languages is RTL yet.
+
+---
+
+## DEC-029 — The shipped runtime is one process: SQLite, a filesystem and an in-process worker
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** A single API process is the whole backend. It stores data in SQLite (`node:sqlite`),
+writes original files under `STORAGE_PATH` on the filesystem, and runs the job worker on a timer
+inside the same process (`WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`) reading a `jobs` table.
+PostgreSQL, an S3-compatible object store and an external queue are the scale-out path, not
+dependencies of the shipped default: selecting `STORAGE_DRIVER=s3` fails fast with a message saying
+so, and there is no Redis client in the tree.
+
+**Reason:** Every requirement in this product — pairing, capture, extraction, review, export,
+connectors, workflows — can be served by one process, and a deployment that needs three services
+before it can start is a deployment that fails on a Tuesday night. Reading jobs from a table
+(rather than a broker) also gives the audit trail for free: the queue is inspectable with the same
+SQL as everything else, and a crashed worker's job is visible rather than gone. `DEC-008` chose
+"asynchronous with idempotency keys", which this satisfies; the _transport_ of that asynchrony is an
+implementation detail with a documented upgrade.
+
+**Alternatives considered:** Redis plus BullMQ behind `REDIS_URL` (a second service, a second failure
+mode, and a second set of credentials to protect, for a workload of tens of documents a minute);
+S3/MinIO from day one (needs credentials and a bucket to run the test suite); a separate worker
+process (correct at scale, pointless before the first customer).
+
+**Consequences:** Horizontal scaling needs the three upgrades in this order — Postgres
+(`DB_DRIVER=postgres`), a shared queue, then object storage — and until then the process must not be
+run with more than one replica: two workers would be safe (jobs are claimed transactionally and
+carry idempotency keys) but two SQLite writers are not. `ARCHITECTURE.md` §4, `DEPLOYMENT.md` §3 and
+`REQUIREMENTS.md` §6 describe the target architecture and now point here; `ENVIRONMENT.md` describes
+what actually runs today.
+
+---
+
+## Template for new decisions
+
+Copy this block, replace `DEC-0NN` with the next free number, and keep the list in numeric order.
+
+```markdown
+## DEC-0NN — <short title>
+
+**Date:** YYYY-MM-DD · **Status:** Proposed | Accepted | Superseded
+
+**Decision:** <one or two sentences>
+
+**Reason:** <why>
+
+**Alternatives considered:** <what else, and why not>
+
+**Consequences:** <what this commits us to>
+```
+
+---

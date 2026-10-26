@@ -65,12 +65,14 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 ### 6.1 In transit
 
 - TLS 1.2+ everywhere, HSTS enabled, no mixed content.
-- Socket.IO over `wss://` only; plaintext connections refused.
+- TLS only for the API and the server-push stream (`text/event-stream` over HTTPS); plaintext connections refused.
 
 ### 6.2 At rest
 
-- Database encryption at rest (managed disk encryption) plus application-level encryption for connector credentials and device credential hashes.
+- Database encryption at rest (managed disk encryption, which for SQLite means the host volume) plus application-level encryption for connector credentials and device credential hashes.
 - Object storage with server-side encryption (SSE-S3 or KMS); buckets private; no public objects at any time.
+  The filesystem driver used by the shipped single-process deployment (DEC-029) relies on the host disk's
+  encryption and on `STORAGE_PATH` being outside the web root; `s3` encryption applies once that driver is built.
 - Backups encrypted and access-restricted; restore tested (`DEPLOYMENT.md`).
 
 ### 6.3 Desktop hardening (Electron)

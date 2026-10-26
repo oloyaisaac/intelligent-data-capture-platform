@@ -113,10 +113,24 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   formatted with `Intl`, statuses and document types are labelled from the catalogue with a readable
   fallback, and the layout uses logical CSS properties with a direction-aware root so a
   right-to-left language needs no new stylesheet (`I18N-001`).
-- 20 suites; the count of automated tests is tracked in `TESTING.md`.
+- **Configuration contract test** — `apps/backend/test/config.test.ts` parses `.env.example` with the
+  real `ConfigSchema`: it fails if a key is documented but unread, or read but undocumented, and it
+  boots a config from the file copied verbatim. `CONFIG_ENV_KEYS` is exported from
+  `apps/backend/src/config.ts` as the single list of keys the server reads.
+- 21 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 
+- **Documentation now matches the shipped runtime.** `.env.example` documents every key the server
+  actually reads, with its default and nothing else: no Redis, S3, Google or Sentry variables, and
+  `STORAGE_DRIVER=filesystem`, `AI_PROVIDER=local`. `ENVIRONMENT.md`, `DEPLOYMENT.md`, `TESTING.md`,
+  `ARCHITECTURE.md`, `REQUIREMENTS.md`, `SECURITY.md` and `README.md` were corrected where they
+  described a runtime that does not exist (a queue broker, object storage, Prisma, Socket.IO), and
+  `README.md` now lists the commands that work today instead of "only `npm install` is meaningful".
+- **`DECISIONS.md` gained the decisions it was already citing**: DEC-013 (one schema, two drivers —
+  SQLite locally, PostgreSQL in production) and DEC-029 (the shipped runtime is one process: SQLite,
+  a filesystem and an in-process worker polling the `jobs` table). DEC-006 is marked superseded by
+  DEC-016, and the `DEC-0NN` template moved to the end of the file so it stops taking DEC-013's slot.
 - `PRD.json` statuses and artifact paths now reflect the code (all 45 stories are `done`; the
   remaining ones are listed in `TASKS.md`).
 - **`node_modules` is no longer tracked.** It was committed at the start (22,706 files) even though
@@ -124,6 +138,10 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 
 ### Fixed
 
+- **`.env.example` could not be used.** Copying it to `.env` made the server exit on startup
+  (`STORAGE_DRIVER: Invalid enum value`, `AI_CLOUD_ENDPOINT: Invalid url`) and it documented keys no
+  code reads. The file is now generated from the same schema the server parses, so a local run needs
+  no editing at all.
 - Connector configuration errors returned 500 instead of 400; `validateConfig()` failures are now
   mapped to a bad request.
 - Content sniffing rejected valid JPEGs shorter than 12 bytes; each format now has its own minimum.
