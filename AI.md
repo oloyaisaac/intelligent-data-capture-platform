@@ -56,13 +56,13 @@ If the session ends early, **still** update `AGENT_STATE.md` with what is done, 
 
 Use exactly these values in `PRD.json` and `AGENT_STATE.md`:
 
-| Status | Meaning |
-| --- | --- |
-| `done` | Meets all acceptance criteria, tested, documented. |
-| `in_progress` | Actively being built; may be partially working. |
-| `pending` | Not started. |
-| `blocked` | Waiting on a dependency, decision or access. Always state what. |
-| `deferred` | Deliberately pushed out of the current phase. |
+| Status        | Meaning                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `done`        | Meets all acceptance criteria, tested, documented.              |
+| `in_progress` | Actively being built; may be partially working.                 |
+| `pending`     | Not started.                                                    |
+| `blocked`     | Waiting on a dependency, decision or access. Always state what. |
+| `deferred`    | Deliberately pushed out of the current phase.                   |
 
 Never mark `done` because "the code is written". Never leave `in_progress` without a note.
 
@@ -80,33 +80,39 @@ Never mark `done` because "the code is written". Never leave `in_progress` witho
 ## 5. Coding conventions
 
 **Language and types**
+
 - TypeScript everywhere (`strict: true`). No `any` in application code; use `unknown` and narrow.
 - Shared types and schemas live in `packages/shared` — never duplicate a type in two apps.
 - Runtime validation with Zod at every boundary (HTTP, socket, storage, AI provider output).
 
 **Structure**
+
 - Small functions with a single purpose; prefer pure functions for logic and thin adapters for I/O.
 - One exported concept per file where practical. Co-locate tests next to source (`foo.ts`, `foo.test.ts`).
 - No business logic in UI components; no vendor SDK types outside their adapter folder.
 - Do not duplicate code — extract to `packages/shared` or a local module the second time you write it.
 
 **Naming**
+
 - Files: `kebab-case.ts` for modules; React components `PascalCase.tsx`.
 - Variables and functions: `camelCase`, descriptive and unabbreviated (`extractedFields`, not `ef`).
 - Database: `snake_case` tables (plural) and columns.
 - Booleans read as predicates: `isPaired`, `hasLowConfidence`.
 
 **Errors and logging**
+
 - Never swallow errors. Wrap at boundaries and return typed results or throw typed errors.
 - Error messages must be actionable and safe for users (no stack traces, no internal IDs).
 - Log with structure and a request ID; never log document contents, tokens or personal data.
 
 **UI**
+
 - Every user-facing string comes from the i18n catalogue — no hardcoded copy.
 - Every interactive element needs a label, focus state and keyboard path (desktop) or accessible label (mobile).
 - Loading, empty, error and offline states are part of the component, not an afterthought.
 
 **Git**
+
 - Conventional Commits: `feat(mobile): add QR scan screen (PAIR-002)`.
 - One story per branch/PR. Keep diffs reviewable.
 - Never force-push shared branches. Never rewrite published migrations.
@@ -122,16 +128,16 @@ Never mark `done` because "the code is written". Never leave `in_progress` witho
 
 ## 7. Documentation duties
 
-| When you… | Update |
-| --- | --- |
-| add or change an endpoint or socket event | `API.md` |
-| change the schema or a migration | `DATABASE.md` |
-| add a service, package or data flow | `ARCHITECTURE.md` |
-| make a technical choice with alternatives | `DECISIONS.md` |
-| ship anything | `CHANGELOG.md` (Unreleased) |
-| change story state | `PRD.json`, `TASKS.md`, `AGENT_STATE.md` |
-| add configuration | `.env.example`, `DEPLOYMENT.md` |
-| add a test procedure | `TESTING.md` |
+| When you…                                 | Update                                   |
+| ----------------------------------------- | ---------------------------------------- |
+| add or change an endpoint or socket event | `API.md`                                 |
+| change the schema or a migration          | `DATABASE.md`                            |
+| add a service, package or data flow       | `ARCHITECTURE.md`                        |
+| make a technical choice with alternatives | `DECISIONS.md`                           |
+| ship anything                             | `CHANGELOG.md` (Unreleased)              |
+| change story state                        | `PRD.json`, `TASKS.md`, `AGENT_STATE.md` |
+| add configuration                         | `.env.example`, `DEPLOYMENT.md`          |
+| add a test procedure                      | `TESTING.md`                             |
 
 ## 8. Stop conditions — stop and ask a human
 

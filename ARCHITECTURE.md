@@ -2,7 +2,7 @@
 
 Technical blueprint of the AI Universal Data Capture Platform (IDCP).
 
-> **Reality check:** this document describes the **target** architecture. Only the documentation and a dependency manifest exist today (see `AGENT_STATE.md`). Sections marked *(planned)* are not implemented yet.
+> **Reality check:** this document describes the **target** architecture. Only the documentation and a dependency manifest exist today (see `AGENT_STATE.md`). Sections marked _(planned)_ are not implemented yet.
 
 ---
 
@@ -40,7 +40,7 @@ Technical blueprint of the AI Universal Data Capture Platform (IDCP).
 
 ## 2. Components
 
-### 2.1 Mobile app (`apps/mobile`) — React Native *(planned)*
+### 2.1 Mobile app (`apps/mobile`) — React Native _(planned)_
 
 Responsibilities: QR pairing, camera capture, edge detection/crop/enhancement, offline queue, upload, status display, review of simple fields, secure device credential storage.
 
@@ -49,7 +49,7 @@ Responsibilities: QR pairing, camera capture, edge detection/crop/enhancement, o
 - Native modules: camera, barcode scanning, document edge detection, secure storage, file system.
 - Talks to the backend **only** over HTTPS and authenticated Socket.IO.
 
-### 2.2 Desktop app (`apps/desktop`) — Electron + React *(planned)*
+### 2.2 Desktop app (`apps/desktop`) — Electron + React _(planned)_
 
 Responsibilities: pairing QR display and device management, live job dashboard, full human-in-the-loop review, mapping configuration, connector setup, exports, analytics later.
 
@@ -57,7 +57,7 @@ Responsibilities: pairing QR display and device management, live job dashboard, 
 - Renderer: React UI with **no** Node access; all privileged operations go through a validated, allow-listed IPC bridge.
 - Security posture per `SECURITY.md` §6.3.
 
-### 2.3 Backend API (`apps/backend`) — Node.js 22 + TypeScript *(planned)*
+### 2.3 Backend API (`apps/backend`) — Node.js 22 + TypeScript _(planned)_
 
 Split into stateless API and worker process, both from one codebase:
 
@@ -66,15 +66,15 @@ Split into stateless API and worker process, both from one codebase:
 
 Domain boundaries (folders under `src/`): `auth`, `authz`, `orgs`, `devices`, `pairing`, `documents`, `ai`, `review`, `mapping`, `connectors`, `export`, `audit`, `retention`, `realtime`.
 
-### 2.4 Shared package (`packages/shared`) *(planned)*
+### 2.4 Shared package (`packages/shared`) _(planned)_
 
 Single source of truth for: Universal Data Model types and Zod schemas, API request/response types, error codes, confidence/review thresholds, i18n catalogues, date/number formatters. Consumed by mobile, desktop and backend.
 
-### 2.5 Connector package (`packages/connectors`) *(planned)*
+### 2.5 Connector package (`packages/connectors`) _(planned)_
 
 The connector contract (manifest, capabilities, schema discovery, health check) plus first-party connectors. Connectors are isolated: a failing connector reports an error and never crashes the host process.
 
-### 2.6 AI layer *(planned)*
+### 2.6 AI layer _(planned)_
 
 ```
 upload → preprocess → OCR (text + geometry) → classify → extract fields/tables
@@ -121,18 +121,18 @@ Approved record → UDM → mapping profile (destination fields + transforms)
 
 ## 4. Technology choices
 
-| Concern | Choice | Decision |
-| --- | --- | --- |
-| Mobile | React Native 0.86 / React 19 | DEC-001 |
-| Monorepo | npm workspaces + TypeScript | DEC-002 |
-| Database | PostgreSQL 16 + Prisma | DEC-003 |
-| Interchange format | Universal Data Model (Zod + JSON Schema) | DEC-004 |
-| Pairing | Short-lived single-use QR token | DEC-005 |
-| Realtime | Socket.IO | DEC-006 |
-| AI | Provider abstraction, local-first | DEC-007 |
-| Jobs | Redis-backed queue, idempotent workers | DEC-008 |
-| Desktop | Electron + React | DEC-009 |
-| File storage | S3-compatible object storage | DEC-010 |
+| Concern            | Choice                                   | Decision |
+| ------------------ | ---------------------------------------- | -------- |
+| Mobile             | React Native 0.86 / React 19             | DEC-001  |
+| Monorepo           | npm workspaces + TypeScript              | DEC-002  |
+| Database           | PostgreSQL 16 + Prisma                   | DEC-003  |
+| Interchange format | Universal Data Model (Zod + JSON Schema) | DEC-004  |
+| Pairing            | Short-lived single-use QR token          | DEC-005  |
+| Realtime           | Socket.IO                                | DEC-006  |
+| AI                 | Provider abstraction, local-first        | DEC-007  |
+| Jobs               | Redis-backed queue, idempotent workers   | DEC-008  |
+| Desktop            | Electron + React                         | DEC-009  |
+| File storage       | S3-compatible object storage             | DEC-010  |
 
 ## 5. Security zones
 

@@ -8,11 +8,11 @@ How the platform goes from a laptop to production.
 
 ## 1. Environments
 
-| Environment | Purpose | Data | Access |
-| --- | --- | --- | --- |
-| Local | Development | Synthetic fixtures only | Developer machine |
-| Staging | Pre-release verification, app-store review builds | Synthetic or anonymised | Team, protected by auth |
-| Production | Live customers | Real customer data | Restricted, audited |
+| Environment | Purpose                                           | Data                    | Access                  |
+| ----------- | ------------------------------------------------- | ----------------------- | ----------------------- |
+| Local       | Development                                       | Synthetic fixtures only | Developer machine       |
+| Staging     | Pre-release verification, app-store review builds | Synthetic or anonymised | Team, protected by auth |
+| Production  | Live customers                                    | Real customer data      | Restricted, audited     |
 
 Environments never share credentials, databases, storage buckets or API keys. Staging must never contain un-anonymised production documents.
 
@@ -61,6 +61,7 @@ push / PR → CI: install → typecheck → lint → test → build → security
 ```
 
 Rules:
+
 - The **same built artefact** is promoted; never rebuild for production.
 - Migrations run as a pre-deploy step and must be backwards compatible with the previous release (two-step release for destructive changes).
 - Deployments are reversible: the previous image tag stays available.
@@ -70,18 +71,18 @@ Rules:
 
 Every key is documented in `.env.example`. Production values are injected from a secret manager, never committed.
 
-| Group | Keys (see `.env.example`) |
-| --- | --- |
-| Runtime | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL` |
-| Database | `DATABASE_URL`, `DATABASE_POOL_SIZE` |
-| Cache/queue | `REDIS_URL` |
-| Auth | `JWT_SECRET`, `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`, `ARGON2_*` |
-| Storage | `STORAGE_DRIVER`, `S3_*` |
-| AI | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC` |
-| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` |
-| Limits | `MAX_UPLOAD_MB`, `RATE_LIMIT_*` |
-| Observability | `SENTRY_DSN`, `METRICS_ENABLED` |
-| Mobile/desktop | `API_BASE_URL` baked per build environment, never a secret in the bundle |
+| Group          | Keys (see `.env.example`)                                                          |
+| -------------- | ---------------------------------------------------------------------------------- |
+| Runtime        | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`                                    |
+| Database       | `DATABASE_URL`, `DATABASE_POOL_SIZE`                                               |
+| Cache/queue    | `REDIS_URL`                                                                        |
+| Auth           | `JWT_SECRET`, `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`, `ARGON2_*`                  |
+| Storage        | `STORAGE_DRIVER`, `S3_*`                                                           |
+| AI             | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC` |
+| Google         | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                  |
+| Limits         | `MAX_UPLOAD_MB`, `RATE_LIMIT_*`                                                    |
+| Observability  | `SENTRY_DSN`, `METRICS_ENABLED`                                                    |
+| Mobile/desktop | `API_BASE_URL` baked per build environment, never a secret in the bundle           |
 
 Rotation: JWT signing keys and provider keys rotate on a schedule and immediately on suspected exposure. Rotating the JWT key invalidates access tokens; users re-authenticate or refresh.
 
@@ -106,12 +107,14 @@ Backups: automated daily full + continuous point-in-time recovery (≥ 7 days). 
 ## 7. Desktop and mobile distribution
 
 **Desktop (Electron)**
+
 1. Build per platform (Windows `.exe`/`.msi`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
 2. Sign (Authenticode on Windows; Developer ID + notarisation on macOS).
 3. Publish to the release channel; auto-update manifest served over HTTPS with signature verification.
 4. Support a `--no-auto-update` flag or config for controlled deployments.
 
 **Mobile**
+
 - Android: signed AAB uploaded to Google Play (internal → closed → production tracks).
 - iOS: signed archive uploaded to App Store Connect via TestFlight, then review.
 - Each release: bump version/build number, update privacy disclosures, run the `TESTING.md` release checklist.

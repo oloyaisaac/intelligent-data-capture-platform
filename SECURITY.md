@@ -18,16 +18,16 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 
 ## 2. Threat model (summary)
 
-| Threat | Example | Mitigation |
-| --- | --- | --- |
-| Credential theft | QR code photographed and reused | Short-lived single-use pairing tokens, hashed at rest, device revocation |
-| Cross-tenant access | Guessing another organisation's document ID | Tenant-scoped queries, `404` rather than `403`, tests (`TC-10`) |
-| Document leakage | Public bucket or unprotected download URL | Private storage, brokered downloads, short-lived signed URLs |
-| Malicious upload | Executable disguised as an image | Content sniffing, MIME allow-list, size limits, no execution, no image-metadata passthrough |
-| Injection | SQL or spreadsheet formula injection on export | Parameterised queries, formula-neutralising on CSV/XLSX export |
-| Prompt/AI injection | Document text instructing the AI model | Treat document text as untrusted data; never let it alter system behaviour or trigger actions |
-| Insider misuse | Employee exporting the whole database | RBAC, audit trail, export rate limits, review of bulk actions |
-| Supply chain | Compromised npm package | Lockfile, dependency scanning, no postinstall scripts from unvetted packages |
+| Threat              | Example                                        | Mitigation                                                                                    |
+| ------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Credential theft    | QR code photographed and reused                | Short-lived single-use pairing tokens, hashed at rest, device revocation                      |
+| Cross-tenant access | Guessing another organisation's document ID    | Tenant-scoped queries, `404` rather than `403`, tests (`TC-10`)                               |
+| Document leakage    | Public bucket or unprotected download URL      | Private storage, brokered downloads, short-lived signed URLs                                  |
+| Malicious upload    | Executable disguised as an image               | Content sniffing, MIME allow-list, size limits, no execution, no image-metadata passthrough   |
+| Injection           | SQL or spreadsheet formula injection on export | Parameterised queries, formula-neutralising on CSV/XLSX export                                |
+| Prompt/AI injection | Document text instructing the AI model         | Treat document text as untrusted data; never let it alter system behaviour or trigger actions |
+| Insider misuse      | Employee exporting the whole database          | RBAC, audit trail, export rate limits, review of bulk actions                                 |
+| Supply chain        | Compromised npm package                        | Lockfile, dependency scanning, no postinstall scripts from unvetted packages                  |
 
 ## 3. Secrets
 
@@ -63,15 +63,18 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 ## 6. Data protection
 
 ### 6.1 In transit
+
 - TLS 1.2+ everywhere, HSTS enabled, no mixed content.
 - Socket.IO over `wss://` only; plaintext connections refused.
 
 ### 6.2 At rest
+
 - Database encryption at rest (managed disk encryption) plus application-level encryption for connector credentials and device credential hashes.
 - Object storage with server-side encryption (SSE-S3 or KMS); buckets private; no public objects at any time.
 - Backups encrypted and access-restricted; restore tested (`DEPLOYMENT.md`).
 
 ### 6.3 Desktop hardening (Electron)
+
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, no `remote` module.
 - IPC is allow-listed, validated and typed; the renderer cannot reach the filesystem or shell directly.
 - External links open in the system browser, never in an app window; `will-navigate` restricted to the app origin.
@@ -80,6 +83,7 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 - Code signing on Windows and macOS; auto-update over HTTPS with signature verification.
 
 ### 6.4 Mobile hardening
+
 - No secrets in the JS bundle; API base URL configured, not hardcoded per environment.
 - Certificate pinning for the API domain (with a documented rotation plan).
 - Screenshot protection on review screens where supported; no document content in app-switcher snapshots.
@@ -87,6 +91,7 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 - Debug builds are never distributed.
 
 ### 6.5 Personal data
+
 - Inventorise fields marked 🔒 in `DATABASE.md` as personal data.
 - Retention is configurable per organisation (`SEC-001`) and deletion is real (objects + rows), verified by `TC-11`.
 - No customer data is used to train models without explicit, revocable opt-in.

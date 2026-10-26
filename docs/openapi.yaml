@@ -1,0 +1,916 @@
+openapi: 3.1.0
+info:
+  title: IDCP API
+  version: 1.0.0
+  description: |
+    The Universal Data Capture Platform API (API.md).
+
+    Every request is scoped to the authenticated actor's organisation: a document, review,
+    export, connector or key belonging to another organisation is indistinguishable from one that
+    does not exist (404). Errors always use the envelope
+    `{ "error": { "code", "message", "details?", "requestId" } }` and the `code` is stable.
+
+    Authentication accepts exactly one of:
+      * `Authorization: Bearer <access token>` — a signed-in person
+      * `X-Device-Credential: <credential>` — a paired device acting for its owner
+      * `X-API-Key: <key>` — a machine client, limited to the key's scopes (DEVAPI-001)
+servers:
+  - url: /api/v1
+    description: This deployment
+tags:
+  - name: Health
+  - name: Auth
+  - name: Pairing
+  - name: Documents
+  - name: Review
+  - name: Exports
+  - name: Connectors
+  - name: Templates
+  - name: Organisation
+  - name: Realtime
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Access token from /auth/login or /auth/register (15 minutes).
+    deviceCredential:
+      type: apiKey
+      in: header
+      name: X-Device-Credential
+      description: Opaque credential issued once by /pairing/complete.
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Developer API key (DEVAPI-001). Scopes map to the role ladder.
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+              examples: [UNAUTHENTICATED, FIELD_VALIDATION_FAILED, NOT_FOUND]
+            message:
+              type: string
+            details: {}
+            requestId:
+              type: string
+    User:
+      type: object
+      required: [id, email, displayName, role, organisationId, organisationName]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        role: { type: string, enum: [viewer, operator, reviewer, admin, owner] }
+        organisationId: { type: string }
+        organisationName: { type: string }
+    TokenPair:
+      type: object
+      required: [accessToken, expiresIn, refreshToken, user]
+      properties:
+        accessToken: { type: string }
+        expiresIn: { type: integer }
+        refreshToken: { type: string }
+        user: { $ref: '#/components/schemas/User' }
+    Document:
+      type: object
+      required: [id, status, documentType, mimeType, sizeBytes, pageCount, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        status:
+          type: string
+          enum: [queued, uploaded, processing, extracted, needs_review, approved, failed, deleted]
+        documentType:
+          type: string
+          enum: [form, receipt, invoice, id, contract, table, handwritten, unknown]
+        mimeType: { type: string }
+        sizeBytes: { type: integer }
+        pageCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Udm:
+      type: object
+      description: Universal Data Model record (UDM-001). See docs/udm-1.0.schema.json.
+      required:
+        [udmVersion, documentType, documentTypeConfidence, source, fields, tables, extractedAt]
+      properties:
+        udmVersion: { type: string }
+        documentType: { type: string }
+        documentTypeConfidence: { type: number, minimum: 0, maximum: 1 }
+        source: { type: object }
+        fields:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              label: { type: string }
+              value: {}
+              type: { type: string }
+              confidence: { type: number, minimum: 0, maximum: 1 }
+              needsReview: { type: boolean }
+              corrected: { type: boolean }
+        tables: { type: array, items: { type: object } }
+        needsReview: { type: boolean }
+        extractedAt: { type: string, format: date-time }
+    BlockingField:
+      type: object
+      required: [path, reason, confidence]
+      properties:
+        path: { type: string }
+        reason: { type: string, enum: [low_confidence, missing_value, not_found, not_processed] }
+        confidence: { type: number }
+    Template:
+      type: object
+      required: [id, name, documentType, fields, version, active]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        documentType: { type: string }
+        fields: { type: array, items: { type: object } }
+        version: { type: integer }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ApiKey:
+      type: object
+      required: [id, name, prefix, scopes, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix: { type: string }
+        scopes: { type: array, items: { type: string } }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time, nullable: true }
+        revokedAt: { type: string, format: date-time, nullable: true }
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness and dependency status
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Healthy or degraded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok, degraded] }
+                  version: { type: string }
+                  uptimeSeconds: { type: integer }
+                  dependencies: { type: object }
+        '503': { description: A dependency is down }
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Create the first account and its organisation
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, displayName, organisationName]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 12, maxLength: 256 }
+                displayName: { type: string, maxLength: 120 }
+                organisationName: { type: string, maxLength: 120 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '400':
+          {
+            description: Invalid input,
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '409': { description: Email already registered }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Exchange credentials for a session
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Session created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { description: Wrong email or password }
+        '429': { description: Too many attempts }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate a refresh token
+      operationId: refreshSession
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: New pair (the old refresh token is now invalid)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { description: Refresh token is invalid, expired or already rotated }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke a refresh token
+      operationId: logout
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '204': { description: Revoked }
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: The signed-in user and their organisation
+      operationId: getMe
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { description: Not signed in }
+  /pairing/sessions:
+    post:
+      tags: [Pairing]
+      summary: Create a single-use pairing code
+      operationId: createPairingSession
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  token: { type: string }
+                  endpoint: { type: string }
+                  expiresAt: { type: string, format: date-time }
+                  expiresInSeconds: { type: integer }
+                  qrPayload: { type: string }
+  /pairing/sessions/{id}:
+    get:
+      tags: [Pairing]
+      summary: Poll a pairing session for completion
+      operationId: getPairingSession
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Session state }
+        '404': { description: Not found in this organisation }
+  /pairing/complete:
+    post:
+      tags: [Pairing]
+      summary: Exchange a scanned token for a device credential
+      operationId: completePairing
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, device]
+              properties:
+                token: { type: string }
+                device:
+                  type: object
+                  required: [name, platform]
+                  properties:
+                    name: { type: string, maxLength: 80 }
+                    platform: { type: string, enum: [android, ios, desktop] }
+                    appVersion: { type: string }
+      responses:
+        '201': { description: Device paired }
+        '410': { description: Token expired or already used }
+  /devices:
+    get:
+      tags: [Pairing]
+      summary: List paired devices
+      operationId: listDevices
+      responses:
+        '200': { description: Devices }
+  /devices/{id}:
+    patch:
+      tags: [Pairing]
+      summary: Rename or revoke a device
+      operationId: updateDevice
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Updated }
+    delete:
+      tags: [Pairing]
+      summary: Revoke a device
+      operationId: revokeDevice
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Revoked }
+  /documents:
+    get:
+      tags: [Documents]
+      summary: List documents (cursor paginated)
+      operationId: listDocuments
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: documentType, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Page of documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Document' }
+                  nextCursor: { type: string, nullable: true }
+    post:
+      tags: [Documents]
+      summary: Upload a document (multipart/form-data)
+      operationId: uploadDocument
+      description: |
+        Accepts one JPEG, PNG, HEIC or PDF file. The declared content type is checked against the
+        bytes. Send `Idempotency-Key` (8–100 chars) so a retry never creates a second document.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                documentType: { type: string }
+      responses:
+        '201': { description: Accepted and queued }
+        '200': { description: Duplicate upload (same idempotency key) }
+        '413': { description: File too large }
+        '415': { description: Unsupported content type }
+  /documents/{id}:
+    get:
+      tags: [Documents]
+      summary: One document
+      operationId: getDocument
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Document
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '404': { description: Not found in this organisation }
+    delete:
+      tags: [Documents]
+      summary: Delete a document and its stored file
+      operationId: deleteDocument
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Deleted }
+  /documents/{id}/file:
+    get:
+      tags: [Documents]
+      summary: The original file (authenticated, never a public URL)
+      operationId: getDocumentFile
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: File bytes
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+  /documents/{id}/result:
+    get:
+      tags: [Documents]
+      summary: The latest extraction for a document
+      operationId: getDocumentResult
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Document and its latest UDM (or null while queued)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  document: { $ref: '#/components/schemas/Document' }
+                  extraction:
+                    oneOf:
+                      - type: 'null'
+                      - type: object
+                        properties:
+                          id: { type: string }
+                          udm: { $ref: '#/components/schemas/Udm' }
+                          needsReview: { type: boolean }
+                          confidence: { type: number }
+  /documents/{id}/reprocess:
+    post:
+      tags: [Documents]
+      summary: Queue the document for extraction again
+      operationId: reprocessDocument
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '202': { description: Queued }
+  /documents/{id}/review:
+    post:
+      tags: [Review]
+      summary: Open (or resume) the review for a document
+      operationId: openReview
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Review session with the UDM and blocking fields }
+        '409': { description: The document has not been processed yet }
+  /documents/{id}/send:
+    post:
+      tags: [Connectors]
+      summary: Write an approved record to a destination
+      operationId: sendDocument
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [connectorId, mappingProfileId]
+              properties:
+                connectorId: { type: string }
+                mappingProfileId: { type: string }
+      responses:
+        '202': { description: 'Send attempted: succeeded, skipped_duplicate or failed' }
+        '409': { description: The record is not approved }
+  /review/queue:
+    get:
+      tags: [Review]
+      summary: Records needing a human, least confident first
+      operationId: reviewQueue
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        '200': { description: Queue with blocking fields per record }
+  /review/{id}/fields:
+    patch:
+      tags: [Review]
+      summary: Record corrections (and optionally confirm the document type)
+      operationId: patchReviewFields
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                changes:
+                  type: array
+                  items:
+                    type: object
+                    required: [fieldPath, value]
+                    properties:
+                      fieldPath: { type: string }
+                      value: {}
+                documentType: { type: string }
+      responses:
+        '200': { description: Applied changes plus the remaining blocking fields }
+        '409': { description: The review is already closed }
+  /review/{id}/approve:
+    post:
+      tags: [Review]
+      summary: Approve a record (refused while any field is unresolved)
+      operationId: approveReview
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Approved }
+        '422': { description: Unresolved fields, returned in `details` }
+  /review/{id}/reject:
+    post:
+      tags: [Review]
+      summary: Reject a record with a reason
+      operationId: rejectReview
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 2000 }
+      responses:
+        '200': { description: Rejected }
+  /review/bulk-approve:
+    post:
+      tags: [Review]
+      summary: Approve several records, skipping any with unresolved fields
+      operationId: bulkApprove
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentIds]
+              properties:
+                documentIds:
+                  type: array
+                  maxItems: 200
+                  items: { type: string }
+      responses:
+        '200': { description: '`approved` ids and `skipped` ids with reasons' }
+  /exports:
+    get:
+      tags: [Exports]
+      summary: Export history
+      operationId: listExports
+      responses:
+        '200': { description: Exports }
+    post:
+      tags: [Exports]
+      summary: Export approved records to Excel or CSV
+      operationId: createExport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [format]
+              properties:
+                format: { type: string, enum: [xlsx, csv] }
+                documentType: { type: string }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+                delimiter: { type: string, enum: [',', ';', "\t", '|'] }
+                columns: { type: array, items: { type: string } }
+                bom: { type: boolean }
+      responses:
+        '201': { description: Export built (ready) or queued }
+        '400': { description: Nothing to export, or invalid options }
+  /exports/{id}:
+    get:
+      tags: [Exports]
+      summary: One export
+      operationId: getExport
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Export }
+  /exports/{id}/download:
+    get:
+      tags: [Exports]
+      summary: Download the generated file
+      operationId: downloadExport
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: File bytes }
+        '404': { description: Missing, expired or deleted }
+  /connectors/types:
+    get:
+      tags: [Connectors]
+      summary: Supported connector types and capabilities
+      operationId: listConnectorTypes
+      responses:
+        '200': { description: Types }
+  /connectors:
+    get:
+      tags: [Connectors]
+      summary: Configured connectors (credentials are never returned)
+      operationId: listConnectors
+      responses:
+        '200': { description: Connectors }
+    post:
+      tags: [Connectors]
+      summary: Add a connector
+      operationId: createConnector
+      responses:
+        '201': { description: Created }
+        '400': { description: Configuration rejected by the connector' }
+  /connectors/{id}:
+    patch:
+      tags: [Connectors]
+      summary: Update a connector
+      operationId: updateConnector
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Updated }
+    delete:
+      tags: [Connectors]
+      summary: Remove a connector
+      operationId: deleteConnector
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Removed }
+  /connectors/{id}/test:
+    post:
+      tags: [Connectors]
+      summary: Health check a connector
+      operationId: testConnector
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: '`ok` plus an actionable message' }
+  /connectors/{id}/schema:
+    get:
+      tags: [Connectors]
+      summary: Destination columns the connector can write to
+      operationId: getConnectorSchema
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Columns }
+  /connectors/{id}/runs:
+    get:
+      tags: [Connectors]
+      summary: Recent send history
+      operationId: listConnectorRuns
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Runs }
+  /mapping-profiles:
+    get:
+      tags: [Connectors]
+      summary: Saved field mappings
+      operationId: listMappingProfiles
+      responses:
+        '200': { description: Profiles }
+    post:
+      tags: [Connectors]
+      summary: Save a field mapping
+      operationId: createMappingProfile
+      responses:
+        '201': { description: Created }
+  /templates:
+    get:
+      tags: [Templates]
+      summary: Document templates
+      operationId: listTemplates
+      parameters:
+        - { name: documentType, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Template' }
+    post:
+      tags: [Templates]
+      summary: Create a template, optionally from a processed document
+      operationId: createTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, documentType]
+              properties:
+                name: { type: string }
+                documentType: { type: string }
+                fields: { type: array, items: { type: object } }
+                fromDocumentId: { type: string }
+      responses:
+        '201': { description: Created at version 1 }
+        '400': { description: No fields, or a duplicate field path }
+  /templates/{id}:
+    get:
+      tags: [Templates]
+      summary: One template with its version history
+      operationId: getTemplate
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Template and versions }
+        '404': { description: Not found in this organisation }
+    patch:
+      tags: [Templates]
+      summary: Update a template (a field-list change creates a version)
+      operationId: updateTemplate
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Updated }
+    delete:
+      tags: [Templates]
+      summary: Disable a template without deleting its history
+      operationId: disableTemplate
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Disabled }
+  /api-keys:
+    get:
+      tags: [Organisation]
+      summary: API keys (secrets are never returned)
+      operationId: listApiKeys
+      responses:
+        '200':
+          description: Keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ApiKey' }
+    post:
+      tags: [Organisation]
+      summary: Create an API key — the secret is returned once
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name: { type: string }
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - documents:read
+                      - documents:write
+                      - review:write
+                      - exports:read
+                      - connectors:write
+                      - admin
+      responses:
+        '201': { description: 'Key created; `key` is present in this response only' }
+        '403': { description: Only owners and admins may issue keys }
+  /api-keys/{id}:
+    delete:
+      tags: [Organisation]
+      summary: Revoke an API key
+      operationId: revokeApiKey
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Revoked }
+  /organisation:
+    get:
+      tags: [Organisation]
+      summary: The current organisation
+      operationId: getOrganisation
+      responses:
+        '200': { description: Organisation }
+    patch:
+      tags: [Organisation]
+      summary: Update name, retention or AI provider (admin)
+      operationId: updateOrganisation
+      responses:
+        '200': { description: Updated }
+        '403': { description: Admin role required }
+  /users:
+    get:
+      tags: [Organisation]
+      summary: Team members
+      operationId: listUsers
+      responses:
+        '200': { description: Members }
+  /users/invite:
+    post:
+      tags: [Organisation]
+      summary: Invite a team member (single-use, expiring)
+      operationId: inviteUser
+      responses:
+        '202': { description: Invited }
+  /users/{id}/role:
+    patch:
+      tags: [Organisation]
+      summary: Change a member's role (takes effect on their next request)
+      operationId: changeRole
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Updated }
+  /users/{id}:
+    delete:
+      tags: [Organisation]
+      summary: Remove a member
+      operationId: removeUser
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Removed }
+  /audit-logs:
+    get:
+      tags: [Organisation]
+      summary: Search the immutable audit trail
+      operationId: listAuditLogs
+      parameters:
+        - { name: action, in: query, schema: { type: string } }
+        - { name: actor, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: Audit records }
+  /stats:
+    get:
+      tags: [Organisation]
+      summary: Counts for the dashboard
+      operationId: getStats
+      responses:
+        '200': { description: Counts by status }
+  /retention/purge:
+    post:
+      tags: [Organisation]
+      summary: Purge expired documents now (admin)
+      operationId: purgeRetention
+      responses:
+        '202': { description: '`purged`: number of documents removed' }
+  /events:
+    get:
+      tags: [Realtime]
+      summary: Server-sent stream of organisation events
+      operationId: streamEvents
+      description: |
+        `EventSource` cannot send headers, so this endpoint also accepts the access token as an
+        `access_token` query parameter. Only identifiers are sent, never document content.
+      parameters:
+        - { name: access_token, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { type: string }

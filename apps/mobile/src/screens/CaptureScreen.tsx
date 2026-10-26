@@ -1,0 +1,167 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
+import { createTranslator } from '@idcp/shared';
+import { colors, spacing, typography } from '../ui/theme';
+import type { UploadQueue } from '../state/uploadQueue';
+
+const t = createTranslator('en');
+
+/**
+ * Capture (MOB-001, MOB-003): take a photo, queue it immediately, then attempt an upload.
+ *
+ * The capture is written to the queue *before* any network call, so nothing is lost if the phone
+ * is offline, the app is closed, or the upload fails. The queue item id doubles as the upload
+ * idempotency key, so a retry can never create a duplicate record on the server.
+ */
+export function CaptureScreen({
+  queue,
+  onCaptured,
+}: {
+  queue: UploadQueue;
+  onCaptured?: (documentId: string) => void;
+}): React.JSX.Element {
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const device = useCameraDevice('back');
+  const camera = useRef<Camera>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [pending, setPending] = useState(0);
+
+  useEffect(() => {
+    if (!hasPermission) void requestPermission();
+  }, [hasPermission, requestPermission]);
+
+  useEffect(() => {
+    setPending(queue.pendingCount());
+  }, [queue, message]);
+
+  const capture = useCallback(async () => {
+    if (!camera.current || busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const photo = await camera.current.takePhoto({ flash: 'auto' });
+      const id = `cap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+      await queue.enqueue({
+        id,
+        uri: `file://${photo.path}`,
+        fileName: `${id}.jpg`,
+        mimeType: 'image/jpeg',
+      });
+      setPending(queue.pendingCount());
+      setMessage(t('capture.queued'));
+
+      const processed = await queue.drain();
+      const result = processed.find((item) => item.id === id);
+      if (result?.status === 'uploaded' && result.documentId) {
+        setMessage(t('capture.uploaded'));
+        onCaptured?.(result.documentId);
+      } else if (result?.status === 'failed') {
+        setMessage(t('capture.failed'));
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : t('error.generic'));
+    } finally {
+      setBusy(false);
+      setPending(queue.pendingCount());
+    }
+  }, [busy, onCaptured, queue]);
+
+  if (!hasPermission) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.title}>{t('pairing.permissionDenied')}</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => void requestPermission()}
+          style={styles.button}
+        >
+          <Text style={styles.buttonText}>{t('action.continue')}</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (!device) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.title}>{t('capture.title')}</Text>
+        <Text style={styles.muted}>This device has no camera available.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <Camera ref={camera} style={StyleSheet.absoluteFill} device={device} isActive photo />
+      <View style={styles.guide} pointerEvents="none">
+        <Text style={styles.guideText}>{t('capture.guide')}</Text>
+      </View>
+
+      <View style={styles.footer}>
+        {message && <Text style={styles.message}>{message}</Text>}
+        {pending > 0 && <Text style={styles.muted}>{pending} waiting to upload</Text>}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('capture.takePhoto')}
+          onPress={() => void capture()}
+          disabled={busy}
+          style={[styles.shutter, busy && styles.shutterBusy]}
+        >
+          {busy ? (
+            <ActivityIndicator color="#04120c" />
+          ) : (
+            <Text style={styles.shutterText}>{t('capture.takePhoto')}</Text>
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#000' },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  title: { ...typography.subtitle, textAlign: 'center' },
+  muted: { ...typography.muted },
+  guide: {
+    position: 'absolute',
+    top: '12%',
+    left: '8%',
+    right: '8%',
+    bottom: '26%',
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255,255,255,0.6)',
+    borderRadius: 12,
+    justifyContent: 'flex-start',
+    padding: spacing.sm,
+  },
+  guideText: { color: '#fff', fontSize: 13, textAlign: 'center' },
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  message: { color: '#fff', fontSize: 14, textAlign: 'center' },
+  shutter: {
+    backgroundColor: colors.primary,
+    borderRadius: 32,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  shutterBusy: { opacity: 0.6 },
+  shutterText: { ...typography.subtitle, color: '#04120c' },
+  button: { backgroundColor: colors.primary, borderRadius: 12, padding: spacing.md },
+  buttonText: { ...typography.subtitle, color: '#04120c' },
+});

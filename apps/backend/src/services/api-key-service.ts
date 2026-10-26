@@ -1,0 +1,178 @@
+import {
+  AppError,
+  type ApiKey,
+  type ApiKeyScope,
+  type CreatedApiKey,
+  type Role,
+} from '@idcp/shared';
+import { hashToken, newToken } from '@idcp/shared/ids';
+import type { Database } from '../db/database';
+import type { Logger } from '../logger';
+import { ApiKeysRepository } from '../repositories/apikey-repo';
+import { AuditRepository } from '../repositories/system-repo';
+import { MembershipsRepository } from '../repositories/auth-repo';
+import type { ApiKeyRow } from '../repositories/types';
+import type { AuthenticatedActor } from './auth-service';
+
+/**
+ * Developer API keys (DEVAPI-001).
+ *
+ * The secret is generated once, returned once, and stored only as a SHA-256 hash with a short
+ * prefix for display. Because scopes map onto the existing role ladder, every existing
+ * authorisation check keeps working without a second permission system.
+ */
+
+const KEY_PREFIX = 'idcp_';
+const KEY_BYTES = 32;
+
+const SCOPE_ROLE: Record<ApiKeyScope, Role> = {
+  'documents:read': 'viewer',
+  'review:write': 'reviewer',
+  'documents:write': 'reviewer',
+  'exports:read': 'viewer',
+  'connectors:write': 'admin',
+  admin: 'admin',
+};
+
+export function roleForScopes(scopes: string[]): Role | null {
+  let highest: Role | null = null;
+  const ladder: Role[] = ['viewer', 'reviewer', 'admin', 'owner'];
+  for (const scope of scopes) {
+    const role = SCOPE_ROLE[scope as ApiKeyScope];
+    if (!role) continue;
+    if (!highest || ladder.indexOf(role) > ladder.indexOf(highest)) highest = role;
+  }
+  return highest;
+}
+
+export interface ApiKeyPrincipal {
+  organisationId: string;
+  userId: string;
+  role: Role;
+  scopes: ApiKeyScope[];
+  keyId: string;
+}
+
+export class ApiKeyService {
+  private readonly keys: ApiKeysRepository;
+  private readonly memberships: MembershipsRepository;
+  private readonly audit: AuditRepository;
+
+  constructor(
+    db: Database,
+    private readonly logger: Logger,
+  ) {
+    this.keys = new ApiKeysRepository(db);
+    this.memberships = new MembershipsRepository(db);
+    this.audit = new AuditRepository(db);
+  }
+
+  async create(
+    actor: AuthenticatedActor,
+    input: { name: string; scopes: ApiKeyScope[] },
+  ): Promise<CreatedApiKey> {
+    if (!['owner', 'admin'].includes(actor.role)) {
+      throw new AppError('ROLE_REQUIRED', 'Only owners and admins can create API keys.');
+    }
+    if (input.scopes.includes('admin') && actor.role !== 'owner') {
+      throw new AppError('ROLE_REQUIRED', 'Only an owner can issue a key with the admin scope.');
+    }
+
+    const secret = `${KEY_PREFIX}${newToken(KEY_BYTES)}`;
+    const row = await this.keys.create({
+      organisationId: actor.organisationId,
+      name: input.name,
+      keyHash: hashToken(secret),
+      keyPrefix: secret.slice(0, KEY_PREFIX.length + 6),
+      scopes: input.scopes,
+      createdBy: actor.userId,
+    });
+
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      action: 'api_key.created',
+      targetType: 'api_key',
+      targetId: row.id,
+      metadata: { scopes: input.scopes },
+    });
+
+    this.logger.info('api key created', { apiKeyId: row.id, scopes: input.scopes.length });
+    return { ...toApiKey(row), key: secret, shownOnce: true };
+  }
+
+  async list(actor: AuthenticatedActor): Promise<ApiKey[]> {
+    const rows = await this.keys.list(actor.organisationId);
+    return rows.map(toApiKey);
+  }
+
+  async revoke(actor: AuthenticatedActor, id: string): Promise<ApiKey> {
+    if (!['owner', 'admin'].includes(actor.role)) {
+      throw new AppError('ROLE_REQUIRED', 'Only owners and admins can revoke API keys.');
+    }
+    const row = await this.keys.revoke(actor.organisationId, id);
+    if (!row) throw new AppError('NOT_FOUND', 'API key not found.');
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      action: 'api_key.revoked',
+      targetType: 'api_key',
+      targetId: id,
+    });
+    return toApiKey(row);
+  }
+
+  /** Resolves an `X-API-Key` header into a principal, or null when it is not valid. */
+  async authenticate(rawKey: string): Promise<ApiKeyPrincipal | null> {
+    if (!rawKey.startsWith(KEY_PREFIX) || rawKey.length < 24) return null;
+    const row = await this.keys.findByHash(hashToken(rawKey));
+    if (!row || row.revoked_at) return null;
+
+    const scopes = parseScopes(row.scopes);
+    const role = roleForScopes(scopes);
+    if (!role) return null;
+
+    // The key acts as its creator, re-checked against the live membership: a removed user's key
+    // stops working immediately.
+    const membership = await this.memberships.findForUser(row.created_by);
+    if (!membership || membership.organisation_id !== row.organisation_id) return null;
+
+    await this.keys.touch(row.key_hash);
+    return {
+      organisationId: row.organisation_id,
+      userId: row.created_by,
+      role: roleAtMost(role, membership.role as Role),
+      scopes,
+      keyId: row.id,
+    };
+  }
+}
+
+/** A key can never exceed the role of the person who created it, even after a role change. */
+function roleAtMost(scopeRole: Role, actualRole: Role): Role {
+  const ladder: Role[] = ['viewer', 'reviewer', 'admin', 'owner'];
+  return ladder.indexOf(scopeRole) < ladder.indexOf(actualRole) ? scopeRole : actualRole;
+}
+
+function parseScopes(raw: string): ApiKeyScope[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as ApiKeyScope[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function toApiKey(row: ApiKeyRow): ApiKey {
+  return {
+    id: row.id,
+    name: row.name,
+    prefix: row.key_prefix,
+    scopes: parseScopes(row.scopes),
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at,
+    revokedAt: row.revoked_at,
+  };
+}
