@@ -27,7 +27,6 @@ M0 and M1 are complete, and these M2 stories are now done too:
 
 ## Now
 
-- [ ] **VOICE-001** — hands-free guidance and voice commands.
 - [ ] **I18N-001** — sweep the desktop page bodies through the `en/sw/fr` catalogues; check RTL.
 
 ## Done this round
@@ -40,6 +39,7 @@ M0 and M1 are complete, and these M2 stories are now done too:
 - [x] **CRM-001** — HubSpot, Odoo and QuickBooks adapters with a shared HTTP transport.
 - [x] **MARKET-001** — signed connector catalogue, permission disclosure and rollback.
 - [x] **AGENT-001** — workflow rules with a run log; destructive actions wait for per-run approval.
+- [x] **VOICE-001** — offline capture guidance, consented spoken commands, per-run confirmations.
 
 ## Later (Phase 3)
 

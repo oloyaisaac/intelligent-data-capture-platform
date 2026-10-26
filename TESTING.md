@@ -194,6 +194,18 @@ Notes for anyone extending the suite:
    may let a rule act unattended.
 6. Delete the rule. **Expect:** `204`, and its runs remain in the log.
 
+### TC-13f — Hands-free capture and a spoken approval · `VOICE-001`
+
+1. Open Capture. **Expect:** a guidance line that changes with the framing ("move closer", "too
+   dark", "hold still"), and no microphone activity while voice is off.
+2. Turn flight mode on and reframe. **Expect:** guidance keeps working — it never needed the network.
+3. Switch voice on and refuse the microphone permission. **Expect:** the reason shown is "permission
+   needed", and no command fires.
+4. Grant it, then say "capture". **Expect:** the photo is taken once; a mumble fires nothing.
+5. In Review, say "approve" once. **Expect:** a confirmation prompt, not a filed record. Say it again
+   (or tap Approve) to file it; saying anything else in between disarms the confirmation.
+6. Turn voice off. **Expect:** the microphone is closed and any remembered command text is gone.
+
 ### TC-13b — Corrections and the training switch · `REV-002`
 
 1. Correct two fields on two documents of the same type.

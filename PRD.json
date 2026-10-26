@@ -1009,7 +1009,7 @@
       "id": "VOICE-001",
       "epic": "EP-INSIGHT",
       "title": "Voice commands and smart camera assistance",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "could",
       "description": "Hands-free capture guidance (steady, move closer, page detected) and voice commands for common capture and review actions.",

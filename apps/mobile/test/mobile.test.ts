@@ -25,6 +25,20 @@ import {
 } from '../src/capture/edgeDetection';
 import { createFrameBridge } from '../src/capture/useDocumentDetector';
 import { orientationFix } from '../src/capture/imagePipeline';
+import type { Detection } from '../src/capture/edgeDetection';
+import { createGuidanceTracker, cueFor } from '../src/assist/guidance';
+import { gate, parseCommand } from '../src/assist/commands';
+import { initialVoiceSession, reduceVoice } from '../src/assist/reviewVoice';
+import {
+  AUDIO_POLICY,
+  canListen,
+  createVoiceAssistant,
+  defaultVoiceSettings,
+  describeAudioPolicy,
+  listenBlocker,
+  transcriptOnly,
+  type VoiceAssistantPlatform,
+} from '../src/assist/consent';
 
 class MemoryStorage implements QueueStorage {
   items: QueueItem[] = [];
@@ -723,5 +737,214 @@ describe('capture orientation and the frame bridge (MOB-002)', () => {
     expect(detection!.contrast).toBeLessThan(20);
     expect(detection!.meanLuma).toBeGreaterThan(120);
     expect(detection!.meanLuma).toBeLessThan(190);
+  });
+});
+
+describe('voice guidance and commands (VOICE-001)', () => {
+  const page = (overrides: Partial<Detection> = {}): Detection => ({
+    quad: {
+      topLeft: { x: 10, y: 10 },
+      topRight: { x: 190, y: 12 },
+      bottomRight: { x: 188, y: 228 },
+      bottomLeft: { x: 12, y: 226 },
+    },
+    confidence: 0.92,
+    areaRatio: 0.8,
+    meanLuma: 150,
+    contrast: 60,
+    ...overrides,
+  });
+
+  it('names the problem with the frame, most urgent first', () => {
+    expect(cueFor(null).id).toBe('searching');
+    expect(cueFor(page()).id).toBe('ready');
+    expect(cueFor(page({ meanLuma: 30 })).id).toBe('too_dark');
+    expect(cueFor(page({ meanLuma: 253 })).id).toBe('glare');
+    // A page that fills a third of the frame is too small to read, whatever the confidence says.
+    expect(cueFor(page({ areaRatio: 0.2, confidence: 0.99 })).id).toBe('move_closer');
+    expect(cueFor(page({ areaRatio: 0.995 })).id).toBe('move_away');
+    expect(cueFor(page({ contrast: 8 })).id).toBe('flat_contrast');
+    expect(cueFor(page({ confidence: 0.4 })).id).toBe('hold_still');
+    expect(cueFor(page({ confidence: 0.7 })).id).toBe('page_detected');
+    // Every cue is a catalogue key, so guidance speaks in the operator's language.
+    expect(cueFor(page({ meanLuma: 30 })).messageKey).toBe('voice.cue.tooDark');
+  });
+
+  it('waits for a cue to hold, and does not repeat itself within the cooldown', () => {
+    let clock = 0;
+    const tracker = createGuidanceTracker({ now: () => clock, stableFrames: 3, cooldownMs: 5000 });
+
+    // One dark frame is not announced: the hand is still moving.
+    expect(tracker.observe(page({ meanLuma: 20 })).announce).toBeNull();
+    expect(tracker.observe(page({ meanLuma: 20 })).announce).toBeNull();
+    const stable = tracker.observe(page({ meanLuma: 20 }));
+    expect(stable.current.id).toBe('too_dark');
+    expect(stable.announce?.id).toBe('too_dark');
+
+    // Still dark, still within the cooldown: shown, not repeated.
+    clock = 1000;
+    for (let frame = 0; frame < 4; frame += 1) {
+      expect(tracker.observe(page({ meanLuma: 20 })).announce).toBeNull();
+    }
+
+    // After the cooldown it may speak again.
+    clock = 6000;
+    expect(tracker.observe(page({ meanLuma: 20 })).announce?.id).toBe('too_dark');
+    expect(tracker.observe(page({ meanLuma: 20 })).announce).toBeNull();
+
+    // A different cue resets the stability count.
+    expect(tracker.observe(page()).current.id).toBe('ready');
+    expect(tracker.observe(page()).announce).toBeNull();
+  });
+
+  it('says "ready" once per framing rather than forever', () => {
+    let clock = 0;
+    const tracker = createGuidanceTracker({ now: () => clock, stableFrames: 1, cooldownMs: 0 });
+    expect(tracker.observe(page()).announce?.id).toBe('ready');
+    clock = 10_000;
+    expect(tracker.observe(page()).announce).toBeNull();
+    // Reframing (a different cue in between) makes "ready" worth saying again.
+    tracker.observe(page({ meanLuma: 20 }));
+    clock = 20_000;
+    expect(tracker.observe(page()).announce?.id).toBe('ready');
+    tracker.reset();
+    expect(tracker.observe(page()).announce?.id).toBe('ready');
+  });
+
+  it('matches commands in three languages without ever guessing', () => {
+    expect(parseCommand('Take a photo')?.command).toBe('capture');
+    expect(parseCommand('piga picha')?.command).toBe('capture');
+    expect(parseCommand('Reprendre', 0.9, { locale: 'fr' })?.command).toBe('retake');
+    // Longest phrase wins, so "next field total" is a field jump and not a bare "next".
+    expect(parseCommand('next field total', 1)?.field).toBe('total');
+    expect(parseCommand('next field total', 1)?.command).toBe('next_field');
+    // Accents and punctuation are normalised.
+    expect(parseCommand('champ précédent!', 1, { locale: 'fr' })?.command).toBe('previous_field');
+    // Nothing in common with the phrase book, or a mumble: no command.
+    expect(parseCommand('where is the stapler')).toBeNull();
+    expect(parseCommand('approve', 0.2)).toBeNull();
+    expect(parseCommand('   ')).toBeNull();
+    // "again" must not fire from "against".
+    expect(parseCommand('move it against the wall')).toBeNull();
+  });
+
+  it('marks filing and rejecting as destructive, and stops when the microphone is off', () => {
+    const approve = parseCommand('approve')!;
+    expect(approve.requiresConfirmation).toBe(true);
+    expect(parseCommand('capture')!.requiresConfirmation).toBe(false);
+
+    // With voice switched off nothing reaches the app — not even "capture".
+    expect(gate(parseCommand('capture'), { listening: false }).run).toBeNull();
+    expect(gate(parseCommand('capture'), { listening: true }).run).toBe('capture');
+    // The approval prompt is returned instead of running.
+    const gated = gate(approve, { listening: true });
+    expect(gated.run).toBeNull();
+    expect(gated.confirm).toBe('voice.confirm.approve');
+  });
+
+  it('needs a second utterance to file a record', () => {
+    const approve = parseCommand('approve')!;
+    const first = reduceVoice(initialVoiceSession(), approve, { listening: true });
+    expect(first.run).toBeNull();
+    expect(first.state.armed).toBe('approve');
+    expect(first.confirm).toBe('voice.confirm.approve');
+
+    const second = reduceVoice(first.state, approve, { listening: true });
+    expect(second.run).toBe('approve');
+    expect(second.state.armed).toBeNull();
+
+    // Anything else between the two utterances disarms it: a stray "capture" cannot file a record.
+    const other = reduceVoice(first.state, parseCommand('capture'), { listening: true });
+    expect(other.run).toBe('capture');
+    const after = reduceVoice(other.state, approve, { listening: true });
+    expect(after.run).toBeNull();
+    expect(after.confirm).toBe('voice.confirm.approve');
+
+    // A mumble is reported, and disarms too.
+    const mumble = reduceVoice(first.state, null, { listening: true });
+    expect(mumble.state.armed).toBeNull();
+    expect(mumble.state.heard).toEqual({ key: 'voice.noMatch' });
+  });
+
+  it('keeps voice off until permission is granted, and drops kept text when it is switched off', async () => {
+    const asks: string[] = [];
+    const platform: VoiceAssistantPlatform = {
+      listen: async () => {
+        asks.push('listen');
+        return { transcript: 'capture', confidence: 0.95, audio: new Uint8Array([1, 2, 3]) };
+      },
+      speak: (text) => {
+        asks.push(`speak:${text}`);
+      },
+      requestMicrophone: async () => {
+        asks.push('permission');
+        return true;
+      },
+    };
+    const assistant = createVoiceAssistant(platform);
+
+    // Off by default: nothing opens the microphone, and nothing is spoken.
+    expect(assistant.settings().enabled).toBe(false);
+    expect(canListen(assistant.settings())).toBe(false);
+    expect(listenBlocker(assistant.settings())).toBe('voice.blocked.disabled');
+    expect(await assistant.hear()).toBeNull();
+    await assistant.say('hello');
+    expect(asks).toEqual([]);
+
+    // Turning it on asks for the microphone once.
+    const enabled = await assistant.set('enabled', true);
+    expect(enabled.enabled).toBe(true);
+    expect(enabled.microphoneGranted).toBe(true);
+
+    // A turn returns text only: the adapter's audio field never reaches the app.
+    const heard = await assistant.hear();
+    expect(heard).toEqual({ transcript: 'capture', confidence: 0.95 });
+    expect(heard).not.toHaveProperty('audio');
+    expect(transcriptOnly({ transcript: 'x', audio: new Uint8Array([9]) })).toEqual({
+      transcript: 'x',
+      confidence: 1,
+    });
+
+    // Guidance is spoken while voice is on and stops when it is switched off.
+    await assistant.say('hold still');
+    expect(asks).toContain('speak:hold still');
+
+    // Kept command text is off by default; switching voice off discards it as well.
+    expect(assistant.remember('capture')).toBeNull();
+    await assistant.set('retainTranscript', true);
+    expect(assistant.remember('capture')).toBe('capture');
+    const off = await assistant.set('enabled', false);
+    expect(off.retainTranscript).toBe(false);
+    expect(assistant.remember('capture')).toBeNull();
+    expect(await assistant.hear()).toBeNull();
+
+    // A refused permission leaves the microphone closed even though the operator flipped the switch.
+    const refused = createVoiceAssistant({
+      listen: platform.listen,
+      speak: platform.speak,
+      requestMicrophone: async () => false,
+    });
+    const denied = await refused.set('enabled', true);
+    // The intent is remembered, but the microphone stays closed and the reason is the permission.
+    expect(denied.enabled).toBe(true);
+    expect(canListen(denied)).toBe(false);
+    expect(listenBlocker(denied)).toBe('voice.blocked.permission');
+    expect(await refused.hear()).toBeNull();
+  });
+
+  it('states the audio policy it actually implements', () => {
+    expect(AUDIO_POLICY).toEqual({
+      audioStored: false,
+      audioTransmitted: false,
+      transcriptStoredByDefault: false,
+      onDeviceRecognitionRequired: true,
+    });
+    expect(describeAudioPolicy()).toMatch(/audio is never recorded, stored or uploaded/i);
+    expect(defaultVoiceSettings()).toEqual({
+      enabled: false,
+      microphoneGranted: false,
+      spokenGuidance: true,
+      retainTranscript: false,
+    });
   });
 });

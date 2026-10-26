@@ -467,3 +467,36 @@ the sentence).
 owner opts out; unattended runs of destructive actions are possible only by explicit owner decision
 and are audited (`workflow.run_approved`). Rules cannot branch — a condition list is one AND — and
 `notify` does not deliver anything until a mail transport exists.
+
+---
+
+## DEC-027 — Voice is a consent gate and a transcript, never a recording
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** Voice is off by default on every device. `createVoiceAssistant` is the only object that
+touches the microphone, and it refuses to call the recogniser while the operator has not enabled
+voice _and_ granted the permission — so "voice commands can be disabled" is a property of the object
+the screens hold rather than a convention they must remember. The recogniser is asked for text only;
+`transcriptOnly()` strips anything audio-shaped from a result before the app can see it, and there is
+no code path that writes an audio buffer. Keeping the command text is a separate switch, off by
+default, and it is dropped when voice is switched off or the permission is revoked.
+Capture guidance is computed from the detector's output (luma, glare, area, contrast, confidence) with
+no network and no speech in the loop, and it is announced only after a cue holds for three frames and
+not again within a cooldown.
+
+**Reason:** The acceptance criterion is "no audio is stored or transmitted without consent", and the
+only trustworthy way to satisfy it is to make audio-keeping impossible rather than conditional.
+Guidance is the part that must work in a basement with no signal, so it depends on nothing but the
+frame. Choppy speech recognition plus a destructive action ("approve") would file records nobody
+reviewed, hence the second utterance.
+
+**Alternatives considered:** Always-on listening with an on-screen indicator (a microphone that opens
+without a deliberate act is exactly what operators distrust); cloud recognition (audio leaves the
+device, and the criterion forbids it without consent); guiding from text the server returns (fails
+exactly when the operator is offline).
+
+**Consequences:** Speech recognition needs `@react-native-voice/voice` and output needs
+`react-native-tts`; without them the shim reports "unavailable" and the screens stay button-only.
+Command phrases are a fixed book per locale rather than free-form language, and the field-jump
+commands use the field name only when the phrase book matched a command first.

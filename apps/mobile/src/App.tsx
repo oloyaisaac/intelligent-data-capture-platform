@@ -6,6 +6,8 @@ import { KeychainStore } from './auth/secureStore';
 import { createPersistentQueue } from './state/queueStorage';
 import { CaptureScreen } from './screens/CaptureScreen';
 import { createFrameBridge } from './capture/useDocumentDetector';
+import { createVoiceAssistant, type VoiceAssistant } from './assist/consent';
+import { createSpeechPlatform } from './assist/speechPlatform';
 import { QueueScreen } from './screens/QueueScreen';
 import { ReviewScreen } from './screens/ReviewScreen';
 import { SignInScreen } from './screens/SignInScreen';
@@ -42,6 +44,9 @@ export function App(): React.JSX.Element {
   const queue: UploadQueue = useMemo(() => createPersistentQueue(store, client), [store, client]);
   // MOB-002: one bridge for the session; the capture screen subscribes to it.
   const frameBridge = useMemo(() => createFrameBridge(), []);
+  // VOICE-001: one assistant for the whole app, so switching voice off anywhere closes the mic
+  // everywhere. It stays closed until the operator asks for it — see assist/consent.ts.
+  const voice = useMemo<VoiceAssistant>(() => createVoiceAssistant(createSpeechPlatform()), []);
 
   // Restore the session on launch: a refresh token means the person stays signed in.
   useEffect(() => {
@@ -104,9 +109,9 @@ export function App(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.body}>
-        {tab === 'capture' && <CaptureScreen queue={queue} bridge={frameBridge} />}
+        {tab === 'capture' && <CaptureScreen queue={queue} bridge={frameBridge} voice={voice} />}
         {tab === 'queue' && <QueueScreen queue={queue} onOpenReview={() => setTab('review')} />}
-        {tab === 'review' && <ReviewScreen client={client} />}
+        {tab === 'review' && <ReviewScreen client={client} voice={voice} />}
       </View>
       <View style={styles.tabs}>
         {(

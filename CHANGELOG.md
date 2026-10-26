@@ -99,11 +99,19 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   that runs unattended. Every evaluation is logged, including the ones that skipped and why, and a
   failing rule is recorded against its run instead of stopping the others. The desktop gained a
   Workflow page that reads each rule back as a sentence (`AGENT-001`).
+- **Voice guidance and commands** — capture guidance is derived from the detector's output alone
+  (brightness, glare, page size, contrast, confidence), so it works with the network down; a cue must
+  hold for three frames before it is shown and is not repeated within a cooldown, and "ready" is said
+  once per framing. Spoken commands are matched against an `en/sw/fr` phrase book, a low-confidence
+  transcript fires nothing, and `approve`/`reject` need a second utterance before they act. Voice is
+  off until the operator turns it on, needs the microphone permission to open, and audio is never
+  recorded, stored or transmitted — a recogniser result is reduced to its transcript on arrival
+  (`VOICE-001`).
 - 20 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 
-- `PRD.json` statuses and artifact paths now reflect the code (43 of 45 stories are `done`; the
+- `PRD.json` statuses and artifact paths now reflect the code (44 of 45 stories are `done`; the
   remaining ones are listed in `TASKS.md`).
 - **`node_modules` is no longer tracked.** It was committed at the start (22,706 files) even though
   `.gitignore` listed it; this change untracks it, so installs come from `package-lock.json` again.

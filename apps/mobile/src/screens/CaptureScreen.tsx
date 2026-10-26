@@ -1,15 +1,15 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
-import { createTranslator } from '@idcp/shared';
+import { createTranslator, type Locale } from '@idcp/shared';
 import { colors, spacing, typography } from '../ui/theme';
 import type { UploadQueue } from '../state/uploadQueue';
 import { processCapture, type ImageTransformer } from '../capture/imagePipeline';
 import { useDocumentDetector, type FrameBridge } from '../capture/useDocumentDetector';
 import { scaleQuad } from '../capture/edgeDetection';
 import { DocumentFrameProcessor } from '../capture/frameProcessor';
-
-const t = createTranslator('en');
+import { createGuidanceTracker, type GuidanceTracker } from '../assist/guidance';
+import { canListen, listenBlocker, type VoiceAssistant } from '../assist/consent';
 
 /**
  * Capture (MOB-001, MOB-002, MOB-003): frame the page, take a photo, queue it, then upload.
@@ -28,6 +28,9 @@ export function CaptureScreen({
   transformer,
   frameSize,
   bridge,
+  guidance,
+  voice,
+  locale = 'en',
 }: {
   queue: UploadQueue;
   onCaptured?: (documentId: string) => void;
@@ -36,7 +39,13 @@ export function CaptureScreen({
   frameSize?: { width: number; height: number };
   /** MOB-002: detector output from the camera frames; see useDocumentDetector.ts. */
   bridge?: FrameBridge;
+  /** VOICE-001: the guidance tracker; created locally when one is not supplied. */
+  guidance?: GuidanceTracker;
+  /** VOICE-001: voice consent + speech; without it the screen is silent and the switch is hidden. */
+  voice?: VoiceAssistant;
+  locale?: Locale;
 }): React.JSX.Element {
+  const t = useMemo(() => createTranslator(locale), [locale]);
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
   const camera = useRef<Camera>(null);
@@ -46,6 +55,9 @@ export function CaptureScreen({
   const [planSteps, setPlanSteps] = useState<string[]>([]);
   const detection = bridge ? useDocumentDetector(bridge) : null;
   const [frameProcessor, setFrameProcessor] = useState<unknown>(null);
+  const [tracker] = useState(() => guidance ?? createGuidanceTracker());
+  const [cue, setCue] = useState(() => tracker.observe(null).current);
+  const [voiceSettings, setVoiceSettings] = useState(() => voice?.settings() ?? null);
 
   useEffect(() => {
     if (!hasPermission) void requestPermission();
@@ -54,6 +66,21 @@ export function CaptureScreen({
   useEffect(() => {
     setPending(queue.pendingCount());
   }, [queue, message]);
+
+  // VOICE-001: guidance is derived from the detector's output alone, so it keeps working with the
+  // network down — the cue is computed locally and only the wording comes from the catalogue.
+  useEffect(() => {
+    const state = tracker.observe(detection);
+    setCue(state.current);
+    if (state.announce && voice) void voice.say(t(state.announce.messageKey));
+  }, [detection, tracker, voice]);
+
+  const toggleVoice = useCallback(async () => {
+    if (!voice) return;
+    const next = await voice.set('enabled', !voice.settings().enabled);
+    setVoiceSettings(next);
+    if (!next.enabled) setMessage(t(listenBlocker(next) ?? 'voice.notListening'));
+  }, [voice]);
 
   const capture = useCallback(async () => {
     if (!camera.current || busy) return;
@@ -108,7 +135,7 @@ export function CaptureScreen({
       setBusy(false);
       setPending(queue.pendingCount());
     }
-  }, [busy, detection, frameSize, onCaptured, queue, transformer]);
+  }, [busy, detection, frameSize, onCaptured, queue, t, transformer]);
 
   if (!hasPermission) {
     return (
@@ -153,6 +180,9 @@ export function CaptureScreen({
       />
       <View style={styles.guide} pointerEvents="none">
         <Text style={styles.guideText}>{t('capture.guide')}</Text>
+        <Text style={styles.guideText} accessibilityLiveRegion="polite">
+          {t(cue.messageKey)}
+        </Text>
         {detection && (
           <Text style={styles.guideText}>
             Page detected · {Math.round(detection.confidence * 100)}%
@@ -168,6 +198,21 @@ export function CaptureScreen({
           </Text>
         )}
         {pending > 0 && <Text style={styles.muted}>{pending} waiting to upload</Text>}
+        {voice && voiceSettings && (
+          <Pressable
+            accessibilityRole="switch"
+            accessibilityState={{ checked: voiceSettings.enabled }}
+            accessibilityLabel={t('voice.enable')}
+            onPress={() => void toggleVoice()}
+            style={styles.voiceToggle}
+          >
+            <Text style={styles.guideText}>
+              {canListen(voiceSettings)
+                ? t('voice.listening')
+                : t(listenBlocker(voiceSettings) ?? 'voice.notListening')}
+            </Text>
+          </Pressable>
+        )}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('capture.takePhoto')}
@@ -197,6 +242,7 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.subtitle, textAlign: 'center' },
   muted: { ...typography.muted },
+  voiceToggle: { alignSelf: 'center', paddingVertical: spacing.xs },
   guide: {
     position: 'absolute',
     top: '12%',

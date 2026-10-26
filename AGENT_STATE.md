@@ -14,10 +14,10 @@
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
 `npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
-318 tests in 20 suites).
+326 tests in 20 suites).
 
-43 of 45 stories are `done`. The remaining ones are `I18N-001` (translation sweep of the desktop page
-bodies, `in_progress`) and `VOICE-001` (voice assistance, `pending`).
+44 of 45 stories are `done`. The only one left is `I18N-001` (translation sweep of the desktop page
+bodies, `in_progress`).
 
 ## What is built
 
@@ -74,13 +74,15 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
    untracked it in one deliberate commit. Installs now come from `package-lock.json`.
 10. **Workflows cannot branch.** A rule is one AND-list of conditions over the extracted fields and
     `notify` records an output rather than delivering a message (no mail transport here). See DEC-026.
-11. **Open decisions**: AI provider/budget (Q-001), licensing (Q-002), hosting region (Q-003),
+11. **Speech needs native modules.** `@react-native-voice/voice` and `react-native-tts` are not
+    installed here, so `assist/speechPlatform.ts` reports speech as unavailable and the screens stay
+    button-only; the consent gate, phrase book and guidance logic are pure and tested (DEC-027).
+12. **Open decisions**: AI provider/budget (Q-001), licensing (Q-002), hosting region (Q-003),
     standalone desktop mode (Q-004).
 
 ## Next actions, in order
 
-1. `VOICE-001` — hands-free guidance and voice commands, with consent gates.
-2. `I18N-001` — sweep the remaining English literals in the desktop page bodies.
+1. `I18N-001` — sweep the remaining English literals in the desktop page bodies, then check RTL.
 
 ## Environment facts worth knowing
 
