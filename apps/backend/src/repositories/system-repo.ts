@@ -116,7 +116,11 @@ export class JobsRepository {
     await this.db.execute(
       `UPDATE jobs SET status = 'queued', run_after = ?, last_error = ?
         WHERE status = 'running' AND (started_at IS NULL OR started_at <= ?)`,
-      [nowIso(), 'Recovered after an interrupted run (the process stopped mid-job).', startedBefore],
+      [
+        nowIso(),
+        'Recovered after an interrupted run (the process stopped mid-job).',
+        startedBefore,
+      ],
     );
     return stale.length;
   }

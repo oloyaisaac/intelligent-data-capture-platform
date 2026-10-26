@@ -48,14 +48,14 @@ and browser harness.
 
 ### Current coverage
 
-| Workspace             | Suite                                                                                                                                                                       | Tests   |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `packages/shared`     | `test/shared.test.ts`                                                                                                                                                       | 49      |
-| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                                   | 29      |
+| Workspace             | Suite                                                                                                                                                                                        | Tests   |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `packages/shared`     | `test/shared.test.ts`                                                                                                                                                                        | 49      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                                                    | 29      |
 | `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, security, config, worker recovery) | 170     |
-| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                                    | 55      |
-| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                          | 43      |
-| **Total**             | 22 suites                                                                                                                                                                   | **346** |
+| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                                                     | 55      |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                                           | 43      |
+| **Total**             | 22 suites                                                                                                                                                                                    | **346** |
 
 Notes for anyone extending the suite:
 
