@@ -194,14 +194,16 @@ request and never blocks the other files.
 
 ## 6. Review
 
-| Method | Path                    | Purpose                                                           |
-| ------ | ----------------------- | ----------------------------------------------------------------- |
-| GET    | `/review/queue`         | Documents awaiting review, low-confidence first                   |
-| POST   | `/documents/:id/review` | Open or resume a review                                           |
-| PATCH  | `/review/:id/fields`    | Apply field corrections                                           |
-| POST   | `/review/:id/approve`   | Approve the record (blocked while required fields are unresolved) |
-| POST   | `/review/:id/reject`    | Reject with a reason                                              |
-| POST   | `/review/bulk-approve`  | Approve many, skipping any with unresolved low-confidence fields  |
+| Method | Path                         | Purpose                                                           |
+| ------ | ---------------------------- | ----------------------------------------------------------------- |
+| GET    | `/review/queue`              | Documents awaiting review, low-confidence first                   |
+| GET    | `/review/corrections`        | Correction aggregates by field and document type (`REV-002`)      |
+| POST   | `/review/corrections/export` | Corrections for training — admin, requires opt-in (`REV-002`)     |
+| POST   | `/documents/:id/review`      | Open or resume a review                                           |
+| PATCH  | `/review/:id/fields`         | Apply field corrections                                           |
+| POST   | `/review/:id/approve`        | Approve the record (blocked while required fields are unresolved) |
+| POST   | `/review/:id/reject`         | Reject with a reason                                              |
+| POST   | `/review/bulk-approve`       | Approve many, skipping any with unresolved low-confidence fields  |
 
 `PATCH /review/:id/fields`
 
@@ -242,26 +244,28 @@ Every change is stored in `review_changes` with the actor and the previous value
 
 ## 8. Organisation, users and audit
 
-| Method | Path               | Purpose                                                      |
-| ------ | ------------------ | ------------------------------------------------------------ |
-| GET    | `/organisation`    | Current organisation and settings                            |
-| PATCH  | `/organisation`    | Update name, retention, AI provider (owner/admin)            |
-| GET    | `/users`           | Members and roles                                            |
-| POST   | `/users/invite`    | Invite member; returns a single-use link (no email delivery) |
-| PATCH  | `/users/:id/role`  | Change role                                                  |
-| DELETE | `/users/:id`       | Remove member                                                |
-| GET    | `/audit-logs`      | Filter by actor, action, target, date range (admin)          |
-| GET    | `/stats`           | Counts for the dashboard                                     |
-| POST   | `/retention/purge` | Purge expired documents now (admin)                          |
-| GET    | `/templates`       | Document templates, optionally by document type              |
-| POST   | `/templates`       | Create a template (from scratch or a processed document)     |
-| GET    | `/templates/:id`   | Template with its version history                            |
-| PATCH  | `/templates/:id`   | Update a template; a field-list change creates a version     |
-| DELETE | `/templates/:id`   | Disable a template (history is kept)                         |
-| GET    | `/api-keys`        | API keys (secrets are never returned)                        |
-| POST   | `/api-keys`        | Create a key — the secret is returned in this response only  |
-| DELETE | `/api-keys/:id`    | Revoke a key                                                 |
-| GET    | `/events`          | Server-sent events for the desktop (see §9)                  |
+| Method | Path                         | Purpose                                                      |
+| ------ | ---------------------------- | ------------------------------------------------------------ |
+| GET    | `/organisation`              | Current organisation and settings                            |
+| PATCH  | `/organisation`              | Update name, retention, AI provider (owner/admin)            |
+| GET    | `/users`                     | Members and roles                                            |
+| POST   | `/users/invite`              | Invite member; returns a single-use link (no email delivery) |
+| PATCH  | `/users/:id/role`            | Change role                                                  |
+| DELETE | `/users/:id`                 | Remove member                                                |
+| GET    | `/audit-logs`                | Filter by actor, action, target, date range (admin)          |
+| GET    | `/stats`                     | Counts for the dashboard                                     |
+| POST   | `/retention/purge`           | Purge expired documents now (admin)                          |
+| GET    | `/documents/{id}/duplicates` | Preview duplicate matches against a destination (`DUP-001`)  |
+| POST   | `/documents/{id}/send`       | Send with the mapping profile's duplicate policy (`DUP-001`) |
+| GET    | `/templates`                 | Document templates, optionally by document type              |
+| POST   | `/templates`                 | Create a template (from scratch or a processed document)     |
+| GET    | `/templates/:id`             | Template with its version history                            |
+| PATCH  | `/templates/:id`             | Update a template; a field-list change creates a version     |
+| DELETE | `/templates/:id`             | Disable a template (history is kept)                         |
+| GET    | `/api-keys`                  | API keys (secrets are never returned)                        |
+| POST   | `/api-keys`                  | Create a key — the secret is returned in this response only  |
+| DELETE | `/api-keys/:id`              | Revoke a key                                                 |
+| GET    | `/events`                    | Server-sent events for the desktop (see §9)                  |
 
 ### 8b. Projects and invitations (TEAM-001)
 

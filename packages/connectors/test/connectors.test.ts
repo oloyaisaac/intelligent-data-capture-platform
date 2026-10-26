@@ -315,4 +315,58 @@ describe('connector registry (CON-001)', () => {
     const sheets = registry.list().find((item) => item.type === 'google_sheets');
     expect(sheets?.capabilities).toEqual(expect.arrayContaining(['create', 'read']));
   });
+
+  it('updates existing rows by their duplicate keys (DUP-001)', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'idcp-update-'));
+    const path = join(directory, 'dest.sqlite');
+    const seed = new DatabaseSync(path);
+    seed.exec('CREATE TABLE invoices (invoice_number TEXT, total REAL, note TEXT)');
+    seed.prepare('INSERT INTO invoices VALUES (?, ?, ?)').run('INV-1', 100, 'untouched');
+    seed.close();
+
+    const connector = new SqliteConnector();
+    const config = { path, table: 'invoices' };
+    const updateContext: ConnectorContext = { organisationId: 'org-1', logger };
+
+    const result = await connector.update!(
+      [{ values: { invoice_number: 'INV-1', total: 250 } }],
+      ['invoice_number'],
+      config,
+      updateContext,
+    );
+    expect(result.updated).toBe(1);
+    expect(result.created).toBe(0);
+
+    const check = new DatabaseSync(path);
+    const row = check.prepare('SELECT total, note FROM invoices').get() as {
+      total: number;
+      note: string;
+    };
+    expect(row.total).toBe(250);
+    // The update only touches mapped columns; nothing else is blanked.
+    expect(row.note).toBe('untouched');
+    check.close();
+  });
+
+  it('refuses an update without duplicate keys, and rejects unsafe identifiers', async () => {
+    const connector = new SqliteConnector();
+    const updateContext: ConnectorContext = { organisationId: 'org-1', logger };
+    await expect(
+      connector.update!(
+        [{ values: { a: 1 } }],
+        [],
+        { path: ':memory:', table: 't' },
+        updateContext,
+      ),
+    ).rejects.toThrow(/duplicate key/i);
+
+    await expect(
+      connector.update!(
+        [{ values: { 'a; DROP TABLE t': 1 } }],
+        ['invoice_number'],
+        { path: ':memory:', table: 't' },
+        updateContext,
+      ),
+    ).rejects.toThrow(/simple identifier/i);
+  });
 });

@@ -83,6 +83,21 @@ export function registerConnectorRoutes(
     return reply.code(201).send(created);
   });
 
+  /** DUP-001: what would happen if this record were sent to that destination, asked read-only. */
+  app.get('/documents/:id/duplicates', async (request) => {
+    const actor = await guards.authenticate(request);
+    const query = request.query as Record<string, string | undefined>;
+    if (!query.connectorId || !query.mappingProfileId) {
+      throw badRequest('Choose a connector and a mapping profile.');
+    }
+    return services.connectors.previewDuplicates(
+      actor,
+      guards.uuidParam(request),
+      query.connectorId,
+      query.mappingProfileId,
+    );
+  });
+
   app.post('/documents/:id/send', async (request, reply) => {
     const actor = await guards.authenticate(request);
     const parsed = SendDocumentRequestSchema.safeParse(request.body);

@@ -14,6 +14,7 @@ import {
   parsePairingQrPayload,
   findBestDuplicate,
   matchDuplicate,
+  mergeRecord,
   normaliseKeyValue,
   similarity,
   parseCsv as parseCsvAlias,
@@ -358,5 +359,43 @@ describe('roles', () => {
     expect(roleAtLeast('owner', 'admin')).toBe(true);
     expect(roleAtLeast('reviewer', 'admin')).toBe(false);
     expect(roleAtLeast('viewer', 'viewer')).toBe(true);
+  });
+});
+
+describe('merge policy (DUP-001)', () => {
+  it('takes incoming values for fields the existing row has not reviewed', () => {
+    const merged = mergeRecord(
+      { invoice_number: 'INV-1', total: 100, note: 'kept' },
+      { invoice_number: 'INV-1', total: 250 },
+      { keys: ['invoice_number'] },
+    );
+    expect(merged.values).toEqual({ invoice_number: 'INV-1', total: 250, note: 'kept' });
+    expect(merged.changedFields).toEqual(['total']);
+    expect(merged.conflicts).toEqual([]);
+  });
+
+  it('never overwrites a reviewed value, and says what it kept', () => {
+    const merged = mergeRecord(
+      { invoice_number: 'INV-1', total: 100, supplier: 'Acme Ltd' },
+      { total: 250, supplier: 'Acme Limited' },
+      { keys: ['invoice_number'], reviewedFields: ['supplier'] },
+    );
+    expect(merged.values.supplier).toBe('Acme Ltd');
+    expect(merged.values.total).toBe(250);
+    expect(merged.conflicts).toEqual([
+      { field: 'supplier', kept: 'Acme Ltd', ignored: 'Acme Limited', reason: 'reviewed' },
+    ]);
+  });
+
+  it('keeps existing values when the incoming field is empty, and never rewrites a key', () => {
+    const merged = mergeRecord(
+      { invoice_number: 'INV-1', total: 100 },
+      { invoice_number: 'INV-9', total: null, supplier: '' },
+      { keys: ['invoice_number'] },
+    );
+    expect(merged.values).toEqual({ invoice_number: 'INV-1', total: 100 });
+    expect(merged.conflicts).toEqual([
+      { field: 'invoice_number', kept: 'INV-1', ignored: 'INV-9', reason: 'key' },
+    ]);
   });
 });

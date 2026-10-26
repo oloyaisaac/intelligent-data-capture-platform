@@ -150,6 +150,47 @@ export class PostgresConnector implements Connector {
     }
   }
 
+  /** DUP-001: updates rows matching the duplicate keys, in one transaction. */
+  async update(
+    records: ConnectorRecord[],
+    keys: string[],
+    config: Record<string, unknown>,
+    context: ConnectorContext,
+  ): Promise<ConnectorWriteResult> {
+    if (keys.length === 0) throw new Error('An update needs at least one duplicate key.');
+    const { db, table } = await this.connect(config);
+    let updated = 0;
+    try {
+      await db.query('BEGIN');
+      try {
+        for (const record of records) {
+          const columns = Object.keys(record.values).filter((column) => !keys.includes(column));
+          if (columns.length === 0) continue;
+          columns.forEach((column) => assertIdentifier(column, 'Destination column'));
+          keys.forEach((key) => assertIdentifier(key, 'Duplicate key'));
+          const assignments = columns.map((column, index) => `${column} = $${index + 1}`);
+          const where = keys.map((key, index) => `${key} = $${columns.length + index + 1}`);
+          const { rows } = await db.query(
+            `UPDATE ${table} SET ${assignments.join(', ')} WHERE ${where.join(' AND ')} RETURNING 1`,
+            [
+              ...columns.map((column) => record.values[column]),
+              ...keys.map((key) => record.values[key]),
+            ],
+          );
+          updated += rows.length;
+        }
+        await db.query('COMMIT');
+      } catch (error) {
+        await db.query('ROLLBACK');
+        throw error;
+      }
+      context.logger.info('sql connector updated rows', { updated, table });
+      return { created: 0, updated, skipped: 0, summary: `updated ${updated} row(s) in ${table}` };
+    } finally {
+      await db.end();
+    }
+  }
+
   async read(
     query: ConnectorReadQuery,
     config: Record<string, unknown>,

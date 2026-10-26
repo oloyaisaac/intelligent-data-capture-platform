@@ -80,6 +80,16 @@ export interface Connector {
     config: Record<string, unknown>,
     context: ConnectorContext,
   ): Promise<ConnectorRecord[]>;
+  /**
+   * Update the rows identified by `keys` (DUP-001). Connectors without it cannot honour an
+   * `update` or `merge` duplicate policy, and the caller says so instead of writing twice.
+   */
+  update?(
+    records: ConnectorRecord[],
+    keys: string[],
+    config: Record<string, unknown>,
+    context: ConnectorContext,
+  ): Promise<ConnectorWriteResult>;
 }
 
 /** Transform vocabulary shared with the mapping UI (MAP-001). */

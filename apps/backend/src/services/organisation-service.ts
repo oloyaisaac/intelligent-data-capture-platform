@@ -34,13 +34,19 @@ export class OrganisationService {
       plan: organisation.plan,
       retentionDays: organisation.retention_days,
       aiProvider: organisation.ai_provider,
+      learningOptIn: Number(organisation.learning_opt_in ?? 0) === 1,
       createdAt: organisation.created_at,
     };
   }
 
   async update(
     actor: AuthenticatedActor,
-    patch: { name?: string; retentionDays?: number; aiProvider?: 'local' | 'cloud' },
+    patch: {
+      name?: string;
+      retentionDays?: number;
+      aiProvider?: 'local' | 'cloud';
+      learningOptIn?: boolean;
+    },
   ) {
     if (!roleAtLeast(actor.role, 'admin')) {
       throw new AppError('ROLE_REQUIRED', 'Only admins can change organisation settings.');
@@ -49,6 +55,9 @@ export class OrganisationService {
       ...(patch.name === undefined ? {} : { name: patch.name }),
       ...(patch.retentionDays === undefined ? {} : { retention_days: patch.retentionDays }),
       ...(patch.aiProvider === undefined ? {} : { ai_provider: patch.aiProvider }),
+      ...(patch.learningOptIn === undefined
+        ? {}
+        : { learning_opt_in: patch.learningOptIn ? 1 : 0 }),
     });
     if (!updated) throw new AppError('NOT_FOUND', 'Organisation not found.');
     await this.audit.record({

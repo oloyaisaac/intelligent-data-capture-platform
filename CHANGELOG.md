@@ -56,11 +56,31 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 - **Runtime language switch** — navigation and settings are translated from the shared `en/sw/fr`
   catalogues, with the choice remembered per device (`I18N-001` in progress).
 - 17 suites; the count of automated tests is tracked in `TESTING.md`.
+- **Duplicate preview and honest merges** — `GET /documents/{id}/duplicates` scores the mapped
+  record against the destination without writing anything, and `POST /documents/{id}/send` now
+  follows the mapping profile's policy: `skip`, `update`, `merge` or `append`. A merge never
+  overwrites a field a human reviewed or a key, and never blanks a value with an empty one; the
+  desktop review screen shows the score, matched keys and the existing row before anything is sent
+  (`DUP-001`).
+- **Correction capture and learning opt-in** — every review correction records the document type as
+  well as the before/after values; `GET /review/corrections` aggregates what keeps being corrected,
+  and `POST /review/corrections/export` is admin-only and refuses unless the organisation has turned
+  on `learningOptIn`. Settings shows the aggregates and the switch (`REV-002`).
+- **Desktop shell hardening and packaging** — allow-listed IPC (four channels), keychain-encrypted
+  token file that is deleted on sign-out, sandboxed renderer with an external-link handler, and an
+  electron-builder configuration with Windows, macOS and Linux targets; `scripts/validate-packaging.mjs`
+  checks the security-relevant parts of that configuration in CI (`DESK-001`).
+- **Dashboard coverage** — the document list filters by device as well as status, type and date,
+  refreshes itself from the event stream, and the review queue gained bulk approval that reports
+  exactly which records it refused and how many fields each still needs (`DESK-002`).
+- 18 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 
-- `PRD.json` statuses and artifact paths now reflect the code (42 stories have code; see the file
-  for the remaining `pending` items).
+- `PRD.json` statuses and artifact paths now reflect the code (39 of 45 stories are `done`; the
+  remaining ones are listed in `TASKS.md`).
+- **`node_modules` is no longer tracked.** It was committed at the start (22,706 files) even though
+  `.gitignore` listed it; this change untracks it, so installs come from `package-lock.json` again.
 
 ### Fixed
 
@@ -69,6 +89,8 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 - Content sniffing rejected valid JPEGs shorter than 12 bytes; each format now has its own minimum.
 - Table extraction coerced text cells containing digits ("Cement 50kg bags") into numbers.
 - Connector `date_iso` transform failed on `DD/MM/YYYY`; it now uses the shared date parser.
+- `verify` now typechecks the Electron main process and validates the packaging configuration, and
+  ESLint ignores the compiled `dist-electron` output instead of linting CommonJS as browser code.
 
 ### Security
 
@@ -76,6 +98,8 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   connector credentials are encrypted with AES-256-GCM.
 - Audit records are append-only, enforced by database triggers as well as by code.
 - API keys are bounded by scopes _and_ by the live role of the person who created them.
+- A record can only be sent with `update`/`merge` when the destination supports updates; otherwise
+  the request is refused rather than silently appending a duplicate.
 - Uploads are verified by content, size-capped, served with `nosniff` and never from a public URL.
 
 ---

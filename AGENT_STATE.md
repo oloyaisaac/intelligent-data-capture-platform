@@ -6,29 +6,30 @@
 ---
 
 **Last updated:** 2026-10-26
-**Updated by:** Arena agent session (batches, projects, invitations, MySQL)
+**Updated by:** Arena agent session (duplicate preview + merges, correction learning, desktop shell, dashboard filters)
 **Branch:** `arena/55dc62bf-intelligent-data-capture-platf`
-**Phase:** M1 complete, M2 in progress
+**Phase:** M1 and M2 complete; Phase 3 in progress
 
 ## Current task
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
-`npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema contract, 252 tests
-in 17 suites).
+`npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
+277 tests in 18 suites).
 
-The remaining work is the "should/could" tail (see `PRD.json`): CRM/marketplace/workflow/voice
-stories, desktop packaging, and finishing the translation sweep of the desktop page bodies.
+39 of 45 stories are `done`. The remaining ones are `MOB-002` (automatic edge detection is not
+wired to a frame processor), `I18N-001` (translation sweep of the desktop page bodies) and the
+Phase 3 tail: `CRM-001`, `MARKET-001`, `AGENT-001`, `VOICE-001`.
 
 ## What is built
 
-| Area                                                            | Where                                  | Notes                                                                                                                                                 |
-| --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shared contracts, UDM, money/dates/CSV/dedupe/i18n/review rules | `packages/shared`                      | 44 tests. Node-only helpers live at `@idcp/shared/ids` so React Native never pulls `node:crypto`.                                                     |
-| Connector SDK + CSV, SQLite, PostgreSQL, MySQL, Google Sheets   | `packages/connectors`                  | 21 tests. MySQL has its own plugin (`?` placeholders, `DATABASE()` introspection, quoted identifiers).                                                |
-| Backend API (Fastify 5)                                         | `apps/backend`                         | 132 tests. Batches, projects, hashed single-use invitations, SQLite in dev/test, PostgreSQL in production.                                            |
-| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 20 tests. Hash routing, SSE dashboard, review workspace, templates, connectors, exports, devices, settings. Electron main/preload written (see gaps). |
-| Mobile (React Native 0.86)                                      | `apps/mobile`                          | 17 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                                          |
-| CI, PRD + API contracts, generators                             | `.github/workflows/ci.yml`, `scripts/` | `validate-prd.mjs`, `validate-openapi.mjs`, `generate-udm-schema.mjs`.                                                                                |
+| Area                                                            | Where                                  | Notes                                                                                                                               |
+| --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Shared contracts, UDM, money/dates/CSV/dedupe/i18n/review rules | `packages/shared`                      | 47 tests. `mergeRecord` reports every value it refuses to overwrite. Node-only helpers live at `@idcp/shared/ids`.                  |
+| Connector SDK + CSV, SQLite, PostgreSQL, MySQL, Google Sheets   | `packages/connectors`                  | 23 tests. `update()` is implemented for SQLite/PostgreSQL/MySQL (transactional, identifier-validated).                              |
+| Backend API (Fastify 5)                                         | `apps/backend`                         | 143 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations.                |
+| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 41 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Electron shell + packaging contract. |
+| Mobile (React Native 0.86)                                      | `apps/mobile`                          | 23 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                        |
+| CI, PRD + API contracts, generators                             | `.github/workflows/ci.yml`, `scripts/` | `validate-prd.mjs`, `validate-openapi.mjs`, `generate-udm-schema.mjs`.                                                              |
 
 ## How to run it
 
@@ -45,10 +46,10 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
 
 ## Known gaps (deliberate, tracked in PRD.json)
 
-1. **Electron packaging is not verified.** `apps/desktop/src/main/electron-main.ts` and
-   `preload.ts` are complete and typechecked, but the `electron` binary is not a dependency of this
-   environment, so no installer was produced or launched (`DESK-001` stays `in_progress`).
-   `IDCP_AUTO_UPDATE=off` disables update checks; the update check is a no-op stub.
+1. **Installers are not built here.** The shell, IPC allow-list and keychain storage are tested
+   against a stand-in Electron (`apps/desktop/test/shell.test.ts`), and the packaging contract is
+   validated statically (`scripts/validate-packaging.mjs`, DEC-022). Producing and smoke-testing
+   signed installers on Windows/macOS/Linux is a release-checklist item, not a code gap.
 2. **Mobile capture crops, enhances and compresses through pure planning functions**
    (`apps/mobile/src/capture/imagePipeline.ts`), but the _quad_ they crop to must be supplied by the
    caller: no VisionCamera frame processor is installed, so automatic edge detection is not wired.
@@ -66,18 +67,21 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
    `sw` and `fr` cover ~49% of the catalogue with English fallback. The desktop page _bodies_ are
    still English string literals, so `I18N-001` stays `in_progress`; the remaining work is a
    mechanical sweep, not new plumbing.
-8. **`node_modules` is tracked in Git** from the first commit (22k files). It is ignored now, but
-   untracking it should be a separate, deliberate commit — do not mix it with feature work.
-9. **Open decisions**: AI provider/budget (Q-001), licensing (Q-002), hosting region (Q-003),
-   standalone desktop mode (Q-004).
+8. **Three environments' worth of connectors are not exercised against live servers**: MySQL, Postgres
+   and Google Sheets have no server in this sandbox. Their SQL/HTTP is covered by validation tests
+   and the SQLite path runs for real.
+9. **`node_modules` is no longer tracked.** It was committed at the start (22,706 files); this round
+   untracked it in one deliberate commit. Installs now come from `package-lock.json`.
+10. **Open decisions**: AI provider/budget (Q-001), licensing (Q-002), hosting region (Q-003),
+    standalone desktop mode (Q-004).
 
 ## Next actions, in order
 
-1. `DASH-001` — charts and exportable figures over the existing `/stats` data.
-2. `MOB-002` — crop/enhance/compress before queuing.
-3. Package the desktop app (electron-builder) and verify on Windows/macOS/Linux.
-4. `I18N-001` — route UI copy through the `en/sw/fr` catalogues.
-5. `CRM-001`, `MARKET-001`, `AGENT-001`, `VOICE-001` — the Phase 3 tail.
+1. `MOB-002` — wire a VisionCamera frame processor so the detected quad feeds `planProcessing`
+   automatically (the planning, enhancement and compression side is done and tested).
+2. `I18N-001` — sweep the remaining English literals in the desktop page bodies through the shared
+   catalogues, and confirm RTL layout with a right-to-left locale.
+3. `CRM-001`, `MARKET-001`, `AGENT-001`, `VOICE-001` — the Phase 3 tail.
 
 ## Environment facts worth knowing
 

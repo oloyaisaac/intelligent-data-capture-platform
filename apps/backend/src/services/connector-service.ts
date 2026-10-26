@@ -3,6 +3,8 @@ import {
   LIMITS,
   badRequest,
   findBestDuplicate,
+  matchDuplicate,
+  mergeRecord,
   type CreateConnectorRequest,
   type CreateMappingProfileRequest,
   type DuplicatePolicy,
@@ -258,41 +260,70 @@ export class ConnectorService {
     let writeResult: ConnectorWriteResult = { created: 0, updated: 0, skipped: 0, summary: '' };
 
     try {
-      // Duplicate check against the destination itself, when the connector can read.
+      // Duplicate check against the destination itself, when the connector can read (DUP-001).
+      let matchedRow: Record<string, string | number | boolean | null> | null = null;
       if (connector.read && keys.length > 0 && policy !== 'append') {
         const existing = await connector.read(
           { limit: 500, where: pickWhere(mapped.values, keys) },
           this.resolveConfig(connectorRow),
           context,
         );
-        const match = findBestDuplicate(
+        const best = findBestDuplicate(
           mapped.values,
           existing.map((item) => item.values),
           keys,
-          {
-            threshold: LIMITS.duplicateScoreThreshold,
-          },
+          { threshold: LIMITS.duplicateScoreThreshold },
         );
-        if (match) {
+        if (best) {
+          matchedRow = best.record as Record<string, string | number | boolean | null>;
           if (policy === 'skip') {
             status = 'skipped_duplicate';
             summary = 'A matching record already exists; skipped.';
-          }
-          // `update` and `merge` are not implemented by every connector yet; create would duplicate,
-          // so we refuse rather than silently writing twice.
-          if (policy === 'update' || policy === 'merge') {
+          } else if (!connector.update) {
             throw new AppError(
               'CONFLICT',
-              'Updating existing rows is not supported by this connector yet. Change the duplicate policy to skip or append.',
+              `The ${connectorRow.type} connector cannot update existing rows. Change the duplicate policy to skip or append.`,
             );
           }
         }
       }
 
       if (status !== 'skipped_duplicate') {
-        writeResult = await connector.create([record], this.resolveConfig(connectorRow), context);
-        status = 'succeeded';
-        summary = `${writeResult.summary}`;
+        if (matchedRow && policy === 'merge') {
+          // Never overwrite a value a human confirmed; report every value we kept instead.
+          const reviewed = reviewedDestinationFields(
+            JSON.parse(mappingRow.field_map) as MappedField[],
+            udm,
+            keys,
+          );
+          const merged = mergeRecord(matchedRow, mapped.values, {
+            keys,
+            reviewedFields: reviewed,
+          });
+          writeResult = await connector.update!(
+            [{ values: merged.values }],
+            keys,
+            this.resolveConfig(connectorRow),
+            context,
+          );
+          summary = merged.conflicts.length
+            ? `${writeResult.summary}; kept ${merged.conflicts.length} reviewed value(s)`
+            : writeResult.summary;
+          status = 'succeeded';
+        } else if (matchedRow && policy === 'update') {
+          writeResult = await connector.update!(
+            [record],
+            keys,
+            this.resolveConfig(connectorRow),
+            context,
+          );
+          status = 'succeeded';
+          summary = writeResult.summary;
+        } else {
+          writeResult = await connector.create([record], this.resolveConfig(connectorRow), context);
+          status = 'succeeded';
+          summary = `${writeResult.summary}`;
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connector failed.';
@@ -361,6 +392,96 @@ export class ConnectorService {
     };
   }
 
+  /**
+   * DUP-001: what would happen if this document were sent now.
+   *
+   * Read-only: it asks the destination for candidate rows and reports the score and the fields
+   * that matched, so a reviewer can decide before anything is written.
+   */
+  async previewDuplicates(
+    actor: AuthenticatedActor,
+    documentId: string,
+    connectorId: string,
+    mappingProfileId: string,
+  ) {
+    const document = await this.documents.findById(actor.organisationId, documentId);
+    if (!document || document.deleted_at) throw new AppError('NOT_FOUND', 'Document not found.');
+
+    const connectorRow = await this.connectors.findById(actor.organisationId, connectorId);
+    if (!connectorRow) throw new AppError('NOT_FOUND', 'Connector not found.');
+    const mappingRow = await this.mappings.findById(actor.organisationId, mappingProfileId);
+    if (!mappingRow) throw new AppError('NOT_FOUND', 'Mapping profile not found.');
+
+    const approved = await this.reviews.findApprovedUdm(documentId);
+    if (!approved) {
+      throw new AppError('CONFLICT', 'This document has no approved record to compare.');
+    }
+    const udm = approved as Udm;
+    const fieldValues = Object.fromEntries(
+      Object.entries(udm.fields).map(([path, field]) => [path, field.value]),
+    );
+    const mapped = applyMapping(
+      fieldValues,
+      JSON.parse(mappingRow.field_map) as MappedField[],
+      udm.documentType,
+    );
+
+    const keys = JSON.parse(mappingRow.duplicate_keys) as string[];
+    const connector = this.registry.get(connectorRow.type);
+    const config = this.resolveConfig(connectorRow);
+
+    if (!connector.read) {
+      throw new AppError(
+        'CONFLICT',
+        `The ${connectorRow.type} connector cannot read its destination, so duplicates cannot be checked.`,
+      );
+    }
+    if (keys.length === 0) {
+      return {
+        connectorId,
+        mappingProfileId,
+        documentId,
+        keys,
+        policy: mappingRow.duplicate_policy as DuplicatePolicy,
+        threshold: LIMITS.duplicateScoreThreshold,
+        isDuplicate: false,
+        bestScore: 0,
+        matchedKeys: [],
+        candidates: [],
+      };
+    }
+
+    const existing = await connector.read(
+      { limit: 500, where: pickWhere(mapped.values, keys) },
+      config,
+      this.context(actor),
+    );
+
+    const scored = existing
+      .map((item) => {
+        const match = matchDuplicate(mapped.values, item.values, keys, {
+          threshold: LIMITS.duplicateScoreThreshold,
+        });
+        return { score: match.score, matchedKeys: match.matchedKeys, values: item.values };
+      })
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 5);
+
+    const best = scored[0];
+    return {
+      connectorId,
+      mappingProfileId,
+      documentId,
+      keys,
+      policy: mappingRow.duplicate_policy as DuplicatePolicy,
+      threshold: LIMITS.duplicateScoreThreshold,
+      isDuplicate: Boolean(best && best.score >= LIMITS.duplicateScoreThreshold),
+      bestScore: best?.score ?? 0,
+      matchedKeys: best?.matchedKeys ?? [],
+      candidates: scored,
+    };
+  }
+
   async listRuns(actor: AuthenticatedActor, connectorId: string) {
     const connector = await this.connectors.findById(actor.organisationId, connectorId);
     if (!connector) throw new AppError('NOT_FOUND', 'Connector not found.');
@@ -418,4 +539,22 @@ function pickWhere(
     if (value !== null && value !== undefined) where[key] = value;
   }
   return where;
+}
+
+/**
+ * Which destination fields carry a value a human explicitly confirmed.
+ *
+ * `applyCorrections` marks corrected fields with confidence 1 in the approved record; those are the
+ * values a merge must not overwrite silently. Duplicate keys are handled separately by `mergeRecord`.
+ */
+function reviewedDestinationFields(mapped: MappedField[], udm: Udm, keys: string[]): string[] {
+  const reviewed = new Set<string>();
+  for (const field of mapped) {
+    if (keys.includes(field.destinationField)) continue;
+    const source = udm.fields[field.udmPath];
+    if (!source) continue;
+    // A human confirmation makes the field full-confidence; extraction never reaches exactly 1.
+    if (source.confidence >= 1) reviewed.add(field.destinationField);
+  }
+  return [...reviewed];
 }

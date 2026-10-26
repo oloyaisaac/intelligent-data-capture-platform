@@ -17,9 +17,9 @@
   ],
   "platforms": ["Android", "iOS", "Windows", "macOS", "Linux", "Backend API"],
   "currentState": {
-    "phase": "Phase 1 (MVP) - foundation",
-    "summary": "Repository scaffold only. Dependency manifest and source requirement documents exist; no application source code, backend, database or tests exist yet.",
-    "codeStatus": "docs-only"
+    "phase": "Phase 3 — platform breadth",
+    "summary": "M1 and M2 are complete: capture on mobile, an authenticated API, human-in-the-loop review, exports, connectors with duplicate policies, batches, projects and invitations, analytics, and a desktop shell with packaging targets. The remaining stories are the Phase 3 tail (CRM, marketplace, workflow agents, voice) plus finishing low-priority mobile edge detection and the translation sweep.",
+    "codeStatus": "beta"
   },
   "statusLegend": {
     "done": "Implemented, tested and verified against its acceptance criteria.",
@@ -583,7 +583,7 @@
       "id": "REV-002",
       "epic": "EP-REVIEW",
       "title": "Correction capture for learning",
-      "status": "in_progress",
+      "status": "done",
       "phase": 2,
       "priority": "should",
       "description": "Store human corrections in a structured form usable for field mapping suggestions and future model or prompt improvements.",
@@ -595,7 +595,9 @@
       "dependsOn": ["REV-001"],
       "artifacts": [
         "apps/backend/src/services/review-service.ts",
-        "apps/backend/src/repositories/review-repo.ts"
+        "apps/backend/src/repositories/review-repo.ts",
+        "apps/backend/src/http/routes/review-routes.ts",
+        "apps/desktop/src/pages/SettingsPage.tsx"
       ]
     },
     {
@@ -635,7 +637,7 @@
       "id": "DESK-001",
       "epic": "EP-DESKTOP",
       "title": "Desktop application shell",
-      "status": "in_progress",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Electron desktop client for Windows, macOS and Linux with secure defaults (context isolation, no remote module, explicit IPC allow-list) and auto-update plumbing.",
@@ -649,14 +651,17 @@
       "artifacts": [
         "apps/desktop/src/App.tsx",
         "apps/desktop/src/main/electron-main.ts",
-        "apps/desktop/src/main/preload.ts"
+        "apps/desktop/src/main/preload.ts",
+        "apps/desktop/electron-builder.json",
+        "apps/desktop/tsconfig.electron.json",
+        "scripts/validate-packaging.mjs"
       ]
     },
     {
       "id": "DESK-002",
       "epic": "EP-DESKTOP",
       "title": "Desktop review and job dashboard",
-      "status": "in_progress",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Dashboard listing incoming documents, live processing status and review queues, with bulk approve and export actions.",
@@ -668,7 +673,9 @@
       "dependsOn": ["DESK-001", "REV-001", "PAIR-003"],
       "artifacts": [
         "apps/desktop/src/pages/DashboardPage.tsx",
-        "apps/desktop/src/pages/DocumentsPage.tsx"
+        "apps/desktop/src/pages/DocumentsPage.tsx",
+        "apps/desktop/src/pages/ReviewPage.tsx",
+        "apps/desktop/src/lib/realtime.ts"
       ]
     },
     {
@@ -747,7 +754,7 @@
       "id": "DUP-001",
       "epic": "EP-MAP",
       "title": "Duplicate detection and merge",
-      "status": "in_progress",
+      "status": "done",
       "phase": 2,
       "priority": "must",
       "description": "Detect likely duplicates using configurable keys and fuzzy matching, then append, update, merge or skip according to policy.",
@@ -759,7 +766,9 @@
       "dependsOn": ["MAP-001"],
       "artifacts": [
         "packages/shared/src/dedupe.ts",
-        "apps/backend/src/services/connector-service.ts"
+        "apps/backend/src/services/connector-service.ts",
+        "apps/backend/src/http/routes/connector-routes.ts",
+        "apps/desktop/src/components/SendToDestination.tsx"
       ]
     },
     {

@@ -7,6 +7,8 @@ export interface OrganisationRow {
   plan: string;
   retention_days: number;
   ai_provider: string;
+  /** REV-002: corrections may only feed extraction improvements when this is 1. */
+  learning_opt_in: number;
   settings: string;
   created_at: string;
   updated_at: string;
@@ -140,6 +142,8 @@ export interface ReviewChangeRow {
   id: string;
   review_id: string;
   field_path: string;
+  /** REV-002: the document type at the time of the correction. */
+  document_type: string | null;
   original_value: string | null;
   corrected_value: string | null;
   original_confidence: number | null;

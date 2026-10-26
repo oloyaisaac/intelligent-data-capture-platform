@@ -51,6 +51,24 @@ export function registerReviewRoutes(
     return services.reviews.reject(actor, guards.uuidParam(request), parsed.data.reason);
   });
 
+  /** REV-002: aggregates of what reviewers keep correcting, grouped by field and document type. */
+  app.get('/review/corrections', async (request) => {
+    const actor = await guards.authenticate(request);
+    return services.reviews.correctionStats(actor);
+  });
+
+  /**
+   * REV-002: the training hand-off. Refused (409) unless the organisation opted in, and only for
+   * admins — corrections are a customer's data, not ours to repurpose by default.
+   */
+  app.post('/review/corrections/export', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    await guards.requireRole('admin')(request, reply);
+    const body = request.body as { limit?: unknown } | undefined;
+    const limit = typeof body?.limit === 'number' ? body.limit : undefined;
+    return services.reviews.correctionsForTraining(actor, limit);
+  });
+
   app.post('/review/bulk-approve', async (request) => {
     const actor = await guards.authenticate(request);
     const parsed = BulkApproveRequestSchema.safeParse(request.body);

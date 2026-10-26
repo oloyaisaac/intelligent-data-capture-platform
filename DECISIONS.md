@@ -296,3 +296,71 @@ building SMTP delivery now (out of scope, and untested without a mail server).
 
 **Consequences:** <what this commits us to>
 ```
+
+## DEC-020 — Duplicate preview is a read, and merges never overrule a human
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** `GET /documents/{id}/duplicates` scores the mapped record against the destination and
+returns the top five candidates, but writes nothing. Sending decides from the mapping profile's
+`duplicatePolicy`: `append` always creates, `skip` reports `skipped_duplicate`, `update` overwrites
+the matched row with mapped values, and `merge` fills only the gaps. `mergeRecord()` refuses to
+overwrite a field a reviewer confirmed (`confidence >= 1` in the UDM) or a duplicate key, and refuses
+to blank a value with an empty incoming one; every ignored value is reported back.
+
+**Reason:** Preview and send are different intents: one is a question, the other is a write. Keeping
+the preview side-effect free makes it safe on a laptop in a meeting. For merges, the reviewer's
+correction is the most expensive fact in the system — a later sync must not quietly undo it.
+
+**Alternatives considered:** Upserting on the destination's own unique index (each connector would
+answer differently, and reviewers would lose their corrections); a dry-run flag on `send` (mixable
+semantics, one accidental flag away from a write).
+
+**Consequences:** A connector without `read` cannot preview or skip duplicates and must be sent with
+`append`; `update`/`merge` on a connector without `update()` fails with a conflict rather than
+silently appending. `confidence = 1` now has a specific meaning: a human put this value there.
+
+---
+
+## DEC-021 — Corrections record the document type, and training use is opt-in
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** `review_changes` stores `document_type` alongside the before/after values. Aggregates
+are available to any signed-in member (`GET /review/corrections`), but the training export is
+admin-only and returns `409` unless the organisation has set `learningOptIn` to true. Opting in is a
+switch in Settings, off by default.
+
+**Reason:** Aggregates ("invoice totals keep being corrected") are operational feedback and belong
+to the team doing the work. The rows themselves are customer content: using them to improve a model
+is a different purpose from capturing them, so it needs an explicit, reversible choice.
+
+**Alternatives considered:** Treating the terms of service as consent (indefensible for a document
+platform); gating on a super-admin flag (moves the decision away from the customer).
+
+**Consequences:** Nothing is exported by accident; an opted-in organisation gets the rows with
+document type, field path and confidence, and every export is audited.
+
+---
+
+## DEC-022 — The desktop packaging contract is validated, not executed, in CI
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** The Electron shell ships with an `electron-builder.json` (NSIS/portable for Windows,
+DMG/ZIP for macOS, AppImage/DEB for Linux, ASAR on, both builds in `files`) and
+`scripts/validate-packaging.mjs` asserts the parts that matter for security and start-up: three
+platform target sets, ASAR, the compiled main entry point, and `contextIsolation: true` /
+`nodeIntegration: false` / `sandbox: true` in the window. `npm run package` builds installers with
+`npx electron-builder`, outside CI.
+
+**Reason:** Producing installers needs platform toolchains, signing keys and multi-hundred-megabyte
+binaries — none of which belong in a test run that must stay fast. The failure modes that matter
+(renderer with Node access, an app that starts the wrong file, ASAR disabled) are static and can be
+caught in milliseconds.
+
+**Alternatives considered:** Installing Electron in CI to launch the app headlessly (slow, needs a
+display server or xvfb, and still cannot prove a signed installer works).
+
+**Consequences:** The configuration cannot drift unnoticed, but a real installer still has to be
+built and smoke-tested on each platform before a release; that remains a release-checklist item.
