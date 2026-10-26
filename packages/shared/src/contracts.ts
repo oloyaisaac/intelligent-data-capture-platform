@@ -508,6 +508,96 @@ export const AnalyticsSchema = z.object({
 });
 export type Analytics = z.infer<typeof AnalyticsSchema>;
 
+// --- Batches (BATCH-001) -------------------------------------------------
+
+export const BatchItemSchema = z.object({
+  position: z.number().int().min(0),
+  filename: z.string().max(255).optional(),
+  documentId: z.string().nullable(),
+  documentType: z.string().optional(),
+  status: z.enum(['queued', 'processing', 'succeeded', 'failed']),
+  error: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+export type BatchItem = z.infer<typeof BatchItemSchema>;
+
+export const BatchSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  projectId: z.string().optional(),
+  total: z.number().int(),
+  processed: z.number().int(),
+  succeeded: z.number().int(),
+  failed: z.number().int(),
+  status: z.enum(['processing', 'completed', 'completed_with_errors']),
+  items: z.array(BatchItemSchema),
+  createdAt: z.string(),
+});
+export type BatchSummary = z.infer<typeof BatchSummarySchema>;
+
+export const CreateBatchRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    projectId: z.string().uuid().optional(),
+    documentType: z.enum(DOCUMENT_TYPES).optional(),
+  })
+  .strict();
+
+// --- Projects (TEAM-001) -------------------------------------------------
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  key: z.string(),
+  archivedAt: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Project = z.infer<typeof ProjectSchema>;
+
+export const CreateProjectRequestSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    key: z.string().trim().max(20).optional(),
+  })
+  .strict();
+export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
+
+export const UpdateProjectRequestSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    archived: z.boolean().optional(),
+  })
+  .strict();
+export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
+
+// --- Invitations (TEAM-001) ----------------------------------------------
+
+export const InvitationSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  role: z.enum(ROLES),
+  expiresAt: z.string(),
+  usedAt: z.string().nullable().optional(),
+  createdAt: z.string(),
+});
+export type Invitation = z.infer<typeof InvitationSchema>;
+
+/** The token is returned once, because this deployment has no email delivery configured. */
+export const CreatedInvitationSchema = InvitationSchema.extend({
+  token: z.string(),
+  acceptUrl: z.string(),
+});
+export type CreatedInvitation = z.infer<typeof CreatedInvitationSchema>;
+
+export const AcceptInviteRequestSchema = z
+  .object({
+    token: z.string().min(20).max(200),
+    password: PasswordSchema,
+  })
+  .strict();
+export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequestSchema>;
+
 export const HealthResponseSchema = z.object({
   status: z.enum(['ok', 'degraded']),
   version: z.string(),
