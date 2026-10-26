@@ -8,16 +8,16 @@ Exact tooling needed to work on this project, and how to verify your machine mat
 
 ## 1. Required tooling
 
-| Tool                 | Version                       | Required for                             | Verified in this checkout |
-| -------------------- | ----------------------------- | ---------------------------------------- | ------------------------- |
-| Node.js              | 22 LTS (`.nvmrc` target `22`) | Everything                               | `v22.22.3`                |
-| npm                  | 10+                           | Everything                               | `10.9.8`                  |
-| Git                  | 2.39+                         | Everything                               | `2.39.5`                  |
-| JDK                  | 17                            | Android builds                           | not checked               |
-| Android Studio + SDK | API 34+, emulator             | Mobile (Android)                         | not installed             |
-| Xcode                | 16+ (macOS only)              | Mobile (iOS)                             | n/a (Linux)               |
-| Docker + Compose     | 24+                           | **Optional** — only to run PostgreSQL locally; the backend defaults to SQLite | not checked |
-| Python               | 3.11+                         | Optional: local OCR tooling              | `3.11.2`                  |
+| Tool                 | Version                       | Required for                                                                  | Verified in this checkout |
+| -------------------- | ----------------------------- | ----------------------------------------------------------------------------- | ------------------------- |
+| Node.js              | 22 LTS (`.nvmrc` target `22`) | Everything                                                                    | `v22.22.3`                |
+| npm                  | 10+                           | Everything                                                                    | `10.9.8`                  |
+| Git                  | 2.39+                         | Everything                                                                    | `2.39.5`                  |
+| JDK                  | 17                            | Android builds                                                                | not checked               |
+| Android Studio + SDK | API 34+, emulator             | Mobile (Android)                                                              | not installed             |
+| Xcode                | 16+ (macOS only)              | Mobile (iOS)                                                                  | n/a (Linux)               |
+| Docker + Compose     | 24+                           | **Optional** — only to run PostgreSQL locally; the backend defaults to SQLite | not checked               |
+| Python               | 3.11+                         | Optional: local OCR tooling                                                   | `3.11.2`                  |
 
 Recommended editor: VS Code with ESLint, Prettier and TypeScript extensions. Editor settings: format on save, no tabs in TS/JS.
 
@@ -100,16 +100,16 @@ The single source of truth is `apps/backend/src/config.ts`; `.env.example` docum
 reads, with the default in parentheses, and a test (`apps/backend/test/config.test.ts`) fails if the
 two lists diverge or if the example does not start the server when copied verbatim.
 
-| Group          | Keys                                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------------------ |
-| Runtime        | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                           |
-| Database       | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                        |
-| Auth           | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS` |
-| Storage        | `STORAGE_DRIVER`, `STORAGE_PATH`                                                                        |
-| AI             | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`, `AI_REVIEW_CONFIDENCE_THRESHOLD` |
-| Limits         | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_AUTH_PER_15_MIN`, `RATE_LIMIT_UPLOAD_PER_MIN` |
-| Exports, jobs  | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                       |
-| Client builds  | `IDCP_API_URL` (mobile), `IDCP_API_PROXY`, `IDCP_DEV_SERVER`, `IDCP_AUTO_UPDATE` (desktop)               |
+| Group         | Keys                                                                                                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime       | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                                                                |
+| Database      | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                                                             |
+| Auth          | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`                                                 |
+| Storage       | `STORAGE_DRIVER`, `STORAGE_PATH`                                                                                                                                             |
+| AI            | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`, `AI_REVIEW_CONFIDENCE_THRESHOLD` |
+| Limits        | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_AUTH_PER_15_MIN`, `RATE_LIMIT_UPLOAD_PER_MIN`                                                           |
+| Exports, jobs | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                                                           |
+| Client builds | `IDCP_API_URL` (mobile), `IDCP_API_PROXY`, `IDCP_DEV_SERVER`, `IDCP_AUTO_UPDATE` (desktop)                                                                                   |
 
 Rules:
 
