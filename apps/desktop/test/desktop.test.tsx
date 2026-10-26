@@ -468,7 +468,12 @@ describe('projects screen (TEAM-001)', () => {
       fetchImpl: (async (url: string, init?: RequestInit) => {
         calls.push(`${init?.method ?? 'GET'} ${url}`);
         if ((init?.method ?? 'GET') === 'PATCH') {
-          return jsonResponse({ id: 'p1', name: 'Records', key: 'REC', archivedAt: new Date().toISOString() });
+          return jsonResponse({
+            id: 'p1',
+            name: 'Records',
+            key: 'REC',
+            archivedAt: new Date().toISOString(),
+          });
         }
         return jsonResponse({
           items: [{ id: 'p1', name: 'Records', key: 'REC', createdAt: new Date().toISOString() }],
