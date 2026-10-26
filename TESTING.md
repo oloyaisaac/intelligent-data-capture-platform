@@ -46,14 +46,14 @@ and browser harness.
 
 ### Current coverage
 
-| Workspace             | Suite                                                                                                            | Tests   |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------- | ------- |
-| `packages/shared`     | `test/shared.test.ts`                                                                                            | 44      |
-| `packages/connectors` | `test/connectors.test.ts`                                                                                        | 20      |
-| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, review, exports, connectors, AI, templates, developer API, security) | 116     |
-| `apps/desktop`        | `test/desktop.test.tsx` (jsdom + Testing Library)                                                                | 16      |
-| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                               | 17      |
-| **Total**             | 14 suites                                                                                                        | **213** |
+| Workspace             | Suite                                                                                                                            | Tests   |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `packages/shared`     | `test/shared.test.ts`                                                                                                            | 44      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                                        | 21      |
+| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, review, exports, connectors, AI, templates, developer API, security) | 132     |
+| `apps/desktop`        | `test/desktop.test.tsx` (jsdom + Testing Library)                                                                                | 20      |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                               | 17      |
+| **Total**             | 16 suites                                                                                                                        | **234** |
 
 Notes for anyone extending the suite:
 
@@ -63,6 +63,10 @@ Notes for anyone extending the suite:
   belongs behind an injected port (`UploadTransport`, `TokenStore`), as the queue and client do.
 - Contract tests are the cheapest guard against drift: add a case to `test:api` rather than a
   prose note when a route or schema changes.
+- Batch and invitation tests assert the _failure_ path first: a rejected file inside a batch, a
+  reused invitation token, an expired link. Those are the cases that silently regress.
+- The MySQL connector is validated (config, identifiers) but not executed: there is no MySQL server
+  in this environment. Do not describe it as tested end to end until one exists.
 
 ## 4. Manual test cases
 

@@ -7,53 +7,39 @@ Story IDs refer to `PRD.json`. Keep this list short and honest.
 
 ---
 
+## Done (this milestone)
+
+M0 and M1 are complete, and these M2 stories are now done too:
+
+- [x] **BACK-001 / DB-001 / AUTH-001 / AUTH-002** — API skeleton, schema + migrations, Argon2id auth
+      with rotating refresh tokens, RBAC and tenant scoping.
+- [x] **UDM-001 / AI-001–AI-004** — Universal Data Model, OCR abstraction, classification,
+      field/table extraction with per-field confidence, templates.
+- [x] **PAIR-001–PAIR-004** — QR pairing, device credentials, revocation.
+- [x] **DOC-001 / REV-001 / EXPORT-001 / EXPORT-002** — upload with sniffing + idempotency, review
+      workflow, Excel/CSV export.
+- [x] **CON-001–CON-003 / MAP-001 / DUP-001** — connector SDK with CSV, SQLite, PostgreSQL, MySQL and
+      Google Sheets destinations, mapping profiles and duplicate policy.
+- [x] **DESK-001 / DEVAPI-001** — desktop renderer (dashboard over SSE, documents, review, templates,
+      connectors, exports, devices, settings) and developer API keys.
+- [x] **BATCH-001** — batch upload with partial-failure handling, derived progress and CSV results.
+- [x] **TEAM-001** — projects and expiring, single-use hashed invitation links.
+
 ## Now
 
-- [ ] **FOUND-003 — Monorepo restructuring and TypeScript baseline**
-  - [ ] Add npm workspaces to root `package.json` (`apps/*`, `packages/*`), plus `private`, `engines`, `scripts`
-  - [ ] Create `apps/mobile` and move React Native / React Navigation / Socket.IO dependencies there
-  - [ ] Scaffold the React Native project files (`android/`, `ios/`, `babel.config.js`, `metro.config.js`, `index.js`)
-  - [ ] Add `tsconfig.base.json` and per-workspace `tsconfig.json`
-  - [ ] Create placeholder `apps/backend`, `apps/desktop`, `packages/shared`, `packages/connectors` with `package.json` + `src/index.ts`
-  - [ ] Verify `npm install` from a clean clone and `npm run typecheck` passes
-- [ ] **FOUND-004 — Linting, formatting and test harness**
-  - [ ] ESLint flat config + Prettier
-  - [ ] Jest for backend/shared; React Native Testing Library for mobile
-  - [ ] Standard scripts: `dev`, `dev:mobile`, `dev:desktop`, `dev:backend`, `typecheck`, `lint`, `format`, `test`
+- [ ] **DASH-001** — replace the counters view with charts over `/stats`, plus an exportable summary.
 
 ## Next
 
-- [ ] **FOUND-005 — CI pipeline** (`.github/workflows/ci.yml`: install, typecheck, lint, test, `PRD.json` validation)
-- [ ] **BACK-001 — Backend API skeleton** (health endpoint, config validation, logging, error envelope)
-- [ ] **DB-001 — Database schema and migrations** (implement `DATABASE.md`; seed demo organisation)
-- [ ] **AUTH-001 — Authentication** (Argon2id, short-lived access tokens, rotating refresh tokens)
-- [ ] **AUTH-002 — RBAC and tenant scoping**
-- [ ] **UDM-001 — Universal Data Model schema** (Zod + published JSON Schema)
-- [ ] **PAIR-001 — QR pairing code generation**
-- [ ] **MOB-001 — Mobile app shell and navigation**
+- [ ] **MOB-002** — crop, enhance and compress before a capture is queued.
+- [ ] **DESK-001 (packaging)** — electron-builder targets and a signed installer, verified on
+      Windows/macOS/Linux.
+- [ ] **I18N-001** — route UI copy through the `en/sw/fr` catalogues and add a language switch.
 
-## Later (M1 remainder)
+## Later (Phase 3)
 
-- [ ] `PAIR-002` mobile QR scan and device authentication
-- [ ] `PAIR-003` encrypted realtime channel
-- [ ] `PAIR-004` device management and revocation
-- [ ] `MOB-002` camera capture with edge detection
-- [ ] `DOC-001` document upload API and storage
-- [ ] `MOB-003` offline-first upload queue
-- [ ] `AI-001` OCR pipeline · `AI-002` classification · `AI-003` field/table extraction
-- [ ] `REV-001` review interface
-- [ ] `DESK-001` desktop shell · `DESK-002` review dashboard
-- [ ] `EXPORT-001` xlsx · `EXPORT-002` csv
-- [ ] `AUDIT-001` audit trail · `SEC-001` retention and deletion
-
-## Blocked / waiting on a human
-
-- [ ] **Q-001** Approve AI/OCR providers and per-document budget → unblocks `AI-001`, `AI-004`
-- [ ] **Q-002** Confirm licensing model → finalises `LICENSE`
-- [ ] **Q-003** Confirm hosting region and data-residency rules → unblocks `SEC-001` production settings and `DEPLOYMENT.md`
-- [ ] **Q-004** Decide whether the desktop app must run standalone → affects `DESK-001`, `AI-004`
-
-## Recently done
-
-- [x] `FOUND-001` Repository and dependency baseline
-- [x] `FOUND-002` Project documentation pack (PRD.json, REQUIREMENTS, AI.md, AGENT_STATE, TASKS, CHANGELOG, DECISIONS, ARCHITECTURE, DATABASE, API, TESTING, SECURITY, DEPLOYMENT, ENVIRONMENT, CONTRIBUTING, LICENSE, .env.example, .gitignore)
+- [ ] `CRM-001` — CRM export targets
+- [ ] `MARKET-001` — template marketplace
+- [ ] `AGENT-001` — workflow automation
+- [ ] `VOICE-001` — voice-assisted field entry
+- [ ] Socket.IO transport alongside SSE (DEC-016)

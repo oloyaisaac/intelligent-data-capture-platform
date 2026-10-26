@@ -14,6 +14,9 @@ import {
 import { bulkApprovable, canApprove, pendingChanges, reviewRows } from '../src/lib/review';
 import { connectRealtime, eventsUrl } from '../src/lib/realtime';
 import { LoginPage } from '../src/pages/LoginPage';
+import { AcceptInvitePage } from '../src/pages/AcceptInvitePage';
+import { BatchesPage } from '../src/pages/BatchesPage';
+import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { ReviewPage } from '../src/pages/ReviewPage';
 import type { Udm } from '@idcp/shared';
 
@@ -146,6 +149,15 @@ describe('routing', () => {
       status: 'needs_review',
     });
     expect(parseRoute('#/nonsense')).toEqual({ name: 'dashboard' });
+  });
+
+  it('parses the invitation link the backend mints', () => {
+    expect(parseRoute('#/accept-invite?token=abc123')).toEqual({
+      name: 'accept-invite',
+      token: 'abc123',
+    });
+    expect(parseRoute('#/batches')).toEqual({ name: 'batches' });
+    expect(parseRoute('#/projects')).toEqual({ name: 'projects' });
   });
 
   it('round-trips a route through its href', () => {
@@ -402,5 +414,100 @@ describe('review screen', () => {
     expect((client.patchFields as jest.Mock).mock.calls[0]![1]).toEqual([
       { fieldPath: 'invoice.due_date', value: '2024-04-01' },
     ]);
+  });
+});
+
+describe('batch screen (BATCH-001)', () => {
+  afterEach(cleanup);
+
+  const batch = {
+    id: 'batch-1',
+    name: 'Morning intake',
+    total: 2,
+    processed: 2,
+    succeeded: 1,
+    failed: 1,
+    status: 'completed_with_errors' as const,
+    createdAt: new Date().toISOString(),
+    items: [
+      { position: 0, filename: 'a.png', documentId: 'doc-a', status: 'succeeded' as const },
+      {
+        position: 1,
+        filename: 'notes.txt',
+        documentId: null,
+        status: 'failed' as const,
+        error: 'That file type is not supported.',
+      },
+    ],
+  };
+
+  it('shows per-file failures instead of hiding them', async () => {
+    const client = new ApiClient({
+      baseUrl: 'https://idcp.test/api/v1',
+      fetchImpl: (async (url: string) => {
+        if (String(url).includes('/projects')) return jsonResponse({ items: [] });
+        return jsonResponse({ items: [batch] });
+      }) as unknown as typeof fetch,
+    });
+
+    render(<BatchesPage client={client} />);
+
+    expect(await screen.findByText('Morning intake')).toBeTruthy();
+    expect(screen.getByText('completed with errors')).toBeTruthy();
+    expect(screen.getByText('1 failed', { exact: false })).toBeTruthy();
+  });
+});
+
+describe('projects screen (TEAM-001)', () => {
+  afterEach(cleanup);
+
+  it('archives a project rather than deleting it', async () => {
+    const calls: string[] = [];
+    const client = new ApiClient({
+      baseUrl: 'https://idcp.test/api/v1',
+      fetchImpl: (async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? 'GET'} ${url}`);
+        if ((init?.method ?? 'GET') === 'PATCH') {
+          return jsonResponse({ id: 'p1', name: 'Records', key: 'REC', archivedAt: new Date().toISOString() });
+        }
+        return jsonResponse({
+          items: [{ id: 'p1', name: 'Records', key: 'REC', createdAt: new Date().toISOString() }],
+        });
+      }) as unknown as typeof fetch,
+    });
+
+    render(<ProjectsPage client={client} canManage />);
+
+    expect(await screen.findByText('Records')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(calls.some((call) => call.startsWith('PATCH'))).toBe(true));
+  });
+});
+
+describe('accept-invitation screen (TEAM-001)', () => {
+  afterEach(cleanup);
+
+  it('insists the two passwords match before calling the API', async () => {
+    let called = false;
+    const client = new ApiClient({
+      baseUrl: 'https://idcp.test/api/v1',
+      fetchImpl: (async () => {
+        called = true;
+        return jsonResponse({});
+      }) as unknown as typeof fetch,
+    });
+
+    render(<AcceptInvitePage client={client} token="token-123" onAccepted={() => undefined} />);
+
+    fireEvent.change(screen.getByLabelText(/^Password/), {
+      target: { value: 'a much better password' },
+    });
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'something else entirely' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Set password and sign in' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('do not match');
+    expect(called).toBe(false);
   });
 });

@@ -3,7 +3,10 @@ import type { UserSummary } from '@idcp/shared';
 import { ApiClient, ApiError, BridgeTokenStorage, MemoryTokenStorage } from './api/client';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { BatchesPage } from './pages/BatchesPage';
 import { DocumentsPage } from './pages/DocumentsPage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { ReviewPage } from './pages/ReviewPage';
 import { ExportsPage } from './pages/ExportsPage';
 import { ConnectorsPage } from './pages/ConnectorsPage';
@@ -23,12 +26,15 @@ import { Badge } from './components/ui';
 export type Route =
   | { name: 'dashboard' }
   | { name: 'documents'; documentId?: string; status?: string }
+  | { name: 'batches' }
+  | { name: 'projects' }
   | { name: 'review'; documentId?: string }
   | { name: 'exports' }
   | { name: 'connectors' }
   | { name: 'templates' }
   | { name: 'devices' }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'accept-invite'; token: string };
 
 export function parseRoute(hash: string): Route {
   const cleaned = hash.replace(/^#\/?/, '');
@@ -37,10 +43,16 @@ export function parseRoute(hash: string): Route {
   const segment = (path ?? '').split('/')[0];
 
   switch (segment) {
+    case 'accept-invite':
+      return { name: 'accept-invite', token: params.get('token') ?? '' };
     case 'documents':
       return { name: 'documents', status: params.get('status') ?? undefined };
     case 'review':
       return { name: 'review', documentId: params.get('documentId') ?? undefined };
+    case 'batches':
+      return { name: 'batches' };
+    case 'projects':
+      return { name: 'projects' };
     case 'exports':
       return { name: 'exports' };
     case 'connectors':
@@ -74,8 +86,10 @@ export function routeHref(route: Route): string {
 const NAV: Array<{ route: Route; label: string; section?: string }> = [
   { route: { name: 'dashboard' }, label: 'Overview' },
   { route: { name: 'documents' }, label: 'Documents' },
+  { route: { name: 'batches' }, label: 'Batches' },
   { route: { name: 'review' }, label: 'Review' },
   { route: { name: 'exports' }, label: 'Exports' },
+  { route: { name: 'projects' }, label: 'Projects', section: 'Configure' },
   { route: { name: 'templates' }, label: 'Templates', section: 'Configure' },
   { route: { name: 'connectors' }, label: 'Connectors' },
   { route: { name: 'devices' }, label: 'Devices' },
@@ -135,6 +149,24 @@ export function App(): React.JSX.Element {
       <div className="login-shell">
         <p className="muted">Starting IDCP…</p>
       </div>
+    );
+  }
+
+  // The invitation link opens before sign-in: the token itself is the credential.
+  if (!user && route.name === 'accept-invite') {
+    return (
+      <AcceptInvitePage
+        client={client}
+        token={route.token}
+        onAccepted={async () => {
+          try {
+            setUser(await client.me());
+            setError(null);
+          } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Could not load your account.');
+          }
+        }}
+      />
     );
   }
 
@@ -232,6 +264,13 @@ export function App(): React.JSX.Element {
           )}
           {route.name === 'review' && (
             <ReviewPage client={client} initialDocumentId={route.documentId} />
+          )}
+          {route.name === 'batches' && <BatchesPage client={client} />}
+          {route.name === 'projects' && (
+            <ProjectsPage
+              client={client}
+              canManage={user.role === 'owner' || user.role === 'admin'}
+            />
           )}
           {route.name === 'exports' && <ExportsPage client={client} />}
           {route.name === 'connectors' && <ConnectorsPage client={client} />}

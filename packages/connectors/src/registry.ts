@@ -2,6 +2,7 @@ import type { Connector } from './contract';
 import { CsvFileConnector } from './csv-connector';
 import { GoogleSheetsConnector } from './google-sheets-connector';
 import { PostgresConnector } from './postgres-connector';
+import { MysqlConnector } from './mysql-connector';
 import { SqliteConnector } from './sqlite-connector';
 
 /**
@@ -51,6 +52,7 @@ export function defaultConnectors(): Connector[] {
     new CsvFileConnector(),
     new SqliteConnector(),
     new PostgresConnector(),
+    new MysqlConnector(),
     new GoogleSheetsConnector(),
   ];
 }

@@ -27,6 +27,8 @@ tags:
   - name: Connectors
   - name: Templates
   - name: Organisation
+  - name: Projects
+  - name: Batches
   - name: Realtime
 security:
   - bearerAuth: []
@@ -852,7 +854,7 @@ paths:
       summary: Invite a team member (single-use, expiring)
       operationId: inviteUser
       responses:
-        '202': { description: Invited }
+        '202': { description: 'Invited; the response carries the single-use accept link once' }
   /users/{id}/role:
     patch:
       tags: [Organisation]
@@ -898,6 +900,164 @@ paths:
       operationId: purgeRetention
       responses:
         '202': { description: '`purged`: number of documents removed' }
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List projects (archived ones only with `includeArchived=true`)
+      operationId: listProjects
+      parameters:
+        - { name: includeArchived, in: query, schema: { type: boolean } }
+      responses:
+        '200': { description: Projects }
+    post:
+      tags: [Projects]
+      summary: Create a project (admin)
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 120 }
+                key:
+                  {
+                    type: string,
+                    maxLength: 20,
+                    description: Uppercase identifier,
+                    derived from the name when omitted,
+                  }
+      responses:
+        '201': { description: Created }
+        '409': { description: The key is already in use }
+  /projects/{id}:
+    patch:
+      tags: [Projects]
+      summary: Rename, archive or restore a project (admin)
+      operationId: updateProject
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                archived: { type: boolean }
+      responses:
+        '200': { description: Updated }
+        '404': { description: Not found }
+    delete:
+      tags: [Projects]
+      summary: Archive a project (documents keep their assignment)
+      operationId: archiveProject
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Archived }
+  /batches:
+    get:
+      tags: [Batches]
+      summary: Recent batches
+      operationId: listBatches
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, maximum: 100 } }
+      responses:
+        '200': { description: Batches with derived progress }
+    post:
+      tags: [Batches]
+      summary: Upload many files in one request (each file becomes its own document)
+      operationId: createBatch
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 120 }
+                projectId: { type: string, format: uuid }
+                documentType: { type: string }
+                files:
+                  type: array
+                  maxItems: 100
+                  items: { type: string, format: binary }
+      responses:
+        '201': { description: 'Accepted; per-item results report individual failures' }
+        '400': { description: No files, or more than 100 }
+  /batches/{id}:
+    get:
+      tags: [Batches]
+      summary: One batch with per-item status
+      operationId: getBatch
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Batch }
+        '404': { description: Not found }
+  /batches/{id}/items:
+    get:
+      tags: [Batches]
+      summary: Progress counters and item statuses (poll while processing)
+      operationId: getBatchItems
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: '`total`, `processed`, `succeeded`, `failed`, `status`, `items`' }
+  /batches/{id}/results.csv:
+    get:
+      tags: [Batches]
+      summary: Per-item results as CSV (UTF-8 with BOM)
+      operationId: downloadBatchResults
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: CSV
+          content:
+            text/csv:
+              schema: { type: string }
+  /invitations:
+    get:
+      tags: [Organisation]
+      summary: Pending and used invitations (admin)
+      operationId: listInvitations
+      responses:
+        '200': { description: Invitations, without tokens }
+  /invitations/{id}:
+    delete:
+      tags: [Organisation]
+      summary: Revoke an invitation (admin)
+      operationId: revokeInvitation
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Revoked }
+  /invitations/{token}/accept:
+    post:
+      tags: [Auth]
+      summary: Accept an invitation, set a password and sign in (single use)
+      operationId: acceptInvitation
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 12 }
+      responses:
+        '200': { description: Token pair, as /auth/login }
+        '400': { description: Weak password }
+        '401': { description: Unknown, used or expired invitation }
   /events:
     get:
       tags: [Realtime]

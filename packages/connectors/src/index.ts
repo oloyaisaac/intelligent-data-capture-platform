@@ -7,5 +7,6 @@ export * from './contract';
 export * from './csv-connector';
 export * from './sqlite-connector';
 export * from './postgres-connector';
+export * from './mysql-connector';
 export * from './google-sheets-connector';
 export * from './registry';

@@ -41,6 +41,7 @@ export interface UploadInput {
   filename?: string;
   idempotencyKey?: string;
   documentType?: DocumentType;
+  projectId?: string | null;
 }
 
 export class DocumentService {
@@ -127,6 +128,7 @@ export class DocumentService {
         sha256,
         documentType: input.documentType ?? 'unknown',
         status: 'queued',
+        projectId: input.projectId ?? null,
       });
 
       await new DocumentPagesRepository(tx).create({
@@ -176,6 +178,7 @@ export class DocumentService {
       status?: DocumentStatus;
       documentType?: DocumentType;
       deviceId?: string;
+      projectId?: string;
       limit?: number;
       cursor?: string;
     },

@@ -287,9 +287,27 @@ describe('connector registry (CON-001)', () => {
     const registry = new ConnectorRegistry();
     expect(registry.get('csv').type).toBe('csv');
     expect(registry.types()).toEqual(
-      expect.arrayContaining(['csv', 'google_sheets', 'postgres', 'sqlite']),
+      expect.arrayContaining(['csv', 'google_sheets', 'mysql', 'postgres', 'sqlite']),
     );
     expect(() => registry.get('sap')).toThrow(/Unsupported connector type "sap". Available:/);
+  });
+
+  it('exposes MySQL as its own connector with validated config', () => {
+    const mysql = new ConnectorRegistry().get('mysql');
+    expect(mysql.label).toMatch(/MySQL/);
+    expect(() =>
+      mysql.validateConfig({ connectionString: 'postgres://x', table: 'invoices' }),
+    ).toThrow(/mysql:\/\//);
+    expect(() =>
+      mysql.validateConfig({ connectionString: 'mysql://user:pw@host/db', table: 'invoices' }),
+    ).not.toThrow();
+    // Identifiers cannot be parameterised, so they are rejected rather than escaped ad hoc.
+    expect(() =>
+      mysql.validateConfig({
+        connectionString: 'mysql://user:pw@host/db',
+        table: 'invoices; DROP',
+      }),
+    ).toThrow(/simple identifier/);
   });
 
   it('lists connectors with their capabilities', () => {

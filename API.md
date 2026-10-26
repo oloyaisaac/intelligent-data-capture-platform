@@ -151,6 +151,47 @@ Errors: `422 PAIRING_TOKEN_EXPIRED`, `422 PAIRING_TOKEN_USED`, `404 PAIRING_SESS
 
 ---
 
+## 5b. Batches (BATCH-001)
+
+| Method | Path                       | Purpose                                                        |
+| ------ | -------------------------- | -------------------------------------------------------------- |
+| POST   | `/batches`                 | Upload up to 100 files in one multipart request (`files[]`)    |
+| GET    | `/batches`                 | Recent batches with derived progress                           |
+| GET    | `/batches/:id`             | One batch with per-item status                                 |
+| GET    | `/batches/:id/items`       | `total`, `processed`, `succeeded`, `failed`, `status`, `items` |
+| GET    | `/batches/:id/results.csv` | Per-item results as CSV (UTF-8 with BOM, formula-escaped)      |
+
+Form fields: `name` (optional), `projectId` (optional), `documentType` (optional). Each file
+becomes its own document and job.
+
+```json
+// response 201 — partial success is normal, so the batch itself always succeeds
+{
+  "id": "uuid",
+  "name": "Morning intake",
+  "total": 3,
+  "processed": 1,
+  "succeeded": 1,
+  "failed": 1,
+  "status": "completed_with_errors",
+  "items": [
+    { "position": 0, "filename": "a.png", "documentId": "uuid", "status": "succeeded" },
+    {
+      "position": 1,
+      "filename": "notes.txt",
+      "documentId": null,
+      "status": "failed",
+      "error": "That file type is not supported."
+    }
+  ]
+}
+```
+
+An unsupported or unreadable file is recorded as a failed item with an `error`; it never fails the
+request and never blocks the other files.
+
+---
+
 ## 6. Review
 
 | Method | Path                    | Purpose                                                           |
@@ -201,26 +242,58 @@ Every change is stored in `review_changes` with the actor and the previous value
 
 ## 8. Organisation, users and audit
 
-| Method | Path               | Purpose                                                     |
-| ------ | ------------------ | ----------------------------------------------------------- |
-| GET    | `/organisation`    | Current organisation and settings                           |
-| PATCH  | `/organisation`    | Update name, retention, AI provider (owner/admin)           |
-| GET    | `/users`           | Members and roles                                           |
-| POST   | `/users/invite`    | Invite member with role                                     |
-| PATCH  | `/users/:id/role`  | Change role                                                 |
-| DELETE | `/users/:id`       | Remove member                                               |
-| GET    | `/audit-logs`      | Filter by actor, action, target, date range (admin)         |
-| GET    | `/stats`           | Counts for the dashboard                                    |
-| POST   | `/retention/purge` | Purge expired documents now (admin)                         |
-| GET    | `/templates`       | Document templates, optionally by document type             |
-| POST   | `/templates`       | Create a template (from scratch or a processed document)    |
-| GET    | `/templates/:id`   | Template with its version history                           |
-| PATCH  | `/templates/:id`   | Update a template; a field-list change creates a version    |
-| DELETE | `/templates/:id`   | Disable a template (history is kept)                        |
-| GET    | `/api-keys`        | API keys (secrets are never returned)                       |
-| POST   | `/api-keys`        | Create a key — the secret is returned in this response only |
-| DELETE | `/api-keys/:id`    | Revoke a key                                                |
-| GET    | `/events`          | Server-sent events for the desktop (see §9)                 |
+| Method | Path               | Purpose                                                      |
+| ------ | ------------------ | ------------------------------------------------------------ |
+| GET    | `/organisation`    | Current organisation and settings                            |
+| PATCH  | `/organisation`    | Update name, retention, AI provider (owner/admin)            |
+| GET    | `/users`           | Members and roles                                            |
+| POST   | `/users/invite`    | Invite member; returns a single-use link (no email delivery) |
+| PATCH  | `/users/:id/role`  | Change role                                                  |
+| DELETE | `/users/:id`       | Remove member                                                |
+| GET    | `/audit-logs`      | Filter by actor, action, target, date range (admin)          |
+| GET    | `/stats`           | Counts for the dashboard                                     |
+| POST   | `/retention/purge` | Purge expired documents now (admin)                          |
+| GET    | `/templates`       | Document templates, optionally by document type              |
+| POST   | `/templates`       | Create a template (from scratch or a processed document)     |
+| GET    | `/templates/:id`   | Template with its version history                            |
+| PATCH  | `/templates/:id`   | Update a template; a field-list change creates a version     |
+| DELETE | `/templates/:id`   | Disable a template (history is kept)                         |
+| GET    | `/api-keys`        | API keys (secrets are never returned)                        |
+| POST   | `/api-keys`        | Create a key — the secret is returned in this response only  |
+| DELETE | `/api-keys/:id`    | Revoke a key                                                 |
+| GET    | `/events`          | Server-sent events for the desktop (see §9)                  |
+
+### 8b. Projects and invitations (TEAM-001)
+
+| Method | Path                         | Purpose                                                  |
+| ------ | ---------------------------- | -------------------------------------------------------- |
+| GET    | `/projects`                  | Projects; archived ones only with `includeArchived=true` |
+| POST   | `/projects`                  | Create a project (admin); `key` derived from the name    |
+| PATCH  | `/projects/:id`              | Rename, archive or restore (admin)                       |
+| DELETE | `/projects/:id`              | Archive — documents keep their assignment                |
+| GET    | `/invitations`               | Pending and used invitations (admin), never with tokens  |
+| DELETE | `/invitations/:id`           | Revoke an invitation (admin)                             |
+| POST   | `/invitations/:token/accept` | Public: set a password, activate membership, sign in     |
+
+`POST /users/invite` stores only the SHA-256 hash of the token and returns the link once:
+
+```json
+{
+  "status": "invited",
+  "invitation": {
+    "id": "uuid",
+    "email": "person@example.com",
+    "role": "reviewer",
+    "expiresAt": "2026-11-02T10:00:00.000Z",
+    "token": "…",
+    "acceptUrl": "http://localhost:5173/#/accept-invite?token=…"
+  }
+}
+```
+
+The accept endpoint is anonymous (the token is the credential), expires after
+`INVITATION_TTL_SECONDS`, and is single-use: the second attempt returns `401`. A weak password is
+`400`; an unknown, used or expired token is `401` with a message that does not say which.
 
 ---
 

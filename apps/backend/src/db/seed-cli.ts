@@ -48,11 +48,23 @@ async function main(): Promise<void> {
     },
   );
 
+  // A demo project so the Projects screen and batch assignment have something to show.
+  await services.projects.create(
+    {
+      userId: tokens.user.id,
+      organisationId: tokens.user.organisationId,
+      role: 'owner',
+      actorType: 'user',
+    },
+    { name: 'Head office', key: 'HQ' },
+  );
+
   console.log('Seeded demo data:');
   console.log(`  organisation: ${tokens.user.organisationName}`);
   console.log(`  email:        ${email}`);
   console.log(`  password:     ${password}`);
   console.log('  connector:    Demo CSV export');
+  console.log('  project:      HQ (Head office)');
   await db.close();
 }
 

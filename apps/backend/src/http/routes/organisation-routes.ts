@@ -36,13 +36,27 @@ export function registerOrganisationRoutes(
     await guards.requireRole('admin')(request, reply);
     const parsed = InviteUserRequestSchema.safeParse(request.body);
     if (!parsed.success) throw badRequest('Enter a valid email address and role.');
-    await services.auth.invite({
+    const invitation = await services.auth.invite({
       email: parsed.data.email,
       role: parsed.data.role,
       invitedBy: actor.userId,
       organisationId: actor.organisationId,
     });
-    return reply.code(202).send({ status: 'invited' });
+    // Delivery is out of scope, so the caller receives the link once; only its hash is stored.
+    return reply.code(202).send({ status: 'invited', invitation });
+  });
+
+  app.get('/invitations', async (request) => {
+    const actor = await guards.authenticate(request);
+    await guards.requireRole('admin')(request);
+    return { items: await services.auth.listInvitations(actor.organisationId) };
+  });
+
+  app.delete('/invitations/:id', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    await guards.requireRole('admin')(request);
+    await services.auth.revokeInvitation(actor.organisationId, guards.uuidParam(request, 'id'));
+    return reply.code(204).send();
   });
 
   app.patch('/users/:id/role', async (request, reply) => {
