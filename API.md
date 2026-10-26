@@ -2,7 +2,10 @@
 
 Contract between the mobile app, desktop app, backend and integrators.
 
-> **Status:** designed, not implemented. Base URL, versions and payloads below are the target contract for `BACK-001` and later stories. Nothing here is live yet.
+> **Status:** implemented and enforced. `docs/openapi.yaml` is checked against the registered routes
+> by `npm run test:api`, so a route that is not documented (or a documented route that does not
+> exist) fails CI. Paths below are relative to the versioned prefix: the health endpoint, for
+> example, is `GET /api/v1/health` — there is no bare `/health`.
 
 ---
 
@@ -51,14 +54,15 @@ Never leak stack traces, SQL, internal paths or another tenant's identifiers.
 
 ### `GET /health`
 
-No auth. Returns `200` when the API and its critical dependencies are reachable.
+No auth. Returns `200` when the API and its critical dependencies are reachable. `dependencies` reports
+each one by name; the database is the only external dependency of the shipped runtime (DEC-029).
 
 ```json
 {
   "status": "ok",
   "version": "0.1.0",
   "uptimeSeconds": 4213,
-  "dependencies": { "db": "ok", "queue": "ok" }
+  "dependencies": { "db": "ok" }
 }
 ```
 

@@ -60,6 +60,15 @@ const ConfigSchema = z.object({
 
 export type Config = z.infer<typeof ConfigSchema>;
 
+/**
+ * Every environment key this service reads.
+ *
+ * Exported so `.env.example` can be checked against it (test/config.test.ts): a key that exists in
+ * one and not the other is a documentation bug that otherwise only shows up when someone copies the
+ * example and the server refuses to start.
+ */
+export const CONFIG_ENV_KEYS = Object.keys(ConfigSchema.shape) as Array<keyof Config>;
+
 function describeIssues(error: z.ZodError): string {
   return error.issues
     .map((issue) => `  ${issue.path.join('.') || '(root)'}: ${issue.message}`)

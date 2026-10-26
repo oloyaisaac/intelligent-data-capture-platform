@@ -27,8 +27,10 @@ M0 and M1 are complete, and these M2 stories are now done too:
 
 ## Now
 
-Nothing open: all 45 stories in `PRD.json` are `done`. Next candidates are the deliberate gaps listed
-in `AGENT_STATE.md` (signed installers, live-database connector runs, Socket.IO transport).
+Nothing open: all 45 stories in `PRD.json` are `done`. The last round was a documentation audit, not
+new features — `.env.example` was unusable, `DATABASE.md` claimed the schema was unimplemented, and
+`DECISIONS.md` was missing DEC-013, which several documents cited. All three are fixed and
+`apps/backend/test/config.test.ts` now fails if the environment file and the config schema drift.
 
 ## Done this round
 
@@ -45,6 +47,10 @@ in `AGENT_STATE.md` (signed installers, live-database connector runs, Socket.IO 
 
 ## Later (Phase 3)
 
-- [ ] `CRM-001` — CRM export targets
-- [ ] `VOICE-001` — voice-assisted field entry
-- [ ] Socket.IO transport alongside SSE (DEC-016)
+Release-side work, not product stories. Each is described in `AGENT_STATE.md`:
+
+- [ ] Sign and smoke-test installers on Windows, macOS and Linux (DEC-022).
+- [ ] Run the connectors and the backend against live MySQL, PostgreSQL and Google Sheets.
+- [ ] Implement the `s3` storage adapter; `STORAGE_DRIVER=s3` fails fast today.
+- [ ] Socket.IO transport alongside SSE (DEC-016), behind the same `RealtimeHub`.
+- [ ] One end-to-end test (Playwright for the renderer; Detox or Maestro for mobile).

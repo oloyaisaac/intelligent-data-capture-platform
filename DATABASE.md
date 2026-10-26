@@ -1,8 +1,13 @@
 # Database
 
-Data model blueprint. Target database: **PostgreSQL 16**, migrated with Prisma (DEC-003).
+Data model reference for the shipped schema. The authoritative DDL is
+`apps/backend/src/db/migrations.ts` — this document explains it and lists what each table is for.
 
-> **Status:** not implemented. This is the design to implement in `DB-001`.
+> **Status:** implemented. Seven forward-only migrations
+> (`001_initial_schema` … `007_workflows`) create 30 tables on SQLite (`node:sqlite`, the local and
+> tested path) or PostgreSQL (the production path). There is no ORM: repositories hold the SQL, and
+> one schema serves both drivers (DEC-013). Types below are written in PostgreSQL terms; on SQLite
+> the same columns are `text`/`integer`/`real` and timestamps are ISO-8601 text.
 
 ---
 
@@ -10,27 +15,33 @@ Data model blueprint. Target database: **PostgreSQL 16**, migrated with Prisma (
 
 - Table names: plural `snake_case`. Column names: `snake_case`.
 - Primary keys: `id` — UUID v7 (time-sortable) unless stated otherwise.
-- Every table has `created_at` and `updated_at` (`timestamptz`, UTC).
+- Every table has `created_at`; mutable rows also have `updated_at` (`timestamptz`, UTC). Append-only tables (audit, runs, deliveries) deliberately have none.
 - Every tenant-owned table has `organisation_id uuid not null` referencing `organisations(id)`.
 - Soft delete only where stated (`deleted_at`); audit records are never deleted.
-- Enums are stored as PostgreSQL enums or text with a check constraint (documented choice per migration).
+- Enums are stored as `text` with a check constraint, never a database enum type — the same DDL has to run on SQLite and PostgreSQL.
 - Money: `numeric(18,4)` plus `currency char(3)` — never floats.
 - Personal data columns are marked 🔒; they are subject to retention and deletion (`SEC-001`).
 
 ## 2. Entity overview
 
 ```
-organisations 1─┬─* users ──* memberships (role)     org-scoped roles
+organisations 1─┬─* users ──* memberships (role)     org-scoped roles; sessions per user
                 ├─* devices ──* pairing_sessions
                 ├─* documents ─┬─* document_pages
-                │              ├─1 extractions ─┬─* extraction_fields
-                │              │                └─* extraction_tables
+                │              ├─* extractions ──* extraction_fields   (tables live in extractions.udm)
                 │              ├─* reviews ──* review_changes
                 │              └─* jobs
+                ├─* batches ──* batch_items (document_id)
+                ├─* projects ──* documents.project_id
+                ├─* invitations
                 ├─* connectors ─┬─* mapping_profiles
-                │               └─* connector_runs
+                │               ├─* connector_runs
+                │               └─* marketplace_installs
                 ├─* exports
-                ├─* templates
+                ├─* templates ──* template_versions
+                ├─* workflows ──* workflow_runs
+                ├─* api_keys
+                ├─* webhooks ──* webhook_deliveries
                 └─* audit_logs (append-only)
 ```
 
@@ -55,7 +66,7 @@ organisations 1─┬─* users ──* memberships (role)     org-scoped roles
 | Column                  | Type                         | Notes                                          |
 | ----------------------- | ---------------------------- | ---------------------------------------------- |
 | id                      | uuid PK                      |                                                |
-| email 🔒                | citext unique not null       |                                                |
+| email 🔒                | text unique not null         | compared lower-cased in code                   |
 | password_hash           | text                         | Argon2id; null for invited-not-activated users |
 | display_name 🔒         | text                         |                                                |
 | locale                  | text not null default `'en'` |                                                |
@@ -202,16 +213,13 @@ Flattened projection of UDM fields, so review and search are queryable.
 
 Index: `(extraction_id)`, `(extraction_id, needs_review)`.
 
-### 3.11 `extraction_tables`
+### 3.11 `extraction_tables` — no such table (by design)
 
-| Column        | Type           | Notes                |
-| ------------- | -------------- | -------------------- |
-| id            | uuid PK        |                      |
-| extraction_id | uuid FK        |                      |
-| name          | text           | e.g. `line_items`    |
-| columns       | jsonb not null | `[{key,label,type}]` |
-| rows          | jsonb not null | `[[cell,...],...]`   |
-| created_at    | timestamptz    |                      |
+Tables are **not** a separate table. They live inside `extractions.udm` as a `tables: [{ name,
+columns: [{key, label, type}], rows: [[cell, …]] }]` array, because a line-item table has no
+independent lifecycle: it is part of the extraction it came from, is versioned with it, and would
+otherwise need a join to be exported or mapped. Per-cell review of a table goes through
+`extraction_fields` with a `table[n].column` path.
 
 ### 3.12 `reviews`
 
@@ -243,7 +251,7 @@ Immutable record of every field edit — the basis of learning and audit.
 | changed_by          | uuid FK → users |                                              |
 | created_at          | timestamptz     |                                              |
 
-### 3.14a `marketplace_installs`
+### 3.14 `marketplace_installs`
 
 One row per installation of a reviewed package against a connector. Rows are never deleted, so a
 rollback has a version to return to.
@@ -263,7 +271,7 @@ rollback has a version to return to.
 | rolled_back_at  | timestamptz | null while active                                      |
 | install_seq     | integer     | per-organisation counter; rollback order uses this     |
 
-### 3.15a `workflows` and `workflow_runs`
+### 3.15 `workflows` and `workflow_runs`
 
 A workflow is a rule; a run is what that rule decided for one document. Definitions are editable and
 deletable, runs are append-only (AGENT-001).
@@ -302,7 +310,7 @@ deletable, runs are append-only (AGENT-001).
 Indexes: `(organisation_id, created_at DESC)` on both, plus `(status, created_at DESC)` on runs so
 the approval queue is a cheap query.
 
-### 3.14 `connectors`
+### 3.16 `connectors`
 
 | Column                  | Type           | Notes                                                                    |
 | ----------------------- | -------------- | ------------------------------------------------------------------------ |
@@ -317,7 +325,7 @@ the approval queue is a cheap query.
 | last_error              | text           |                                                                          |
 | created_at / updated_at | timestamptz    |                                                                          |
 
-### 3.15 `mapping_profiles`
+### 3.17 `mapping_profiles`
 
 | Column                  | Type                           | Notes                                                              |
 | ----------------------- | ------------------------------ | ------------------------------------------------------------------ |
@@ -331,7 +339,7 @@ the approval queue is a cheap query.
 | duplicate_keys          | jsonb                          | e.g. `["invoice.number","supplier.taxId"]`                         |
 | created_at / updated_at | timestamptz                    |                                                                    |
 
-### 3.16 `connector_runs`
+### 3.18 `connector_runs`
 
 | Column             | Type          | Notes                                                        |
 | ------------------ | ------------- | ------------------------------------------------------------ |
@@ -347,7 +355,7 @@ the approval queue is a cheap query.
 | duration_ms        | integer       |                                                              |
 | created_at         | timestamptz   |                                                              |
 
-### 3.17 `exports`
+### 3.19 `exports`
 
 | Column          | Type            | Notes                               |
 | --------------- | --------------- | ----------------------------------- |
@@ -362,7 +370,7 @@ the approval queue is a cheap query.
 | expires_at      | timestamptz     | generated files are time-limited    |
 | created_at      | timestamptz     |                                     |
 
-### 3.18 `jobs`
+### 3.20 `jobs`
 
 | Column                   | Type                       | Notes                                                                   |
 | ------------------------ | -------------------------- | ----------------------------------------------------------------------- |
@@ -381,7 +389,7 @@ the approval queue is a cheap query.
 
 Index: `(status, run_after)` for the worker poll.
 
-### 3.19 `templates`
+### 3.21 `templates`
 
 | Column                  | Type                          | Notes                              |
 | ----------------------- | ----------------------------- | ---------------------------------- |
@@ -395,7 +403,7 @@ Index: `(status, run_after)` for the worker poll.
 | active                  | boolean not null default true |                                    |
 | created_at / updated_at | timestamptz                   |                                    |
 
-### 3.20 `audit_logs` (append-only)
+### 3.22 `audit_logs` (append-only)
 
 | Column                  | Type                 | Notes                                                        |
 | ----------------------- | -------------------- | ------------------------------------------------------------ |
@@ -411,7 +419,7 @@ Index: `(status, run_after)` for the worker poll.
 
 Rules: `UPDATE` and `DELETE` are revoked for the application role; retention is longer than any business table (default 24 months).
 
-### 3.20b `template_versions`
+### 3.23 `template_versions`
 
 Snapshot of a template's field list, written on creation and on every field-list change
 (migration `003_template_versions`).
@@ -426,7 +434,7 @@ Snapshot of a template's field list, written on creation and on every field-list
 | created_by      | uuid FK → users     | NULL                        | Who made the change             |
 | created_at      | timestamptz         | NOT NULL                    |                                 |
 
-### 3.22 `projects` _(TEAM-001)_
+### 3.24 `projects` _(TEAM-001)_
 
 A grouping label inside one organisation (branch, client, month). Not a second tenant: every
 query still filters by `organisation_id` first.
@@ -441,7 +449,7 @@ query still filters by `organisation_id` first.
 | archived_at             | timestamptz     | NULL                                      | Archive instead of delete |
 | created_at / updated_at | timestamptz     | NOT NULL                                  |                           |
 
-### 3.23 `batches` / `batch_items` _(BATCH-001)_
+### 3.25 `batches` / `batch_items` _(BATCH-001)_
 
 A batch records _which files were asked for_; progress is derived from the documents, so a counter
 can never disagree with reality.
@@ -452,7 +460,7 @@ can never disagree with reality.
 `batch_items`: `id`, `batch_id` FK (cascade), `document_id` (nullable — a file rejected before a
 document existed), `position`, `filename`, `error`, `created_at`, `UNIQUE (batch_id, position)`.
 
-### 3.24 `invitations` _(TEAM-001)_
+### 3.26 `invitations` _(TEAM-001)_
 
 Expiring, single-use invitation links. Only the SHA-256 hash of the token is stored, so a database
 leak cannot be replayed as invitations.
@@ -470,16 +478,52 @@ leak cannot be replayed as invitations.
 | used_at         | timestamptz     | NULL               | Set once; the guard is a conditional update  |
 | created_at      | timestamptz     | NOT NULL           |                                              |
 
-### 3.21 `api_keys` _(implemented)_
+### 3.27 `api_keys` _(DEVAPI-001)_
 
-`id`, `organisation_id`, `name`, `key_hash` (unique), `scopes text[]`, `created_by`, `last_used_at`, `revoked_at`, timestamps.
+Machine credentials for the developer API. Only the SHA-256 hash is stored; `key_prefix` exists so a
+person can recognise a key in the list without the secret being recoverable.
+
+`id`, `organisation_id`, `name`, `key_hash` (unique), `key_prefix`, `scopes` (JSON array of
+`documents:read`, `documents:write`, `exports:read`, …), `created_by`, `last_used_at`, `revoked_at`,
+`created_at`.
+
+### 3.28 `webhooks` and `webhook_deliveries` _(DEVAPI-001)_
+
+A webhook is an endpoint an organisation subscribes to; a delivery is one attempt to call it. The
+signing secret is encrypted with the same AES-256-GCM keyring as connector credentials, and a
+delivery records its own attempt count and next retry so the worker can back off without holding a
+job open for days.
+
+| `webhooks` column | Type        | Notes                                             |
+| ----------------- | ----------- | ------------------------------------------------- |
+| id                | uuid PK     |                                                   |
+| organisation_id   | uuid FK     |                                                   |
+| url               | text        | https only outside a loopback host                |
+| events            | jsonb/text  | subscribed event names, from the §9.3 catalogue   |
+| secret_encrypted  | text        | AES-256-GCM ciphertext, never returned by the API |
+| active            | integer     | 0 pauses delivery without deleting the endpoint   |
+| created_at        | timestamptz |                                                   |
+
+| `webhook_deliveries` column | Type        | Notes                                     |
+| --------------------------- | ----------- | ----------------------------------------- |
+| id                          | uuid PK     |                                           |
+| webhook_id                  | uuid FK     | cascade delete with the webhook           |
+| event                       | text        |                                           |
+| status                      | text        | `pending` \| `delivered` \| `failed`      |
+| attempts                    | integer     | incremented per try                       |
+| response_status             | integer     | null until the endpoint answers           |
+| last_error                  | text        | the failure in words, for the audit trail |
+| next_attempt_at             | timestamptz | null when nothing is queued               |
+| created_at                  | timestamptz |                                           |
+
+`schema_migrations` (`id`, `applied_at`) is the framework table: one row per applied migration.
 
 ## 4. Universal Data Model storage
 
 The UDM record is persisted twice, deliberately:
 
 1. **`extractions.udm` (jsonb)** — the complete, versioned record. This is the source of truth for export and connectors.
-2. **`extraction_fields` / `extraction_tables`** — a flattened projection for review UI, search and statistics.
+2. **`extraction_fields`** — a flattened projection of the scalar fields for the review UI, search and statistics. Table rows are **not** projected; they are read from `udm.tables`.
 
 Invariant: the projection must always be derivable from `udm`. If they disagree, `udm` wins.
 
@@ -546,8 +590,10 @@ Deletion must remove the storage object and the database rows, and must be recor
 - Migrations are forward-only once released; write a new migration instead of editing a released one.
 - Destructive migrations (drop/rename) require a two-step release: add-and-backfill, then remove.
 - `DB-001` must include a seed script creating one demo organisation, one admin user and one disabled sample connector.
-- Applied migrations: `001_initial_schema`, `002_connector_and_export_columns`,
-  `003_templates_and_api_keys`, `004_batches_projects_invitations`, `005_corrections_learning_opt_in`.
-  `005` adds `review_changes.document_type` and `organisations.learning_opt_in` (REV-002).
-  `006` adds `marketplace_installs` (MARKET-001). `007` adds `workflows` and `workflow_runs`
-  (AGENT-001).
+- Applied migrations, in order, recorded in `schema_migrations`:
+  `001_initial_schema` (the 19 core tables), `002_api_keys_and_webhooks`, `003_template_versions`,
+  `004_batches_projects_invitations`, `005_corrections_learning_opt_in` (`review_changes.document_type`
+  and `organisations.learning_opt_in`, REV-002), `006_marketplace_installs` (MARKET-001) and
+  `007_workflows` (`workflows`, `workflow_runs`, AGENT-001).
+- `npm run db:migrate` applies pending migrations and is safe to re-run; `npm run db:seed` creates one
+  demo organisation, one owner and a sample export without duplicating them on a second run.

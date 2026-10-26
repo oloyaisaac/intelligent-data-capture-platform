@@ -128,30 +128,37 @@ Traceability rule: every requirement below maps to at least one story in `PRD.js
 ## 5. Constraints
 
 - C-01: Existing dependencies (React Native 0.86, React 19, React Navigation 7, Socket.IO 4.8) define the mobile baseline.
-- C-02: The project currently has **no application source code**; only docs and a dependency manifest exist.
+- C-02: The application source code exists (backend, desktop, mobile, connector SDK) and all 45 planned stories are implemented; the release-side gaps are listed in `AGENT_STATE.md`.
 - C-03: Third-party AI/OCR usage must fit an approved cost model per document (see `PRD.json` Q-001).
 - C-04: Mobile distribution goes through Google Play and the Apple App Store; both impose review and privacy-disclosure obligations.
 - C-05: Any handling of ID documents and invoices implies personal data obligations (e.g. GDPR/Data Protection Act) — see `SECURITY.md`.
 
 ## 6. Hardware and software requirements
 
-**Development machine**
+**Development machine (what the shipped code needs)**
 
 - Node.js 22 LTS, npm 10+
 - Git 2.39+
 - Android Studio with JDK 17 and an Android emulator (mobile development)
 - Xcode 16+ on macOS (iOS development)
-- Docker (PostgreSQL, Redis, local object storage)
-- 4-core CPU, 16 GB RAM recommended
+- 4-core CPU, 8 GB RAM minimum; 16 GB recommended for the Android emulator
+- No database, cache or object store: the backend runs on SQLite with filesystem storage (DEC-029)
 
 **Runtimes and services**
 
-- PostgreSQL 16 for application data
-- Redis 7 for queue coordination and rate limiting
-- S3-compatible object storage (MinIO locally) for document images
-- Optional: OCR engine (local) and one approved cloud AI provider
+- SQLite (bundled with Node 22 via `node:sqlite`) for local development and tests
+- The filesystem under `STORAGE_PATH` for document images
+- An in-process worker polling the `jobs` table
+- Optional: an OCR engine (local Tesseract) and one approved cloud AI provider
 
-See `ENVIRONMENT.md` for exact setup steps.
+**Scale-out target (not required to run, required to scale)**
+
+- PostgreSQL 16 as the system of record (`DB_DRIVER=postgres`, DEC-003/DEC-013)
+- A shared job queue and more than one worker process
+- S3-compatible object storage (MinIO locally) for document images (DEC-010)
+- Redis 7 if the queue adapter needs it
+
+See `ENVIRONMENT.md` for setup and `DECISIONS.md` DEC-029 for the order these upgrades go in.
 
 ## 7. Security requirements (summary)
 

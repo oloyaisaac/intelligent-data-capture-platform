@@ -2,7 +2,10 @@
 
 Technical blueprint of the AI Universal Data Capture Platform (IDCP).
 
-> **Reality check:** this document describes the **target** architecture. Only the documentation and a dependency manifest exist today (see `AGENT_STATE.md`). Sections marked _(planned)_ are not implemented yet.
+> **Reality check:** the components in §2 exist and are tested; where the shipped runtime is simpler
+> than the blueprint, the difference is stated inline and recorded in `DECISIONS.md` (notably DEC-013
+> for the two database drivers, DEC-016 for SSE instead of Socket.IO, and DEC-029 for the single-process
+> runtime). `AGENT_STATE.md` lists what is deliberately absent.
 
 ---
 
@@ -15,14 +18,15 @@ Technical blueprint of the AI Universal Data Capture Platform (IDCP).
 │  (React Native)  │        │   (Electron)     │        │ Excel/Sheets/SQL  │
 └────────┬─────────┘        └────────┬─────────┘        │ CRM / ERP / API   │
          │ capture + upload          │ review + jobs   └─────────▲─────────┘
-         │ QR pairing / Socket.IO    │ Socket.IO / HTTPS         │
+         │ QR pairing / HTTPS        │ SSE + HTTPS               │
          └───────────────┬───────────┘                           │
                          ▼                                       │
               ┌──────────────────────────────────────────────────┴────┐
               │                     Backend                               │
               │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐ │
-              │  │  REST API   │  │  Job queue   │  │ Connector      │ │
-              │  │  (Fastify)  │  │  (BullMQ)    │  │ runtime        │ │
+              │  │  REST API   │  │ Job worker   │  │ Connector      │ │
+              │  │  (Fastify)  │  │ (in-process, │  │ runtime        │ │
+              │  │             │  │  `jobs` tbl) │  │                │ │
               │  └──────┬──────┘  └──────┬───────┘  └───────┬────────┘ │
               │         │                │                  │          │
               │  ┌──────▼────────────────▼──────────────────▼───────┐  │
@@ -32,24 +36,25 @@ Technical blueprint of the AI Universal Data Capture Platform (IDCP).
               └─────────┼───────────────────────┼──────────────────────┘
                         ▼                       ▼
               ┌──────────────────┐    ┌────────────────────┐    ┌───────────────┐
-              │  PostgreSQL 16   │    │  Object storage    │    │ AI providers  │
-              │  metadata, UDM,  │    │  S3 / MinIO        │    │ local OCR +   │
-              │  audit, jobs     │    │  document images   │    │ cloud (opt-in)│
+              │ SQLite / Postgres│    │ Filesystem / S3    │    │ AI providers  │
+              │ metadata, UDM,   │    │ original documents │    │ local OCR +   │
+              │ audit, jobs      │    │ (STORAGE_PATH)     │    │ cloud (opt-in)│
               └──────────────────┘    └────────────────────┘    └───────────────┘
 ```
 
 ## 2. Components
 
-### 2.1 Mobile app (`apps/mobile`) — React Native _(planned)_
+### 2.1 Mobile app (`apps/mobile`) — React Native
 
 Responsibilities: QR pairing, camera capture, edge detection/crop/enhancement, offline queue, upload, status display, review of simple fields, secure device credential storage.
 
 - Navigation: React Navigation 7 (stack for flows, bottom tabs for areas).
 - State: local persistence for the queue (SQLite/MMKV) plus a lightweight query cache; server state is the source of truth once online.
 - Native modules: camera, barcode scanning, document edge detection, secure storage, file system.
-- Talks to the backend **only** over HTTPS and authenticated Socket.IO.
+- Talks to the backend **only** over HTTPS; the desktop holds the server-push stream (SSE), and the
+  phone uploads when it has a connection because the queue is local-first.
 
-### 2.2 Desktop app (`apps/desktop`) — Electron + React _(planned)_
+### 2.2 Desktop app (`apps/desktop`) — Electron + React
 
 Responsibilities: pairing QR display and device management, live job dashboard, full human-in-the-loop review, mapping configuration, connector setup, exports, analytics later.
 
@@ -57,24 +62,29 @@ Responsibilities: pairing QR display and device management, live job dashboard, 
 - Renderer: React UI with **no** Node access; all privileged operations go through a validated, allow-listed IPC bridge.
 - Security posture per `SECURITY.md` §6.3.
 
-### 2.3 Backend API (`apps/backend`) — Node.js 22 + TypeScript _(planned)_
+### 2.3 Backend API (`apps/backend`) — Node.js 22 + TypeScript
 
-Split into stateless API and worker process, both from one codebase:
+One process today (DEC-029), split logically into two roles that can be separated later:
 
-- **API process:** HTTP endpoints, authentication, authorisation, validation, job enqueueing, realtime gateway.
-- **Worker process:** OCR/extraction jobs, mapping and connector writes, scheduled retention purges. Horizontally scalable; each job is idempotent.
+- **API role:** HTTP endpoints, authentication, authorisation, validation, job enqueueing, the SSE stream.
+- **Worker role:** OCR/extraction jobs, mapping and connector writes, retention purges. It polls the
+  `jobs` table, claims each job transactionally, and retries with exponential backoff; every job is
+  idempotent, so two workers would be safe even though only one runs by default.
 
-Domain boundaries (folders under `src/`): `auth`, `authz`, `orgs`, `devices`, `pairing`, `documents`, `ai`, `review`, `mapping`, `connectors`, `export`, `audit`, `retention`, `realtime`.
+Layers, by folder under `src/`: `http/routes` (Fastify plugins, one per area) → `services` (domain
+rules, role checks, auditing) → `repositories` (the only SQL) → `db` (driver, migrations). Pure logic
+that needs no database lives beside its feature (`workflows/engine.ts`, `marketplace/catalog.ts`) so it
+can be tested directly.
 
-### 2.4 Shared package (`packages/shared`) _(planned)_
+### 2.4 Shared package (`packages/shared`)
 
 Single source of truth for: Universal Data Model types and Zod schemas, API request/response types, error codes, confidence/review thresholds, i18n catalogues, date/number formatters. Consumed by mobile, desktop and backend.
 
-### 2.5 Connector package (`packages/connectors`) _(planned)_
+### 2.5 Connector package (`packages/connectors`)
 
 The connector contract (manifest, capabilities, schema discovery, health check) plus first-party connectors. Connectors are isolated: a failing connector reports an error and never crashes the host process.
 
-### 2.6 AI layer _(planned)_
+### 2.6 AI layer
 
 ```
 upload → preprocess → OCR (text + geometry) → classify → extract fields/tables
@@ -103,7 +113,7 @@ Desktop receives device.paired event and shows the device
 
 ```
 Mobile captures → local queue → POST /api/v1/documents (idempotency key)
-Backend stores image in object storage, creates document + job, emits document.queued
+Backend writes the image to storage (filesystem), creates document + job, emits document.queued
 Worker: OCR → classify → extract → validate UDM → persist extraction
 Backend emits job.progress / document.needs_review
 Desktop review UI: human confirms or corrects fields → POST /review
@@ -121,18 +131,18 @@ Approved record → UDM → mapping profile (destination fields + transforms)
 
 ## 4. Technology choices
 
-| Concern            | Choice                                   | Decision |
-| ------------------ | ---------------------------------------- | -------- |
-| Mobile             | React Native 0.86 / React 19             | DEC-001  |
-| Monorepo           | npm workspaces + TypeScript              | DEC-002  |
-| Database           | PostgreSQL 16 + Prisma                   | DEC-003  |
-| Interchange format | Universal Data Model (Zod + JSON Schema) | DEC-004  |
-| Pairing            | Short-lived single-use QR token          | DEC-005  |
-| Realtime           | Socket.IO                                | DEC-006  |
-| AI                 | Provider abstraction, local-first        | DEC-007  |
-| Jobs               | Redis-backed queue, idempotent workers   | DEC-008  |
-| Desktop            | Electron + React                         | DEC-009  |
-| File storage       | S3-compatible object storage             | DEC-010  |
+| Concern            | Choice                                                                                 | Decision         |
+| ------------------ | -------------------------------------------------------------------------------------- | ---------------- |
+| Mobile             | React Native 0.86 / React 19                                                           | DEC-001          |
+| Monorepo           | npm workspaces + TypeScript                                                            | DEC-002          |
+| Database           | SQLite (dev/test) and PostgreSQL 16 (production); hand-written forward-only migrations | DEC-003, DEC-013 |
+| Interchange format | Universal Data Model (Zod + JSON Schema)                                               | DEC-004          |
+| Pairing            | Short-lived single-use QR token                                                        | DEC-005          |
+| Realtime           | Authenticated SSE (Socket.IO behind the same interface later)                          | DEC-006, DEC-016 |
+| AI                 | Provider abstraction, local-first                                                      | DEC-007          |
+| Jobs               | `jobs` table + in-process worker, idempotent jobs; shared queue is the scale-out step  | DEC-008, DEC-029 |
+| Desktop            | Electron + React                                                                       | DEC-009          |
+| File storage       | Filesystem under `STORAGE_PATH`; S3-compatible store is the scale-out step             | DEC-010, DEC-029 |
 
 ## 5. Security zones
 

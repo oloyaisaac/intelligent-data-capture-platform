@@ -2,20 +2,22 @@
 
 How we prove the platform works. A story is not `done` until the relevant checks here pass.
 
-> **Status:** no test suite exists yet. This document defines the harness to build in `FOUND-004` and the test cases to satisfy as features land.
+> **Status:** the suite exists and is what CI runs (`npm run verify`): 343 tests in 21 suites across
+> five Jest projects. This document states how it is organised, what each layer is for, and which
+> gaps are deliberate (no browser or device automation yet).
 
 ---
 
 ## 1. Test pyramid
 
-| Layer       | Scope                                                                                                                    | Tooling                              | Runs                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ | ------------------------ |
-| Unit        | Pure functions: UDM validation, confidence thresholds, mapping transforms, CSV escaping, duplicate scoring, date parsing | Jest + ts-jest                       | Every commit             |
-| Integration | API routes against a real PostgreSQL + Redis in Docker; object storage via MinIO                                         | Jest + supertest                     | Every PR                 |
-| Contract    | Connector contract tests; UDM schema round-trip; OpenAPI validation                                                      | Jest + custom harness                | Every PR                 |
-| Component   | React screens (desktop), React Native screens                                                                            | Testing Library (web + native)       | Every PR                 |
-| End-to-end  | Pair → capture → extract → review → export                                                                               | Detox (mobile), Playwright (desktop) | Nightly + before release |
-| Manual      | Physical device camera/QR, real spreadsheet, real database                                                               | Checklist below                      | Before release           |
+| Layer       | Scope                                                                                                                    | Tooling                         | Runs                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------- | --------------------- |
+| Unit        | Pure functions: UDM validation, confidence thresholds, mapping transforms, CSV escaping, duplicate scoring, date parsing | Jest + ts-jest                  | Every commit          |
+| Integration | API routes against a real Fastify listener over SQLite (`node:sqlite`) and filesystem storage in a temp directory        | Jest + `fetch` harness          | Every PR              |
+| Contract    | Connector contract tests; UDM schema round-trip; OpenAPI validation                                                      | Jest + custom harness           | Every PR              |
+| Component   | Desktop screens rendered in jsdom; mobile logic and screens as pure functions                                            | Testing Library (jsdom)         | Every PR              |
+| End-to-end  | Pair → capture → extract → review → export (not automated yet; covered by the manual cases below)                        | Detox / Playwright, to be added | Manual before release |
+| Manual      | Physical device camera/QR, real spreadsheet, real database                                                               | Checklist below                 | Before release        |
 
 Target: ≥ 80% coverage on business logic (`packages/shared`, backend domain services). Coverage is a floor, not a goal — cover behaviour, not lines.
 
@@ -46,14 +48,14 @@ and browser harness.
 
 ### Current coverage
 
-| Workspace             | Suite                                                                                                                                                               | Tests   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `packages/shared`     | `test/shared.test.ts`                                                                                                                                               | 47      |
-| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                           | 29      |
-| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, security) | 161     |
-| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                            | 48      |
-| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                  | 33      |
-| **Total**             | 20 suites                                                                                                                                                           | **318** |
+| Workspace             | Suite                                                                                                                                                                       | Tests   |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `packages/shared`     | `test/shared.test.ts`                                                                                                                                                       | 49      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                                   | 29      |
+| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, security, config) | 167     |
+| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                                    | 55      |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                          | 43      |
+| **Total**             | 21 suites                                                                                                                                                                   | **343** |
 
 Notes for anyone extending the suite:
 

@@ -8,7 +8,7 @@ IDCP is an AI-powered bridge between physical documents and digital business sys
 > The repository contains the backend API (Fastify 5 over SQLite/PostgreSQL), the desktop renderer
 > (React 19 + Vite with an Electron shell), the mobile app (React Native), the connector SDK and the
 > test suite behind them: `npm run verify` typechecks, lints, checks the PRD/OpenAPI/packaging
-> contracts and runs 337 tests in 20 suites. What is deliberately not here yet — signed installers,
+> contracts and runs 343 tests in 21 suites. What is deliberately not here yet — signed installers,
 > live-database connector runs and the Socket.IO transport — is listed in
 > [`AGENT_STATE.md`](AGENT_STATE.md).
 
@@ -69,19 +69,20 @@ CRM/ERP/accounting connectors · public developer API · connector marketplace �
 ## Architecture at a glance
 
 ```
-        ┌─────────────┐   QR pairing + Socket.IO   ┌──────────────┐
+        ┌─────────────┐   QR pairing over HTTPS    ┌──────────────┐
         │ Mobile app  │◄──────────────────────────►│              │
         │ Android/iOS │   capture & upload         │   Backend    │
         └─────────────┘                            │   API +      │
-                                                   │   workers    │
-        ┌─────────────┐   review, jobs, exports    │              │
+                                                   │   worker     │
+        ┌─────────────┐   review, jobs, exports    │  (1 process) │
         │  Desktop    │◄──────────────────────────►│              │
-        │ Win/mac/Lin │                            └──────┬───────┘
+        │ Win/mac/Lin │   SSE push                 └──────┬───────┘
         └─────────────┘                                   │
                                      ┌────────────────────┼────────────────────┐
                                      ▼                    ▼                    ▼
-                              PostgreSQL           Object storage        AI providers
-                              (metadata)           (document images)   (OCR / extraction)
+                              SQLite locally      Filesystem locally      AI providers
+                              PostgreSQL for      S3 for scale-out       (local OCR +
+                              production          (adapter pending)        cloud opt-in)
                                                                               │
                                                               ┌───────────────┴─────────────┐
                                                               ▼                             ▼
@@ -93,15 +94,15 @@ Full detail, component responsibilities and data flow: [`ARCHITECTURE.md`](ARCHI
 
 ## Technology
 
-| Layer        | Choice                                                                        |
-| ------------ | ----------------------------------------------------------------------------- |
-| Mobile       | React Native `0.86`, React `19`, React Navigation `7`, Socket.IO client `4.8` |
-| Desktop      | Electron + React + TypeScript _(planned)_                                     |
-| Backend      | Node.js 22 + TypeScript _(planned)_                                           |
-| Database     | PostgreSQL 16 _(planned)_                                                     |
-| Storage      | S3-compatible object storage _(planned)_                                      |
-| Realtime     | Socket.IO _(planned channel, client already a dependency)_                    |
-| Shared types | `packages/shared` — Universal Data Model, Zod schemas _(planned)_             |
+| Layer        | Choice                                                                       |
+| ------------ | ---------------------------------------------------------------------------- |
+| Mobile       | React Native `0.86`, React `19`, React Navigation `7`                        |
+| Desktop      | Electron + React `19` + Vite `6` + TypeScript                                |
+| Backend      | Node.js 22 + Fastify `5` + TypeScript, no ORM                                |
+| Database     | SQLite (`node:sqlite`) locally; PostgreSQL in production (DEC-013)           |
+| Storage      | Filesystem via `STORAGE_PATH`; S3 is the scale-out path, adapter not written |
+| Realtime     | Authenticated SSE; Socket.IO behind the same interface later (DEC-016)       |
+| Shared types | `packages/shared` — Universal Data Model, Zod schemas                        |
 
 Versions actually installed in this checkout: Node `22.22.3`, npm `10.9.8`, git `2.39.5`. See [`ENVIRONMENT.md`](ENVIRONMENT.md).
 
@@ -154,7 +155,8 @@ packages/
 - Node.js 22 LTS and npm 10+
 - Git
 - Android Studio + JDK 17 and/or Xcode 16+ for mobile work
-- Docker for PostgreSQL and local object storage (once the backend exists)
+- Nothing else: the backend runs on SQLite with filesystem storage and needs no database, cache or
+  object store. PostgreSQL, a shared queue and S3 storage are the scale-out path (DEC-029).
 
 ### Install
 
@@ -164,31 +166,35 @@ cd intelligent-data-capture-platform
 npm install
 ```
 
-### Configure
+### Configure (optional)
 
 ```bash
-cp .env.example .env
-# Fill in local values. Never commit .env.
+cp .env.example .env    # every key documented, with its default
+# Nothing has to be set for a local run: SQLite, filesystem storage and local OCR are the defaults.
 ```
 
 ### Run
 
-The standard script surface (implemented by `FOUND-003`/`FOUND-004`) will be:
-
 ```bash
-npm run dev            # start everything available
+npm run db:migrate     # create the local database and apply migrations
+npm run db:seed        # demo organisation + owner account
+npm run dev:backend    # API + worker on http://127.0.0.1:4000
+npm run dev:desktop    # renderer on http://127.0.0.1:5173 (proxies /api)
 npm run dev:mobile     # React Native Metro bundler
-npm run dev:desktop    # Electron desktop client
-npm run dev:backend    # API + workers
-
-npm test               # unit + integration tests
-npm run lint           # ESLint
-npm run typecheck      # TypeScript, no emit
 ```
 
-Right now only `npm install` is meaningful. See [`TASKS.md`](TASKS.md) for the path to a runnable app.
+Sign in with `owner@example.com` / `demo-password-change-me`.
 
-### Basic usage (target Phase 1 experience)
+### Verify
+
+```bash
+npm run verify         # typecheck + lint + PRD/OpenAPI/packaging contracts + all tests
+npm test               # Jest projects: shared, connectors, backend, desktop, mobile
+```
+
+`npm run verify` is the same command CI runs; it currently passes with 343 tests in 21 suites.
+
+### Basic usage
 
 1. Open the desktop app and choose **Pair a device** — a QR code appears.
 2. Scan the QR code with the mobile app.
