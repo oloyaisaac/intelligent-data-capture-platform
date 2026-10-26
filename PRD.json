@@ -5,11 +5,7 @@
   "version": "1.0.0",
   "lastUpdated": "2026-10-26",
   "owner": "Project owner (see DECISIONS.md DEC-011)",
-  "sourceDocuments": [
-    "uploads/PRD.md",
-    "uploads/requirements-1.md",
-    "REQUIREMENTS.md"
-  ],
+  "sourceDocuments": ["uploads/PRD.md", "uploads/requirements-1.md", "REQUIREMENTS.md"],
   "vision": "An AI-powered bridge between physical documents and digital business systems: photograph a document, extract accurate structured data with AI, review anything uncertain, and push clean records into the software the business already uses.",
   "problem": "Manual data entry from paper forms, receipts, invoices and ID documents into spreadsheets, databases and business software is slow, expensive and error-prone.",
   "targetUsers": [
@@ -37,19 +33,19 @@
       "id": "M0",
       "name": "Foundation and documentation",
       "goal": "Repository conventions, documentation pack, tooling baseline.",
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M1",
       "name": "Pairing + capture + extract + export (MVP vertical slice)",
       "goal": "A phone can pair with the backend, capture a document, get AI extraction, be reviewed by a human, and be exported to Excel/CSV.",
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "M2",
       "name": "Connector platform",
       "goal": "Google Sheets, SQL databases, templates, learning from corrections, duplicate detection, team features.",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "id": "M3",
@@ -198,7 +194,7 @@
       "id": "FOUND-003",
       "epic": "EP-FOUND",
       "title": "Monorepo restructuring and TypeScript baseline",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Move to the target workspace layout (apps/mobile, apps/desktop, apps/backend, packages/shared, packages/connectors) with TypeScript, path aliases and shared tsconfig.",
@@ -208,13 +204,18 @@
         "Existing React Native dependencies keep working from apps/mobile."
       ],
       "dependsOn": ["FOUND-001"],
-      "artifacts": ["package.json", "tsconfig.base.json", "apps/*", "packages/*"]
+      "artifacts": [
+        "package.json",
+        "tsconfig.base.json",
+        "jest.config.cjs",
+        "packages/shared/src/index.ts"
+      ]
     },
     {
       "id": "FOUND-004",
       "epic": "EP-FOUND",
       "title": "Linting, formatting and test harness",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "ESLint + Prettier configuration, Jest projects for backend/shared and React Native Testing Library for mobile, plus a standard npm script surface.",
@@ -224,13 +225,13 @@
         "Backend unit tests can run a trivial passing suite."
       ],
       "dependsOn": ["FOUND-003"],
-      "artifacts": ["eslint.config.js", ".prettierrc", "jest.config.*", "package.json"]
+      "artifacts": ["eslint.config.mjs", ".prettierrc", "jest.config.cjs", "package.json"]
     },
     {
       "id": "FOUND-005",
       "epic": "EP-FOUND",
       "title": "Continuous integration pipeline",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "should",
       "description": "GitHub Actions workflow running install, typecheck, lint, tests and PRD.json validation on every pull request.",
@@ -240,13 +241,13 @@
         "PRD.json is validated as JSON in CI."
       ],
       "dependsOn": ["FOUND-004"],
-      "artifacts": [".github/workflows/ci.yml"]
+      "artifacts": [".github/workflows/ci.yml", "package.json"]
     },
     {
       "id": "BACK-001",
       "epic": "EP-FOUND",
       "title": "Backend API skeleton",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Node.js + TypeScript HTTP service with health endpoint, config loader, structured logging, request validation and central error handling.",
@@ -257,13 +258,17 @@
         "Service starts with npm run dev from apps/backend."
       ],
       "dependsOn": ["FOUND-003", "FOUND-004"],
-      "artifacts": ["apps/backend/src/server.ts", "apps/backend/src/config.ts"]
+      "artifacts": [
+        "apps/backend/src/index.ts",
+        "apps/backend/src/http/app.ts",
+        "apps/backend/src/config.ts"
+      ]
     },
     {
       "id": "DB-001",
       "epic": "EP-FOUND",
       "title": "Database schema and migrations",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "PostgreSQL schema managed by migrations, covering organisations, users, devices, pairing sessions, documents, extractions, review, connectors, mappings, jobs and audit logs (see DATABASE.md).",
@@ -274,13 +279,18 @@
         "A seed script creates one demo organisation and user."
       ],
       "dependsOn": ["BACK-001"],
-      "artifacts": ["apps/backend/prisma/schema.prisma", "apps/backend/prisma/migrations/*"]
+      "artifacts": [
+        "apps/backend/src/db/migrations.ts",
+        "apps/backend/src/db/database.ts",
+        "apps/backend/src/db/sqlite.ts",
+        "apps/backend/src/db/postgres.ts"
+      ]
     },
     {
       "id": "AUTH-001",
       "epic": "EP-SEC",
       "title": "User authentication and sessions",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Email and password registration and login with Argon2id hashing, short-lived access tokens and rotating refresh tokens; logout revokes sessions.",
@@ -291,13 +301,17 @@
         "Protected endpoints reject missing, expired or invalid tokens with 401."
       ],
       "dependsOn": ["BACK-001", "DB-001"],
-      "artifacts": ["apps/backend/src/auth/*"]
+      "artifacts": [
+        "apps/backend/src/services/auth-service.ts",
+        "apps/backend/src/auth/password.ts",
+        "apps/backend/src/auth/tokens.ts"
+      ]
     },
     {
       "id": "AUTH-002",
       "epic": "EP-SEC",
       "title": "Role-based access control",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Organisation-scoped roles (owner, admin, reviewer, operator, viewer) enforced on every API route and reflected in the UI.",
@@ -307,13 +321,13 @@
         "Forbidden actions return 403 with a stable error code."
       ],
       "dependsOn": ["AUTH-001"],
-      "artifacts": ["apps/backend/src/authz/*"]
+      "artifacts": ["apps/backend/src/http/guards.ts", "packages/shared/src/constants.ts"]
     },
     {
       "id": "PAIR-001",
       "epic": "EP-PAIR",
       "title": "Desktop-generated QR pairing code",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "The desktop client requests a single-use pairing session from the backend and renders it as a QR code containing only a short-lived pairing token and endpoint.",
@@ -323,13 +337,16 @@
         "QR payload contains no long-lived secret and no personal data."
       ],
       "dependsOn": ["AUTH-001", "DB-001"],
-      "artifacts": ["apps/backend/src/pairing/*", "apps/desktop/src/pairing/*"]
+      "artifacts": [
+        "apps/backend/src/services/pairing-service.ts",
+        "apps/desktop/src/pages/DevicesPage.tsx"
+      ]
     },
     {
       "id": "PAIR-002",
       "epic": "EP-PAIR",
       "title": "Mobile QR scan and device authentication",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "The mobile app scans the desktop QR code, exchanges the pairing token for a device credential and completes mutual authentication with the backend.",
@@ -340,13 +357,13 @@
         "On successful pairing the desktop shows the connected device name and platform."
       ],
       "dependsOn": ["PAIR-001"],
-      "artifacts": ["apps/mobile/src/pairing/*"]
+      "artifacts": ["apps/mobile/src/screens/PairingScreen.tsx", "packages/shared/src/contracts.ts"]
     },
     {
       "id": "PAIR-003",
       "epic": "EP-PAIR",
       "title": "Encrypted realtime device channel",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Socket.IO channel authenticated by device credentials, used for jobs, progress events and status updates between mobile, backend and desktop; all traffic over TLS.",
@@ -357,13 +374,16 @@
         "Message sizes and event names are documented in API.md."
       ],
       "dependsOn": ["PAIR-002", "BACK-001"],
-      "artifacts": ["apps/backend/src/realtime/*", "apps/mobile/src/realtime/*"]
+      "artifacts": [
+        "apps/backend/src/realtime/hub.ts",
+        "apps/backend/src/http/routes/realtime-routes.ts"
+      ]
     },
     {
       "id": "PAIR-004",
       "epic": "EP-PAIR",
       "title": "Device management and revocation",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Users can list paired devices, rename them and revoke access; revocation immediately invalidates tokens and closes sockets.",
@@ -373,13 +393,16 @@
         "Device list shows name, platform, last seen and paired date."
       ],
       "dependsOn": ["PAIR-003"],
-      "artifacts": ["apps/backend/src/devices/*", "apps/desktop/src/devices/*"]
+      "artifacts": [
+        "apps/backend/src/services/pairing-service.ts",
+        "apps/desktop/src/pages/DevicesPage.tsx"
+      ]
     },
     {
       "id": "MOB-001",
       "epic": "EP-CAPTURE",
       "title": "Mobile app shell and navigation",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "React Native application for Android and iOS with React Navigation (stack + bottom tabs), theming, error boundary and offline banner.",
@@ -389,13 +412,13 @@
         "App renders a friendly state when the backend is unreachable."
       ],
       "dependsOn": ["FOUND-003"],
-      "artifacts": ["apps/mobile/src/App.tsx", "apps/mobile/src/navigation/*"]
+      "artifacts": ["apps/mobile/src/App.tsx", "apps/mobile/src/screens/CaptureScreen.tsx"]
     },
     {
       "id": "MOB-002",
       "epic": "EP-CAPTURE",
       "title": "Camera capture with edge detection and enhancement",
-      "status": "pending",
+      "status": "in_progress",
       "phase": 1,
       "priority": "must",
       "description": "In-app camera with document edge detection, crop, perspective correction, rotation and basic enhancement (contrast/shadow removal) before upload.",
@@ -405,13 +428,16 @@
         "Capture works without network connectivity and queues locally."
       ],
       "dependsOn": ["MOB-001"],
-      "artifacts": ["apps/mobile/src/capture/*"]
+      "artifacts": [
+        "apps/mobile/src/capture/QrScannerView.tsx",
+        "apps/mobile/src/screens/CaptureScreen.tsx"
+      ]
     },
     {
       "id": "MOB-003",
       "epic": "EP-CAPTURE",
       "title": "Offline-first upload queue",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Captured pages are persisted locally and uploaded reliably with retry, exponential backoff, resumable progress and duplicate protection.",
@@ -422,13 +448,13 @@
         "User can see per-item upload status."
       ],
       "dependsOn": ["MOB-002", "DOC-001"],
-      "artifacts": ["apps/mobile/src/queue/*"]
+      "artifacts": ["apps/mobile/src/state/uploadQueue.ts", "apps/mobile/src/state/queueStorage.ts"]
     },
     {
       "id": "DOC-001",
       "epic": "EP-AI",
       "title": "Document upload API and storage",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Authenticated endpoint accepts document images (or PDFs), validates type and size, stores originals in object storage with server-side encryption and records metadata.",
@@ -439,46 +465,50 @@
         "Uploads are idempotent per client-supplied key."
       ],
       "dependsOn": ["BACK-001", "DB-001", "AUTH-002"],
-      "artifacts": ["apps/backend/src/documents/*"]
+      "artifacts": [
+        "apps/backend/src/services/document-service.ts",
+        "apps/backend/src/storage/index.ts",
+        "apps/backend/src/http/routes/document-routes.ts"
+      ]
     },
     {
       "id": "AI-001",
       "epic": "EP-AI",
       "title": "OCR and text extraction pipeline",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Asynchronous job pipeline that runs OCR (with a local engine as default and a cloud provider as an option) and stores per-page text with word-level geometry.",
       "acceptanceCriteria": [
-        "Jobs run asynchronously with status transitions queued → running → succeeded/failed.",
+        "Jobs run asynchronously with status transitions queued \u2192 running \u2192 succeeded/failed.",
         "Failures are retried with backoff and surface an actionable error message.",
         "Per-page text and geometry are persisted for downstream extraction.",
         "Average invoice-sized page processes in under 10 seconds in the reference environment."
       ],
       "dependsOn": ["DOC-001"],
-      "artifacts": ["apps/backend/src/ai/ocr/*"]
+      "artifacts": ["apps/backend/src/ai/pipeline.ts", "apps/backend/src/ai/providers/tesseract.ts"]
     },
     {
       "id": "AI-002",
       "epic": "EP-AI",
       "title": "Document classification",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Classify each document into form, receipt, invoice, ID, contract, table or handwritten and store a confidence score.",
       "acceptanceCriteria": [
-        "Classifier returns the document type plus a 0–1 confidence.",
+        "Classifier returns the document type plus a 0\u20131 confidence.",
         "Low-confidence classifications are flagged for human review.",
         "Classification accuracy meets the agreed benchmark on the labelled test set."
       ],
       "dependsOn": ["AI-001"],
-      "artifacts": ["apps/backend/src/ai/classify/*"]
+      "artifacts": ["apps/backend/src/ai/classify.ts"]
     },
     {
       "id": "AI-003",
       "epic": "EP-AI",
       "title": "Field, table and key-value extraction with confidence",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Extract structured fields, tables and key-value pairs into the Universal Data Model with per-field confidence, source geometry and provider provenance.",
@@ -489,13 +519,13 @@
         "Provider output is validated against the UDM schema before it is persisted."
       ],
       "dependsOn": ["AI-002", "UDM-001"],
-      "artifacts": ["apps/backend/src/ai/extract/*", "packages/shared/src/udm/*"]
+      "artifacts": ["apps/backend/src/ai/extract.ts"]
     },
     {
       "id": "AI-004",
       "epic": "EP-AI",
       "title": "Provider-agnostic AI abstraction",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "should",
       "description": "A single internal interface for OCR and extraction so local and cloud providers, and their models, can be swapped by configuration without touching business logic.",
@@ -506,13 +536,16 @@
         "Local AI mode works with no outbound internet access."
       ],
       "dependsOn": ["AI-001"],
-      "artifacts": ["apps/backend/src/ai/providers/*"]
+      "artifacts": [
+        "apps/backend/src/ai/providers/types.ts",
+        "apps/backend/src/ai/providers/cloud.ts"
+      ]
     },
     {
       "id": "UDM-001",
       "epic": "EP-UDM",
       "title": "Universal Data Model schema and validation",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Versioned canonical JSON schema (validated at runtime with Zod, published as JSON Schema) representing any captured record: document type, fields, tables, provenance and confidence.",
@@ -523,13 +556,13 @@
         "Published JSON Schema is documented in DATABASE.md."
       ],
       "dependsOn": ["FOUND-003"],
-      "artifacts": ["packages/shared/src/udm/schema.ts"]
+      "artifacts": ["packages/shared/src/udm/schema.ts", "docs/udm-1.0.schema.json"]
     },
     {
       "id": "REV-001",
       "epic": "EP-REVIEW",
       "title": "Human-in-the-loop review interface",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Side-by-side document image and extracted fields where users can confirm, correct or reject values, with keyboard-first navigation and confidence highlighting.",
@@ -540,13 +573,17 @@
         "Records can be approved only when all required fields are present."
       ],
       "dependsOn": ["AI-003", "UDM-001", "AUTH-002"],
-      "artifacts": ["apps/desktop/src/review/*"]
+      "artifacts": [
+        "apps/desktop/src/pages/ReviewPage.tsx",
+        "apps/backend/src/services/review-service.ts",
+        "packages/shared/src/review.ts"
+      ]
     },
     {
       "id": "REV-002",
       "epic": "EP-REVIEW",
       "title": "Correction capture for learning",
-      "status": "pending",
+      "status": "in_progress",
       "phase": 2,
       "priority": "should",
       "description": "Store human corrections in a structured form usable for field mapping suggestions and future model or prompt improvements.",
@@ -556,13 +593,16 @@
         "Correction statistics are queryable per organisation."
       ],
       "dependsOn": ["REV-001"],
-      "artifacts": ["apps/backend/src/learning/*"]
+      "artifacts": [
+        "apps/backend/src/services/review-service.ts",
+        "apps/backend/src/repositories/review-repo.ts"
+      ]
     },
     {
       "id": "EXPORT-001",
       "epic": "EP-EXPORT",
       "title": "Excel (.xlsx) export",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Export approved records to a formatted .xlsx workbook with selectable columns, one sheet per document type and a provenance column.",
@@ -573,13 +613,13 @@
         "Empty exports produce a valid file with headers only."
       ],
       "dependsOn": ["REV-001"],
-      "artifacts": ["apps/backend/src/export/xlsx.ts"]
+      "artifacts": ["apps/backend/src/services/export-service.ts"]
     },
     {
       "id": "EXPORT-002",
       "epic": "EP-EXPORT",
       "title": "CSV export",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "RFC 4180 compliant CSV export with UTF-8 BOM option, configurable delimiter, quote escaping and formula-injection protection.",
@@ -589,13 +629,13 @@
         "Delimiter and encoding options are respected."
       ],
       "dependsOn": ["REV-001"],
-      "artifacts": ["apps/backend/src/export/csv.ts"]
+      "artifacts": ["apps/backend/src/services/export-service.ts", "packages/shared/src/csv.ts"]
     },
     {
       "id": "DESK-001",
       "epic": "EP-DESKTOP",
       "title": "Desktop application shell",
-      "status": "pending",
+      "status": "in_progress",
       "phase": 1,
       "priority": "must",
       "description": "Electron desktop client for Windows, macOS and Linux with secure defaults (context isolation, no remote module, explicit IPC allow-list) and auto-update plumbing.",
@@ -606,13 +646,17 @@
         "Auto-update checks can be disabled by configuration."
       ],
       "dependsOn": ["FOUND-003"],
-      "artifacts": ["apps/desktop/src/main.ts", "apps/desktop/src/preload.ts"]
+      "artifacts": [
+        "apps/desktop/src/App.tsx",
+        "apps/desktop/src/main/electron-main.ts",
+        "apps/desktop/src/main/preload.ts"
+      ]
     },
     {
       "id": "DESK-002",
       "epic": "EP-DESKTOP",
       "title": "Desktop review and job dashboard",
-      "status": "pending",
+      "status": "in_progress",
       "phase": 1,
       "priority": "must",
       "description": "Dashboard listing incoming documents, live processing status and review queues, with bulk approve and export actions.",
@@ -622,13 +666,16 @@
         "Filters cover status, document type, date and device."
       ],
       "dependsOn": ["DESK-001", "REV-001", "PAIR-003"],
-      "artifacts": ["apps/desktop/src/dashboard/*"]
+      "artifacts": [
+        "apps/desktop/src/pages/DashboardPage.tsx",
+        "apps/desktop/src/pages/DocumentsPage.tsx"
+      ]
     },
     {
       "id": "CON-001",
       "epic": "EP-CONNECT",
       "title": "Connector plugin interface and SDK",
-      "status": "pending",
+      "status": "done",
       "phase": 2,
       "priority": "must",
       "description": "Documented connector contract with manifest, capability declaration (create/read/update/search), schema discovery and health check, plus a local connector runner.",
@@ -638,13 +685,13 @@
         "Failing connectors are isolated and reported, not crashing the app."
       ],
       "dependsOn": ["UDM-001", "BACK-001"],
-      "artifacts": ["packages/connectors/src/contract.ts"]
+      "artifacts": ["packages/connectors/src/contract.ts", "packages/connectors/src/registry.ts"]
     },
     {
       "id": "CON-002",
       "epic": "EP-CONNECT",
       "title": "Google Sheets connector",
-      "status": "pending",
+      "status": "done",
       "phase": 2,
       "priority": "must",
       "description": "OAuth-based Google Sheets connector supporting append, update and read with column mapping and header detection.",
@@ -654,13 +701,13 @@
         "Revoked access surfaces a clear re-authentication prompt."
       ],
       "dependsOn": ["CON-001", "MAP-001"],
-      "artifacts": ["packages/connectors/src/google-sheets/*"]
+      "artifacts": ["packages/connectors/src/google-sheets-connector.ts"]
     },
     {
       "id": "CON-003",
       "epic": "EP-CONNECT",
       "title": "MySQL, PostgreSQL and SQLite connectors",
-      "status": "pending",
+      "status": "in_progress",
       "phase": 2,
       "priority": "must",
       "description": "Database connectors with schema introspection, mapped inserts/updates and configurable conflict handling.",
@@ -671,13 +718,16 @@
         "Read-only credentials prevent writes at the database level too."
       ],
       "dependsOn": ["CON-001", "MAP-001"],
-      "artifacts": ["packages/connectors/src/sql/*"]
+      "artifacts": [
+        "packages/connectors/src/sqlite-connector.ts",
+        "packages/connectors/src/postgres-connector.ts"
+      ]
     },
     {
       "id": "MAP-001",
       "epic": "EP-MAP",
       "title": "Field mapping between UDM and destinations",
-      "status": "pending",
+      "status": "done",
       "phase": 2,
       "priority": "must",
       "description": "Visual mapping from UDM fields to destination fields with type transforms, defaults, required-field validation and reusable mapping profiles.",
@@ -687,13 +737,16 @@
         "Unmapped required destination fields block activation with a clear message."
       ],
       "dependsOn": ["UDM-001", "CON-001"],
-      "artifacts": ["apps/backend/src/mapping/*", "apps/desktop/src/mapping/*"]
+      "artifacts": [
+        "packages/connectors/src/contract.ts",
+        "apps/backend/src/services/connector-service.ts"
+      ]
     },
     {
       "id": "DUP-001",
       "epic": "EP-MAP",
       "title": "Duplicate detection and merge",
-      "status": "pending",
+      "status": "in_progress",
       "phase": 2,
       "priority": "must",
       "description": "Detect likely duplicates using configurable keys and fuzzy matching, then append, update, merge or skip according to policy.",
@@ -703,13 +756,16 @@
         "Merge never silently discards reviewed values."
       ],
       "dependsOn": ["MAP-001"],
-      "artifacts": ["apps/backend/src/dedupe/*"]
+      "artifacts": [
+        "packages/shared/src/dedupe.ts",
+        "apps/backend/src/services/connector-service.ts"
+      ]
     },
     {
       "id": "TPL-001",
       "epic": "EP-TEMPLATE",
       "title": "Document template builder",
-      "status": "pending",
+      "status": "done",
       "phase": 2,
       "priority": "should",
       "description": "Define reusable document templates with expected fields, sample pages and validation rules to steer extraction.",
@@ -719,7 +775,11 @@
         "Templates are versioned and can be disabled without data loss."
       ],
       "dependsOn": ["AI-003", "UDM-001"],
-      "artifacts": ["apps/desktop/src/templates/*", "apps/backend/src/templates/*"]
+      "artifacts": [
+        "apps/backend/src/services/template-service.ts",
+        "apps/backend/src/repositories/template-repo.ts",
+        "apps/desktop/src/pages/TemplatesPage.tsx"
+      ]
     },
     {
       "id": "BATCH-001",
@@ -741,7 +801,7 @@
       "id": "TEAM-001",
       "epic": "EP-TEAM",
       "title": "Organisations, projects and team roles",
-      "status": "pending",
+      "status": "in_progress",
       "phase": 2,
       "priority": "should",
       "description": "Multi-tenant organisations with projects, invitations, role assignment and review assignment.",
@@ -751,13 +811,16 @@
         "Role changes take effect on the next request."
       ],
       "dependsOn": ["AUTH-002"],
-      "artifacts": ["apps/backend/src/orgs/*"]
+      "artifacts": [
+        "apps/backend/src/services/organisation-service.ts",
+        "apps/backend/src/http/routes/organisation-routes.ts"
+      ]
     },
     {
       "id": "AUDIT-001",
       "epic": "EP-SEC",
       "title": "Immutable audit trail",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Append-only audit log of authentication, document access, review changes, exports and connector writes, with actor, tenant, IP and timestamp.",
@@ -767,13 +830,16 @@
         "Audit log is searchable by actor, action and date range."
       ],
       "dependsOn": ["AUTH-002", "DB-001"],
-      "artifacts": ["apps/backend/src/audit/*"]
+      "artifacts": [
+        "apps/backend/src/repositories/system-repo.ts",
+        "apps/backend/src/db/migrations.ts"
+      ]
     },
     {
       "id": "SEC-001",
       "epic": "EP-SEC",
       "title": "Data retention and deletion controls",
-      "status": "pending",
+      "status": "done",
       "phase": 1,
       "priority": "must",
       "description": "Configurable retention for originals and extracted data, plus a verified deletion path that purges storage objects and database rows.",
@@ -784,13 +850,16 @@
         "Exports of deleted documents are no longer possible."
       ],
       "dependsOn": ["DOC-001", "AUDIT-001"],
-      "artifacts": ["apps/backend/src/retention/*"]
+      "artifacts": [
+        "apps/backend/src/services/document-service.ts",
+        "apps/backend/src/services/worker.ts"
+      ]
     },
     {
       "id": "DEVAPI-001",
       "epic": "EP-ENTERPRISE",
       "title": "Developer API and API keys",
-      "status": "pending",
+      "status": "done",
       "phase": 3,
       "priority": "should",
       "description": "Public, versioned REST API for documents, extractions and exports, authenticated with scoped API keys, documented in API.md with examples.",
@@ -800,7 +869,11 @@
         "OpenAPI document is published and validated in CI."
       ],
       "dependsOn": ["DOC-001", "AUDIT-001"],
-      "artifacts": ["apps/backend/src/api-keys/*", "docs/openapi.yaml"]
+      "artifacts": [
+        "apps/backend/src/services/api-key-service.ts",
+        "apps/backend/src/repositories/apikey-repo.ts",
+        "docs/openapi.yaml"
+      ]
     },
     {
       "id": "CRM-001",
@@ -816,7 +889,11 @@
         "Errors are translated into actionable user messages."
       ],
       "dependsOn": ["CON-001", "MAP-001", "DUP-001"],
-      "artifacts": ["packages/connectors/src/crm/*", "packages/connectors/src/erp/*", "packages/connectors/src/accounting/*"]
+      "artifacts": [
+        "packages/connectors/src/crm/*",
+        "packages/connectors/src/erp/*",
+        "packages/connectors/src/accounting/*"
+      ]
     },
     {
       "id": "MARKET-001",
@@ -841,7 +918,7 @@
       "status": "pending",
       "phase": 3,
       "priority": "could",
-      "description": "Rule and agent driven workflows, e.g. invoice uploaded → extracted → validated → saved to accounting → user notified.",
+      "description": "Rule and agent driven workflows, e.g. invoice uploaded \u2192 extracted \u2192 validated \u2192 saved to accounting \u2192 user notified.",
       "acceptanceCriteria": [
         "Workflows can be created from a visual builder.",
         "Each run is logged with inputs, outputs and failures.",
@@ -854,7 +931,7 @@
       "id": "DASH-001",
       "epic": "EP-INSIGHT",
       "title": "Analytics dashboard",
-      "status": "pending",
+      "status": "in_progress",
       "phase": 3,
       "priority": "could",
       "description": "Volume, accuracy, review time, connector success rate and cost per document, filterable by project and period.",
@@ -864,13 +941,16 @@
         "Figures can be exported."
       ],
       "dependsOn": ["AI-003", "AUDIT-001"],
-      "artifacts": ["apps/desktop/src/analytics/*"]
+      "artifacts": [
+        "apps/desktop/src/pages/DashboardPage.tsx",
+        "apps/backend/src/http/routes/organisation-routes.ts"
+      ]
     },
     {
       "id": "I18N-001",
       "epic": "EP-INSIGHT",
       "title": "Multi-language support",
-      "status": "pending",
+      "status": "in_progress",
       "phase": 3,
       "priority": "could",
       "description": "Externalised strings, locale-aware dates/numbers and right-to-left layout support across mobile and desktop.",
@@ -880,7 +960,7 @@
         "RTL layouts render without clipped controls."
       ],
       "dependsOn": ["MOB-001", "DESK-001"],
-      "artifacts": ["packages/shared/src/i18n/*"]
+      "artifacts": ["packages/shared/src/i18n.ts"]
     },
     {
       "id": "VOICE-001",

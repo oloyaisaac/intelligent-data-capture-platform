@@ -153,6 +153,90 @@ Convention: `DEC-###` · status `Proposed | Accepted | Superseded by DEC-###`.
 
 ---
 
+## DEC-014 — Node-only helpers live at `@idcp/shared/ids`
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** The shared package's main entry re-exports everything that is safe in a browser and
+in React Native. Identifier, token and hashing helpers (`newId`, `newToken`, `hashToken`, `hashIp`,
+`isUuid`, `safeCompare`, `newSortableId`) live in a separate entry point, `@idcp/shared/ids`, which
+depends on `node:crypto` and is imported by the backend only.
+
+**Reason:** React Native's bundler does not shim `node:crypto`. Re-exporting the ids module from
+`index.ts` made the mobile bundle fail to resolve, and the error surfaces only at bundle time — long
+after the backend tests pass. Splitting the entry points makes the constraint structural.
+
+**Alternatives considered:** A polyfill dependency (adds a crypto implementation to the client for
+no reason); runtime feature detection (fails at bundle time, not run time, so it cannot help).
+
+**Consequences:** Any new Node-only helper goes in `ids.ts` and must be imported from
+`@idcp/shared/ids`. Jest and `tsconfig.base.json` map both specifiers.
+
+---
+
+## DEC-015 — Templates drive extraction expectations
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** A document template (TPL-001) is a versioned list of expected field paths for one
+document type. The extractor receives that list and records a field the OCR could not find as
+`value: null`, `confidence: 0`, `needsReview: true` — instead of silently omitting it.
+
+**Reason:** Silence is the dangerous outcome in data capture: a missing purchase order looks like a
+complete record. Recording the absence pushes the record into the review queue and keeps the
+template's promise honest. Changing a field list writes a snapshot to `template_versions`, so an
+extraction performed under an older layout can always be explained.
+
+**Alternatives considered:** Post-processing in the review service (hides the expectation from the
+extraction record); hard-coded required fields per document type (not customer-specific).
+
+**Consequences:** Extraction output depends on the organisation's active template; disabling a
+template removes its expectations without deleting history.
+
+---
+
+## DEC-016 — Authenticated SSE as the first realtime transport
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** The desktop dashboard consumes `GET /api/v1/events`, a server-sent event stream
+scoped to the caller's organisation. Publishing goes through the `RealtimeHub` interface, so a
+Socket.IO adapter can be added without touching services.
+
+**Reason:** SSE needs no extra dependency, works through the Vite dev proxy and corporate proxies,
+and reconnects by itself; the client already implements capped exponential backoff. `EventSource`
+cannot send headers, so this one route also accepts the access token as a query parameter, and only
+identifiers — never document content — travel in payloads.
+
+**Alternatives considered:** Socket.IO (better for bidirectional device channels, heavier);
+long polling (worse latency, more requests).
+
+**Consequences:** The desktop is push-driven today. When the mobile app needs server-initiated
+messages (`PAIR-003` follow-up), add the Socket.IO adapter behind the same interface and document
+both transports in API.md §9.
+
+---
+
+## DEC-017 — API key scopes map onto the role ladder
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** An API key carries scopes; the narrowest role that implies those scopes becomes the
+key's effective role, and it is further capped by the live role of the person who created the key.
+`X-API-Key` is authenticated by the same guard that handles bearer tokens and device credentials.
+
+**Reason:** A second permission system would inevitably drift from the first. Re-using the role
+ladder means every existing authorisation check applies unchanged, and revoking a person's
+membership instantly narrows their keys.
+
+**Alternatives considered:** Per-endpoint scope checks (more precise, but a parallel system to keep
+in sync); treating keys as owners (too much authority for an integration).
+
+**Consequences:** New scopes must state which role they imply. A key can never exceed its creator's
+current role, even after a role change.
+
+---
+
 ## Template for new decisions
 
 ```markdown

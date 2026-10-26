@@ -8,14 +8,14 @@ How we prove the platform works. A story is not `done` until the relevant checks
 
 ## 1. Test pyramid
 
-| Layer | Scope | Tooling | Runs |
-| --- | --- | --- | --- |
-| Unit | Pure functions: UDM validation, confidence thresholds, mapping transforms, CSV escaping, duplicate scoring, date parsing | Jest + ts-jest | Every commit |
-| Integration | API routes against a real PostgreSQL + Redis in Docker; object storage via MinIO | Jest + supertest | Every PR |
-| Contract | Connector contract tests; UDM schema round-trip; OpenAPI validation | Jest + custom harness | Every PR |
-| Component | React screens (desktop), React Native screens | Testing Library (web + native) | Every PR |
-| End-to-end | Pair → capture → extract → review → export | Detox (mobile), Playwright (desktop) | Nightly + before release |
-| Manual | Physical device camera/QR, real spreadsheet, real database | Checklist below | Before release |
+| Layer       | Scope                                                                                                                    | Tooling                              | Runs                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ | ------------------------ |
+| Unit        | Pure functions: UDM validation, confidence thresholds, mapping transforms, CSV escaping, duplicate scoring, date parsing | Jest + ts-jest                       | Every commit             |
+| Integration | API routes against a real PostgreSQL + Redis in Docker; object storage via MinIO                                         | Jest + supertest                     | Every PR                 |
+| Contract    | Connector contract tests; UDM schema round-trip; OpenAPI validation                                                      | Jest + custom harness                | Every PR                 |
+| Component   | React screens (desktop), React Native screens                                                                            | Testing Library (web + native)       | Every PR                 |
+| End-to-end  | Pair → capture → extract → review → export                                                                               | Detox (mobile), Playwright (desktop) | Nightly + before release |
+| Manual      | Physical device camera/QR, real spreadsheet, real database                                                               | Checklist below                      | Before release           |
 
 Target: ≥ 80% coverage on business logic (`packages/shared`, backend domain services). Coverage is a floor, not a goal — cover behaviour, not lines.
 
@@ -26,23 +26,43 @@ Target: ≥ 80% coverage on business logic (`packages/shared`, backend domain se
 - PII in fixtures is fake, obviously so (`Amina Testperson`, `+256 700 000000`).
 - Reset the database between integration tests; each test owns its organisation.
 
-## 3. Commands (target surface, from `FOUND-004`)
+## 3. Commands
 
 ```bash
-npm test                  # all unit + integration tests
-npm run test:unit
-npm run test:integration  # requires docker compose up -d db redis minio
-npm run test:e2e
+npm test                  # every workspace: shared, connectors, backend, desktop, mobile
+npm run test:unit         # the three Node workspaces (no jsdom)
+npm run test:prd          # PRD.json integrity (ids, refs, statuses, artifacts)
+npm run test:api          # OpenAPI 3.1 validity + route cross-check, UDM schema freshness
 npm run test:coverage
-npm run lint
-npm run typecheck
+npm run typecheck         # tsc --noEmit in every workspace
+npm run lint              # eslint, zero warnings allowed
+npm run format:check
+npm run verify            # typecheck + lint + PRD + API + tests
 ```
 
-Plus a `PRD.json` validity check that runs in CI:
+There is no Docker dependency: the backend suite runs SQLite in memory, storage in memory, and a
+fake OCR provider. `test:integration` and `test:e2e` do not exist yet — they arrive with a database
+and browser harness.
 
-```bash
-node -e "JSON.parse(require('fs').readFileSync('PRD.json','utf8')); console.log('PRD.json OK')"
-```
+### Current coverage
+
+| Workspace             | Suite                                                                                                            | Tests   |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- | ------- |
+| `packages/shared`     | `test/shared.test.ts`                                                                                            | 44      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                        | 20      |
+| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, review, exports, connectors, AI, templates, developer API, security) | 116     |
+| `apps/desktop`        | `test/desktop.test.tsx` (jsdom + Testing Library)                                                                | 16      |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                               | 17      |
+| **Total**             | 14 suites                                                                                                        | **213** |
+
+Notes for anyone extending the suite:
+
+- The backend harness starts a **real listener** on an ephemeral port and drives it with `fetch`.
+  Jest cannot load Fastify's `inject()` here (its `cookie` dependency is ESM-only).
+- Mobile tests import pure modules only; anything that reaches `react-native` or the keychain
+  belongs behind an injected port (`UploadTransport`, `TokenStore`), as the queue and client do.
+- Contract tests are the cheapest guard against drift: add a case to `test:api` rather than a
+  prose note when a route or schema changes.
 
 ## 4. Manual test cases
 

@@ -7,13 +7,58 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 ## [Unreleased]
 
 ### Added
-- Nothing yet. Next expected entries: monorepo scaffolding (`FOUND-003`), lint/test harness (`FOUND-004`), backend skeleton (`BACK-001`).
+
+- **Monorepo and tooling** — npm workspaces (`apps/*`, `packages/*`), a strict TypeScript baseline
+  with path aliases, Jest projects for every workspace, ESLint 9 (flat config) and Prettier
+  (`FOUND-003`, `FOUND-004`).
+- **CI** — typecheck, lint, formatting, PRD contract, OpenAPI contract, tests and a renderer build,
+  plus a job that fails when secret material is committed (`FOUND-005`).
+- **Shared package** — Universal Data Model with validation, money/date/CSV helpers, duplicate
+  detection, i18n catalogues, review rules and wire contracts shared by all three apps (`UDM-001`).
+- **Backend** — Fastify 5 API over SQLite or PostgreSQL: auth with refresh rotation, QR pairing with
+  single-use tokens, device credentials, document upload with content sniffing and idempotency,
+  background job queue with retry/backoff, review workflow, Excel/CSV export, connectors, audit
+  trail, retention purge, analytics counters (`BACK-001`, `DB-001`, `AUTH-001`, `AUTH-002`,
+  `PAIR-001`–`PAIR-004`, `DOC-001`, `AUDIT-001`, `SEC-001`).
+- **AI pipeline** — OCR provider abstraction (Tesseract locally, cloud adapter), document
+  classification, field/table extraction with per-field confidence, and template-driven expected
+  fields (`AI-001`–`AI-004`).
+- **Connector SDK** — CSV, SQLite, PostgreSQL and Google Sheets destinations with a stable plugin
+  contract, field mapping, transforms and duplicate policy (`CON-001`–`CON-003`, `MAP-001`,
+  `DUP-001`).
+- **Desktop app** — React 19 + Vite renderer: live dashboard over authenticated SSE, document
+  list with filters, review workspace (risky fields first, one-click editing), templates with
+  versioning, connectors, exports, device pairing with a QR code, organisation/team/audit/API key
+  settings; Electron main + preload with allow-listed IPC and keychain-backed tokens
+  (`DESK-001`, `DESK-002`, `REV-001`, `TPL-001`, `DEVAPI-001`).
+- **Mobile app** — pairing scanner, camera capture, offline-first upload queue with exponential
+  backoff and idempotency keys, review screen and keychain storage (`MOB-001`, `MOB-003`,
+  `PAIR-002`).
+- **Contracts in CI** — `scripts/validate-prd.mjs` (PRD integrity), `scripts/validate-openapi.mjs`
+  (OpenAPI 3.1, cross-checked against the registered routes) and `scripts/generate-udm-schema.mjs`
+  (UDM JSON Schema generated from the zod schema, checked for staleness).
+- 213 automated tests across 14 suites.
 
 ### Changed
 
+- `PRD.json` statuses and artifact paths now reflect the code (42 stories have code; see the file
+  for the remaining `pending` items).
+
 ### Fixed
 
+- Connector configuration errors returned 500 instead of 400; `validateConfig()` failures are now
+  mapped to a bad request.
+- Content sniffing rejected valid JPEGs shorter than 12 bytes; each format now has its own minimum.
+- Table extraction coerced text cells containing digits ("Cement 50kg bags") into numbers.
+- Connector `date_iso` transform failed on `DD/MM/YYYY`; it now uses the shared date parser.
+
 ### Security
+
+- Device and API-key credentials are hashed at rest (SHA-256) and never returned by the API;
+  connector credentials are encrypted with AES-256-GCM.
+- Audit records are append-only, enforced by database triggers as well as by code.
+- API keys are bounded by scopes _and_ by the live role of the person who created them.
+- Uploads are verified by content, size-capped, served with `nosniff` and never from a public URL.
 
 ---
 
@@ -22,6 +67,7 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 Project documentation bootstrap. No application code yet.
 
 ### Added
+
 - `PRD.json` — master plan: vision, target users, 3 milestones, 15 epics, 45 stories with dependencies, acceptance criteria and statuses, plus `definitionOfDone` and open questions (`FOUND-002`).
 - `REQUIREMENTS.md` — business, user, functional, non-functional, security, payment and hosting requirements with traceability to stories.
 - `README.md` — project overview, feature status, architecture diagram, technology table, repository structure, getting started, documentation index and roadmap.
@@ -41,12 +87,15 @@ Project documentation bootstrap. No application code yet.
 - `.env.example` — every configuration key with safe placeholder values.
 
 ### Changed
+
 - `.gitignore` — replaced the UTF-16 encoded file that contained only `node_modules` with a UTF-8 file covering dependencies, environment/secrets, build output, native build artefacts, test coverage and local storage.
 
 ### Fixed
+
 - `.gitignore` was encoded as UTF-16 with a BOM, which prevented Git from reliably parsing patterns; it is now plain UTF-8.
 
 ### Security
+
 - Documented the secrets policy in `SECURITY.md` and added all `.env*` variants to `.gitignore` (except `.env.example`).
 - Confirmed `.env.example` contains placeholders only — no real credentials.
 
@@ -55,5 +104,6 @@ Project documentation bootstrap. No application code yet.
 ## [0.0.1] — 2026-10-26
 
 ### Added
+
 - Initial commit: `package.json` and `package-lock.json` with the React Native baseline (react-native 0.86.2, react 19.2.8, React Navigation 7, socket.io-client 4.8.3, `@types/jest`).
 - Source product documents in `uploads/PRD.md` and `uploads/requirements-1.md`.

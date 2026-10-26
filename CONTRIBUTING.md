@@ -97,15 +97,15 @@ feat(pairing): generate single-use QR pairing session (PAIR-001)
 
 ## 9. Documentation duties
 
-| If you… | update |
-| --- | --- |
-| add/change an endpoint or socket event | `API.md` |
-| change schema or migrations | `DATABASE.md` |
-| add a service, package or data flow | `ARCHITECTURE.md` |
-| choose between alternatives | `DECISIONS.md` |
-| change a requirement or story | `REQUIREMENTS.md` / `PRD.json` |
-| change tooling or setup steps | `ENVIRONMENT.md` |
-| change the release process | `DEPLOYMENT.md` |
+| If you…                                | update                         |
+| -------------------------------------- | ------------------------------ |
+| add/change an endpoint or socket event | `API.md`                       |
+| change schema or migrations            | `DATABASE.md`                  |
+| add a service, package or data flow    | `ARCHITECTURE.md`              |
+| choose between alternatives            | `DECISIONS.md`                 |
+| change a requirement or story          | `REQUIREMENTS.md` / `PRD.json` |
+| change tooling or setup steps          | `ENVIRONMENT.md`               |
+| change the release process             | `DEPLOYMENT.md`                |
 
 ## 10. Getting unblocked
 

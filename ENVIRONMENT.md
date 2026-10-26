@@ -8,16 +8,16 @@ Exact tooling needed to work on this project, and how to verify your machine mat
 
 ## 1. Required tooling
 
-| Tool | Version | Required for | Verified in this checkout |
-| --- | --- | --- | --- |
-| Node.js | 22 LTS (`.nvmrc` target `22`) | Everything | `v22.22.3` |
-| npm | 10+ | Everything | `10.9.8` |
-| Git | 2.39+ | Everything | `2.39.5` |
-| JDK | 17 | Android builds | not checked |
-| Android Studio + SDK | API 34+, emulator | Mobile (Android) | not installed |
-| Xcode | 16+ (macOS only) | Mobile (iOS) | n/a (Linux) |
-| Docker + Compose | 24+ | PostgreSQL, Redis, MinIO for the backend | not checked |
-| Python | 3.11+ | Optional: local OCR tooling | `3.11.2` |
+| Tool                 | Version                       | Required for                             | Verified in this checkout |
+| -------------------- | ----------------------------- | ---------------------------------------- | ------------------------- |
+| Node.js              | 22 LTS (`.nvmrc` target `22`) | Everything                               | `v22.22.3`                |
+| npm                  | 10+                           | Everything                               | `10.9.8`                  |
+| Git                  | 2.39+                         | Everything                               | `2.39.5`                  |
+| JDK                  | 17                            | Android builds                           | not checked               |
+| Android Studio + SDK | API 34+, emulator             | Mobile (Android)                         | not installed             |
+| Xcode                | 16+ (macOS only)              | Mobile (iOS)                             | n/a (Linux)               |
+| Docker + Compose     | 24+                           | PostgreSQL, Redis, MinIO for the backend | not checked               |
+| Python               | 3.11+                         | Optional: local OCR tooling              | `3.11.2`                  |
 
 Recommended editor: VS Code with ESLint, Prettier and TypeScript extensions. Editor settings: format on save, no tabs in TS/JS.
 
@@ -120,17 +120,17 @@ If all of the above pass, your machine matches the documented baseline.
 
 ## 7. Troubleshooting
 
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| `EBADENGINE` / unsupported Node warnings | Wrong Node version | `nvm use 22`, reinstall |
-| `Cannot find module 'react-native'` | Dependencies not installed, or running from the wrong directory | Run `npm install` at the repository root |
-| Metro "Unable to resolve module" | Stale cache | `npm start -- --reset-cache` |
-| Android build fails on JDK | Wrong JDK version | Use JDK 17 (`java -version` to check) |
-| iOS pod install fails | Stale pods | `cd ios && pod deintegrate && pod install` |
-| Port already in use | Another dev server running | Kill the process or change `PORT` |
-| Backend exits on start | Missing/invalid `.env` | Compare with `.env.example`, fix values |
-| `npm ci` fails after editing `package.json` | Lockfile out of sync | `npm install` and commit the updated lockfile |
-| `PRD.json` will not parse | Trailing comma or bad edit | Validate with the `node -e` command above |
+| Symptom                                     | Cause                                                           | Fix                                           |
+| ------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------- |
+| `EBADENGINE` / unsupported Node warnings    | Wrong Node version                                              | `nvm use 22`, reinstall                       |
+| `Cannot find module 'react-native'`         | Dependencies not installed, or running from the wrong directory | Run `npm install` at the repository root      |
+| Metro "Unable to resolve module"            | Stale cache                                                     | `npm start -- --reset-cache`                  |
+| Android build fails on JDK                  | Wrong JDK version                                               | Use JDK 17 (`java -version` to check)         |
+| iOS pod install fails                       | Stale pods                                                      | `cd ios && pod deintegrate && pod install`    |
+| Port already in use                         | Another dev server running                                      | Kill the process or change `PORT`             |
+| Backend exits on start                      | Missing/invalid `.env`                                          | Compare with `.env.example`, fix values       |
+| `npm ci` fails after editing `package.json` | Lockfile out of sync                                            | `npm install` and commit the updated lockfile |
+| `PRD.json` will not parse                   | Trailing comma or bad edit                                      | Validate with the `node -e` command above     |
 
 ## 8. Keeping the environment documented
 

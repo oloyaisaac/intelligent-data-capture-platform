@@ -13,16 +13,16 @@ Traceability rule: every requirement below maps to at least one story in `PRD.js
 
 ## 1. Business requirements
 
-| ID | Requirement | Stories |
-| --- | --- | --- |
-| BR-01 | Eliminate repetitive manual data entry from physical documents into business systems. | M1 stories |
-| BR-02 | Let a user photograph a document and get accurate structured data without retyping. | MOB-002, AI-003 |
-| BR-03 | Support the document types businesses actually hold: forms, receipts, invoices, IDs, contracts, tables and handwritten documents. | AI-002 |
+| ID    | Requirement                                                                                                                                        | Stories                                           |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| BR-01 | Eliminate repetitive manual data entry from physical documents into business systems.                                                              | M1 stories                                        |
+| BR-02 | Let a user photograph a document and get accurate structured data without retyping.                                                                | MOB-002, AI-003                                   |
+| BR-03 | Support the document types businesses actually hold: forms, receipts, invoices, IDs, contracts, tables and handwritten documents.                  | AI-002                                            |
 | BR-04 | Push clean records into the tools businesses already use: Excel, Google Sheets, CSV, SQL databases, CRM, ERP, accounting software and custom APIs. | EXPORT-001, EXPORT-002, CON-002, CON-003, CRM-001 |
-| BR-05 | Preserve human control: uncertain data must be reviewed by a person before it reaches a system of record. | REV-001 |
-| BR-06 | Provide an auditable record of who captured, reviewed and exported what. | AUDIT-001 |
-| BR-07 | Grow from a single-user MVP into a team and enterprise product without a rewrite. | TEAM-001, DEVAPI-001 |
-| BR-08 | Operate as a commercial product with clear ownership of the code and data. | Q-002, LICENSE |
+| BR-05 | Preserve human control: uncertain data must be reviewed by a person before it reaches a system of record.                                          | REV-001                                           |
+| BR-06 | Provide an auditable record of who captured, reviewed and exported what.                                                                           | AUDIT-001                                         |
+| BR-07 | Grow from a single-user MVP into a team and enterprise product without a rewrite.                                                                  | TEAM-001, DEVAPI-001                              |
+| BR-08 | Operate as a commercial product with clear ownership of the code and data.                                                                         | Q-002, LICENSE                                    |
 
 ## 2. User requirements
 
@@ -106,24 +106,24 @@ Traceability rule: every requirement below maps to at least one story in `PRD.js
 
 ## 4. Non-functional requirements
 
-| ID | Area | Requirement |
-| --- | --- | --- |
-| NFR-01 | Performance | A single invoice-sized page completes OCR + extraction in under 10 s (p95) in the reference environment. |
-| NFR-02 | Performance | Review UI renders the next document in under 1 s from local cache. |
-| NFR-03 | Scalability | Backend designed to process documents asynchronously; workers scale horizontally. |
-| NFR-04 | Reliability | Uploads and jobs are retryable and idempotent; no silent data loss. |
-| NFR-05 | Availability | Target 99.5% monthly availability for the API in Phase 1; documented maintenance windows. |
-| NFR-06 | Security | TLS 1.2+ everywhere; encryption at rest for documents and connector credentials. |
-| NFR-07 | Security | Passwords hashed with Argon2id; no plaintext secrets in code or logs. |
-| NFR-08 | Security | Every query scoped to the caller's organisation (multi-tenant isolation). |
-| NFR-09 | Privacy | Minimum retention, configurable purge, no training on customer data without opt-in. |
-| NFR-10 | Accessibility | WCAG 2.1 AA for desktop review screens; scalable font sizes and screen-reader labels on mobile. |
-| NFR-11 | Usability | A new user can pair a device and capture the first document in under 3 minutes without training. |
-| NFR-12 | Compatibility | Desktop: Windows 10+, macOS 13+, Ubuntu 22.04+. Mobile: Android 9+ (API 28+), iOS 16+. |
-| NFR-13 | Observability | Structured logs, request IDs, error tracking and metrics for queue depth and job failures. |
-| NFR-14 | Maintainability | TypeScript everywhere, shared types, linted and formatted, ≥ 80% coverage on business logic. |
-| NFR-15 | Portability | AI providers, storage and database are swappable behind interfaces. |
-| NFR-16 | Localisation | All user-facing strings externalised; UTF-8 and RTL safe layouts. |
+| ID     | Area            | Requirement                                                                                              |
+| ------ | --------------- | -------------------------------------------------------------------------------------------------------- |
+| NFR-01 | Performance     | A single invoice-sized page completes OCR + extraction in under 10 s (p95) in the reference environment. |
+| NFR-02 | Performance     | Review UI renders the next document in under 1 s from local cache.                                       |
+| NFR-03 | Scalability     | Backend designed to process documents asynchronously; workers scale horizontally.                        |
+| NFR-04 | Reliability     | Uploads and jobs are retryable and idempotent; no silent data loss.                                      |
+| NFR-05 | Availability    | Target 99.5% monthly availability for the API in Phase 1; documented maintenance windows.                |
+| NFR-06 | Security        | TLS 1.2+ everywhere; encryption at rest for documents and connector credentials.                         |
+| NFR-07 | Security        | Passwords hashed with Argon2id; no plaintext secrets in code or logs.                                    |
+| NFR-08 | Security        | Every query scoped to the caller's organisation (multi-tenant isolation).                                |
+| NFR-09 | Privacy         | Minimum retention, configurable purge, no training on customer data without opt-in.                      |
+| NFR-10 | Accessibility   | WCAG 2.1 AA for desktop review screens; scalable font sizes and screen-reader labels on mobile.          |
+| NFR-11 | Usability       | A new user can pair a device and capture the first document in under 3 minutes without training.         |
+| NFR-12 | Compatibility   | Desktop: Windows 10+, macOS 13+, Ubuntu 22.04+. Mobile: Android 9+ (API 28+), iOS 16+.                   |
+| NFR-13 | Observability   | Structured logs, request IDs, error tracking and metrics for queue depth and job failures.               |
+| NFR-14 | Maintainability | TypeScript everywhere, shared types, linted and formatted, ≥ 80% coverage on business logic.             |
+| NFR-15 | Portability     | AI providers, storage and database are swappable behind interfaces.                                      |
+| NFR-16 | Localisation    | All user-facing strings externalised; UTF-8 and RTL safe layouts.                                        |
 
 ## 5. Constraints
 

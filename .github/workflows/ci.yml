@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # A lockfile must exist and install reproducibly: `npm ci` fails otherwise.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Formatting
+        run: npm run format:check
+
+      - name: PRD contract
+        run: npm run test:prd
+
+      # DEVAPI-001: the published OpenAPI document must not drift from the routes.
+      - name: OpenAPI contract
+        run: npm run test:api
+
+      - name: Tests
+        run: npm test -- --ci --reporters=default
+
+      - name: Build renderer
+        run: npm run build --workspace @idcp/desktop
+
+  secrets:
+    name: No committed secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail on .env files or key material
+        run: |
+          set -e
+          if git ls-files | grep -E '(^|/)\.env$|\.pem$|\.p12$|\.key$|id_rsa'; then
+            echo "::error::Secret material is committed to the repository."
+            exit 1
+          fi
+          echo "No secret files tracked."
