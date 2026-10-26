@@ -73,6 +73,11 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 - **Dashboard coverage** — the document list filters by device as well as status, type and date,
   refreshes itself from the event stream, and the review queue gained bulk approval that reports
   exactly which records it refused and how many fields each still needs (`DESK-002`).
+- **Automatic page detection on mobile** — a pure detector downscales the camera frame, runs Sobel
+  edges, thresholds with Otsu and takes the four extreme points as the page outline; the outline is
+  smoothed across frames, mapped onto the photo, and used for the crop. EXIF orientation is corrected
+  before cropping, and a flat page (low contrast inside the outline) triggers the enhancement pass.
+  The platform shim degrades to no overlay when the worklet runtime is absent (`MOB-002`).
 - 18 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed

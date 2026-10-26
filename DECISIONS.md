@@ -364,3 +364,26 @@ display server or xvfb, and still cannot prove a signed installer works).
 
 **Consequences:** The configuration cannot drift unnoticed, but a real installer still has to be
 built and smoke-tested on each platform before a release; that remains a release-checklist item.
+
+---
+
+## DEC-023 — Edge detection is a closed-form detector, not a model
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** The phone finds the page with a small classical pipeline — average downscale to 200 px,
+Sobel magnitude, Otsu threshold, then the four extreme points of the strong edges (min/max of x±y).
+The result is smoothed across frames, rejected when it covers almost the whole frame or is a sliver,
+and mapped from preview to photo coordinates before cropping.
+
+**Reason:** It runs on every frame on a mid-range Android phone, it has no model to ship or train, and
+it is deterministic enough to unit-test with synthetic frames — the tests draw a rotated bright page
+on a dark desk and assert the outline follows it. A learned detector would be better on crumpled
+paper, but it would also be a black box we cannot test here.
+
+**Alternatives considered:** A TFLite document detector (better on hard captures, but a binary to
+ship, and untestable in this environment); asking the user to drag four corners every time (slow, and
+the acceptance criterion is automatic detection).
+
+**Consequences:** Very low-contrast pages (white on white) and extreme perspective still produce no
+outline; the capture screen then simply sends the full frame, and the review step is unchanged.

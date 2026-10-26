@@ -27,8 +27,7 @@ M0 and M1 are complete, and these M2 stories are now done too:
 
 ## Now
 
-- [ ] **MOB-002 (edge detection)** — feed a VisionCamera frame processor into the existing capture
-      planner so the quad no longer has to be supplied by the caller.
+- [ ] **CRM-001** — CRM/ERP/accounting connector presets.
 - [ ] **I18N-001** — sweep the desktop page bodies through the `en/sw/fr` catalogues; check RTL.
 
 ## Done this round
@@ -37,6 +36,7 @@ M0 and M1 are complete, and these M2 stories are now done too:
 - [x] **REV-002** — document type on every correction, aggregate stats, opt-in training export.
 - [x] **DESK-001** — allow-listed IPC, keychain token file, sandboxed renderer, packaging targets.
 - [x] **DESK-002** — device filter, live document list, bulk approve with a skipped report.
+- [x] **MOB-002** — automatic page detection, EXIF orientation, crop, enhancement and compression.
 
 ## Later (Phase 3)
 

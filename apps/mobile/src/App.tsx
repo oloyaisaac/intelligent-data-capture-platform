@@ -5,6 +5,7 @@ import { ApiClient } from './api/client';
 import { KeychainStore } from './auth/secureStore';
 import { createPersistentQueue } from './state/queueStorage';
 import { CaptureScreen } from './screens/CaptureScreen';
+import { createFrameBridge } from './capture/useDocumentDetector';
 import { QueueScreen } from './screens/QueueScreen';
 import { ReviewScreen } from './screens/ReviewScreen';
 import { SignInScreen } from './screens/SignInScreen';
@@ -39,6 +40,8 @@ export function App(): React.JSX.Element {
   );
 
   const queue: UploadQueue = useMemo(() => createPersistentQueue(store, client), [store, client]);
+  // MOB-002: one bridge for the session; the capture screen subscribes to it.
+  const frameBridge = useMemo(() => createFrameBridge(), []);
 
   // Restore the session on launch: a refresh token means the person stays signed in.
   useEffect(() => {
@@ -101,7 +104,7 @@ export function App(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.body}>
-        {tab === 'capture' && <CaptureScreen queue={queue} />}
+        {tab === 'capture' && <CaptureScreen queue={queue} bridge={frameBridge} />}
         {tab === 'queue' && <QueueScreen queue={queue} onOpenReview={() => setTab('review')} />}
         {tab === 'review' && <ReviewScreen client={client} />}
       </View>

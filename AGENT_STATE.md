@@ -14,11 +14,10 @@
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
 `npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
-277 tests in 18 suites).
+287 tests in 18 suites).
 
-39 of 45 stories are `done`. The remaining ones are `MOB-002` (automatic edge detection is not
-wired to a frame processor), `I18N-001` (translation sweep of the desktop page bodies) and the
-Phase 3 tail: `CRM-001`, `MARKET-001`, `AGENT-001`, `VOICE-001`.
+40 of 45 stories are `done`. The remaining ones are `I18N-001` (translation sweep of the desktop page
+bodies) and the Phase 3 tail: `CRM-001`, `MARKET-001`, `AGENT-001`, `VOICE-001`.
 
 ## What is built
 
@@ -50,10 +49,11 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
    against a stand-in Electron (`apps/desktop/test/shell.test.ts`), and the packaging contract is
    validated statically (`scripts/validate-packaging.mjs`, DEC-022). Producing and smoke-testing
    signed installers on Windows/macOS/Linux is a release-checklist item, not a code gap.
-2. **Mobile capture crops, enhances and compresses through pure planning functions**
-   (`apps/mobile/src/capture/imagePipeline.ts`), but the _quad_ they crop to must be supplied by the
-   caller: no VisionCamera frame processor is installed, so automatic edge detection is not wired.
-   `MOB-002` stays `in_progress` until that overlay feeds it.
+2. **The frame processor needs the worklet runtime.** The detector, its smoothing and the crop plan
+   are pure and tested (`apps/mobile/src/capture/edgeDetection.ts`), and
+   `frameProcessor.tsx` builds the VisionCamera processor when `react-native-worklets-core` is
+   installed. That dependency is not installed here, so the overlay is inert in this sandbox — the
+   capture path itself works either way.
 3. **The MySQL connector is typechecked but not exercised against a live server** (no MySQL in this
    sandbox). Its SQL is covered by validation tests only; the Postgres and SQLite paths run for real.
 4. **Realtime transport is authenticated SSE**, not Socket.IO. The `RealtimeHub` interface keeps the
@@ -77,11 +77,10 @@ The desktop app is the primary surface; the mobile app is paired from its "Pair 
 
 ## Next actions, in order
 
-1. `MOB-002` — wire a VisionCamera frame processor so the detected quad feeds `planProcessing`
-   automatically (the planning, enhancement and compression side is done and tested).
+1. `CRM-001` — CRM/ERP/accounting destinations (the highest-priority remaining story).
 2. `I18N-001` — sweep the remaining English literals in the desktop page bodies through the shared
    catalogues, and confirm RTL layout with a right-to-left locale.
-3. `CRM-001`, `MARKET-001`, `AGENT-001`, `VOICE-001` — the Phase 3 tail.
+3. `MARKET-001`, `AGENT-001`, `VOICE-001` — the rest of the Phase 3 tail.
 
 ## Environment facts worth knowing
 
