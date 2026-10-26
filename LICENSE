@@ -1,0 +1,43 @@
+Copyright (c) 2026 — AI Universal Data Capture Platform (IDCP)
+All rights reserved.
+
+This software and its associated documentation, designs, schemas and
+requirements documents (the "Software") are proprietary and confidential.
+
+The licence model for this project has not yet been finalised by the owner
+(see DECISIONS.md DEC-011 and PRD.json open question Q-002). Until a licence
+is formally adopted, the following terms apply:
+
+1. NO LICENCE IS GRANTED. No permission is granted to use, copy, modify,
+   merge, publish, distribute, sublicense, sell, host, or otherwise exploit
+   the Software, in whole or in part, in source or binary form, without the
+   prior written permission of the copyright holder.
+
+2. NO WARRANTY. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+3. NO LIABILITY. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+   FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+   CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+4. CONFIDENTIALITY. The Software may describe or be used with systems that
+   process personal and business data (invoices, identity documents, contracts).
+   It must be handled in accordance with SECURITY.md and applicable data
+   protection law.
+
+CONTACT
+
+For licensing, commercial use or distribution rights, contact the project
+owner. This file is a placeholder and MUST be replaced by the adopted licence
+before any public release, open-sourcing or third-party distribution.
+
+---
+
+NOTE TO CONTRIBUTORS AND AI AGENTS
+
+Contributions are accepted on the basis that the copyright holder may use them
+under this notice. Do not add third-party code whose licence is incompatible
+with a proprietary, closed-source distribution. Do not change this file without
+explicit owner approval (AI.md §8).
