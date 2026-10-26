@@ -62,6 +62,10 @@ push / PR → CI: install → typecheck → lint → test → build → security
         → promote same image to production → health check → monitor
 ```
 
+Today the pipeline stops after `CI`: there is no `Dockerfile`, no image publish and no deploy job in
+`.github/workflows/`, so steps 7–10 above are a plan, not automation. A release is currently a manual
+`git pull && npm ci && npm run build && npm run db:migrate && systemd restart` on one host (§4).
+
 Rules:
 
 - The **same built artefact** is promoted; never rebuild for production.
@@ -76,9 +80,16 @@ Every key is documented in `.env.example`, and a test keeps that file equal to w
 committed. There is no Redis or object-store key because the shipped runtime has neither — see
 DEC-029 for the order in which they arrive.
 
-**Running one instance today.** The default deployment is a single API container with a persistent
-volume for `SQLITE_PATH` and `STORAGE_PATH`. Do not run more than one replica against a SQLite file:
-the worker claims jobs transactionally, but two SQLite writers are not a supported topology.
+**Running one instance today (DEC-029).** One process, one host, two directories it owns:
+`SQLITE_PATH` (the database) and `STORAGE_PATH` (documents and exports). Run it under a supervisor
+that restarts on failure and forwards `SIGTERM` — `systemd`, Docker with `--restart`, or a platform
+process manager. Do not run more than one replica against a SQLite file: the worker claims jobs
+transactionally, but two SQLite writers are not a supported topology.
+
+`SIGTERM` stops the worker, closes the HTTP server and closes the database. A job interrupted
+mid-extraction is re-queued the next time the worker starts (anything claimed more than 30 seconds
+before boot), so a restart is safe — the document returns to the queue instead of sitting in
+`processing` forever.
 
 | Group          | Keys (see `.env.example`)                                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -102,7 +113,18 @@ Rotation: JWT signing keys and provider keys rotate on a schedule and immediatel
 4. Verify health, logs and key metrics.
 5. Keep the previous image for rollback.
 
-Backups: automated daily full + continuous point-in-time recovery (≥ 7 days). Restores are tested quarterly. Restore procedure is documented and rehearsed before the first paying customer.
+**Backups.** There is no backup script in this repository yet; the operator owns this step, and it
+differs by driver:
+
+| Driver                            | Correct backup                                                                                                                                                             | Notes                                                                                                                                                            |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite (today)                    | `sqlite3 local-storage/idcp.db "VACUUM INTO '/backups/idcp-$(date +%F).db'"` while the server runs, or copy the `.db` **and** `-wal`/`-shm` files with the process stopped | Copying only `idcp.db` while WAL is active loses recent writes. Point-in-time recovery is not available on SQLite — take a snapshot at least daily and keep ≥ 7. |
+| PostgreSQL (after DEC-029 step 1) | Provider snapshots plus WAL archiving (PITR)                                                                                                                               | Then the original "daily full + PITR" applies.                                                                                                                   |
+
+Restores are tested quarterly and rehearsed before the first paying customer. A restore is not
+"done" until `GET /api/v1/health` returns `ok`, a login succeeds and a document downloads from
+`STORAGE_PATH`: the database and the files must be restored together or records point at files that
+no longer exist.
 
 ## 6. Domain, DNS and TLS
 
@@ -130,7 +152,7 @@ Backups: automated daily full + continuous point-in-time recovery (≥ 7 days). 
 
 ## 8. Post-deployment verification
 
-- [ ] `GET /health` returns `ok` for API and dependencies.
+- [ ] `GET /api/v1/health` returns `ok` with `dependencies.db: "ok"` (there is no bare `/health`).
 - [ ] Login, pairing and upload work against the deployed environment.
 - [ ] A document processes end-to-end and appears in review.
 - [ ] An export is generated and downloadable.
@@ -147,13 +169,47 @@ Backups: automated daily full + continuous point-in-time recovery (≥ 7 days). 
 
 ## 10. Operations
 
-- **Monitoring:** uptime checks on `/health`, queue depth, job failure rate, extraction latency, connector error rate, auth failure spikes.
-- **Alerting:** pager for API down, database saturation, queue backlog over threshold, storage failures, certificate expiry within 14 days.
-- **Log retention:** 30 days hot, 12 months archived; never log document content, tokens or personal data.
-- **Cost controls:** per-organisation AI spend cap (`AI_MAX_COST_MICROS_PER_DOC`), storage lifecycle rules, alerts on unusual growth.
-- **Access:** production access limited to named administrators with MFA; all access audited.
+**What the application gives an operator today**
 
-## 11. Go-live checklist (first production release)
+- `GET /api/v1/health` — `200` with `dependencies.db: "ok"`, or `503` with `"error"`. Suitable for an
+  uptime check and for a supervisor's readiness probe.
+- Structured JSON logs on stdout (`time`, `level`, `message`, plus redacted context). Secrets, tokens,
+  document text and field values are redacted by key (`apps/backend/src/logger.ts`).
+- `X-Request-Id` on every response, echoed from the request when supplied — correlate a user's report
+  with the log line by sending one yourself.
+- Application audit trail (`audit_logs`) for privileged actions, queryable through the API.
+- Graceful shutdown on `SIGTERM`/`SIGINT`, and interrupted jobs are re-queued on the next start.
+
+**What the operator must supply** (none of it exists in this repository yet)
+
+- Uptime check against `/api/v1/health`, alerting on `503`.
+- Queue depth and job failures: there is no metrics endpoint, so read them from the database
+  (`SELECT status, COUNT(*) FROM jobs GROUP BY status`) or from `job failed` log lines.
+- Log shipping and retention (30 days hot, 12 months archived) — logs are stdout only.
+- Storage monitoring on `STORAGE_PATH` and `SQLITE_PATH` disk usage; neither is reported by the app.
+- Certificate expiry monitoring, MFA on the host and the provider console, and access review.
+- Cost controls: `AI_MAX_COST_MICROS_PER_DOC` caps a single document; there is no per-organisation
+  spend total, alert or dashboard.
+
+## 11. Known gaps between this plan and the repository
+
+Ordered by what would hurt first. Everything here is deliberate and listed in `AGENT_STATE.md`;
+none of it is a bug the code hides.
+
+| Gap                                                             | Consequence today                                                                                                                               | Fix                                                                      |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| No `Dockerfile`, image build, deploy job or IaC                 | Releases are manual on one host (§3)                                                                                                            | Add an image build + publish step, then the pipeline above               |
+| No backup or restore script                                     | Losing the host loses the database **and** the documents; the operator must schedule `VACUUM INTO` themselves (§5)                              | Ship `npm run db:backup` + a restore test                                |
+| No metrics endpoint or alerting                                 | Only logs and the health check; "queue depth" and "p95 latency" are not measured                                                                | `/metrics` for queue depth, job outcomes, extraction latency             |
+| No access log                                                   | Requests are not logged (only the audit trail for privileged actions)                                                                           | `onResponse` hook with method, path, status, duration, request id        |
+| Rate limiting is in-process memory                              | Resets on restart and does not cover a second instance; `trustProxy` is on, so `X-Forwarded-For` is only trustworthy behind a proxy you control | Shared limiter when a queue/cache exists; make `trustProxy` configurable |
+| No security headers (no helmet)                                 | No `HSTS`, `X-Frame-Options` or `Referrer-Policy`; `X-Content-Type-Options: nosniff` is per-download                                            | Add a headers hook plus a test                                           |
+| Automation absent for retention, expired exports, dead sessions | Retention runs only when an admin posts `/retention/purge`; expired exports stay on disk; `sessions`/`pairing_sessions` rows accumulate         | A daily scheduled job in the worker                                      |
+| No dependency vulnerability scan in CI                          | `npm audit` reports 8 advisories (1 critical via `shell-quote`, `zod` and `image-size` high) but CI does not fail on them                       | Audit job once the upgrades land; `zod` needs a v3 → v4 migration        |
+| Signed installers not built                                     | Desktop/mobile distribution is manual (§7)                                                                                                      | Release workflow per platform (DEC-022)                                  |
+| No browser or device e2e                                        | Integration tests cover the API, nothing covers a real click path                                                                               | Playwright (desktop), Detox or Maestro (mobile)                          |
+
+## 12. Go-live checklist (first production release)
 
 - [ ] Hosting and persistent storage provisioned in the approved region (one instance with a volume
       by default; PostgreSQL, a shared queue and object storage before any horizontal scaling, in
