@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  AcceptInviteRequestSchema,
   AppError,
   LoginRequestSchema,
   RefreshRequestSchema,
@@ -10,6 +11,30 @@ import type { Services } from '../../services/container';
 import type { Guards } from '../guards';
 
 export function registerAuthRoutes(app: FastifyInstance, services: Services, guards: Guards): void {
+  /**
+   * TEAM-001 — accept an invitation link. Public, because the person accepting has no session yet;
+   * the token itself is the credential. Single use and short-lived.
+   */
+  app.post('/invitations/:token/accept', async (request, reply) => {
+    const parsed = AcceptInviteRequestSchema.safeParse({
+      token: (request.params as Record<string, string>).token,
+      password: (request.body as { password?: string } | undefined)?.password,
+    });
+    if (!parsed.success) throw badRequest('Choose a password with at least 12 characters.');
+
+    const key = `invite-accept:${request.ip}`;
+    if (!services.authLimiter.hit(key)) {
+      throw new AppError('RATE_LIMITED', 'Too many attempts. Try again in a few minutes.');
+    }
+
+    const tokens = await services.auth.acceptInvitation(parsed.data, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+      ipHash: request.clientIpHash,
+    });
+    return reply.code(200).send(tokens);
+  });
+
   app.post('/auth/register', async (request, reply) => {
     const parsed = RegisterRequestSchema.safeParse(request.body);
     if (!parsed.success) throw badRequest('Check the form and try again.', parsed.error.issues);

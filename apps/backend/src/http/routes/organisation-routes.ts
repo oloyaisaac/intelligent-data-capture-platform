@@ -7,6 +7,7 @@ import {
 } from '@idcp/shared';
 import type { Services } from '../../services/container';
 import type { Guards } from '../guards';
+import { statsToCsv } from '../../services/organisation-service';
 
 export function registerOrganisationRoutes(
   app: FastifyInstance,
@@ -36,13 +37,27 @@ export function registerOrganisationRoutes(
     await guards.requireRole('admin')(request, reply);
     const parsed = InviteUserRequestSchema.safeParse(request.body);
     if (!parsed.success) throw badRequest('Enter a valid email address and role.');
-    await services.auth.invite({
+    const invitation = await services.auth.invite({
       email: parsed.data.email,
       role: parsed.data.role,
       invitedBy: actor.userId,
       organisationId: actor.organisationId,
     });
-    return reply.code(202).send({ status: 'invited' });
+    // Delivery is out of scope, so the caller receives the link once; only its hash is stored.
+    return reply.code(202).send({ status: 'invited', invitation });
+  });
+
+  app.get('/invitations', async (request) => {
+    const actor = await guards.authenticate(request);
+    await guards.requireRole('admin')(request);
+    return { items: await services.auth.listInvitations(actor.organisationId) };
+  });
+
+  app.delete('/invitations/:id', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    await guards.requireRole('admin')(request);
+    await services.auth.revokeInvitation(actor.organisationId, guards.uuidParam(request, 'id'));
+    return reply.code(204).send();
   });
 
   app.patch('/users/:id/role', async (request, reply) => {
@@ -75,7 +90,24 @@ export function registerOrganisationRoutes(
 
   app.get('/stats', async (request) => {
     const actor = await guards.authenticate(request);
-    return services.organisation.stats(actor);
+    const query = request.query as Record<string, string | undefined>;
+    return services.organisation.stats(actor, { days: Number(query.days) || undefined });
+  });
+
+  /** DASH-001: the figures on the dashboard, as a file, for people who live in spreadsheets. */
+  app.get('/stats.csv', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    const query = request.query as Record<string, string | undefined>;
+    const stats = await services.organisation.stats(actor, {
+      days: Number(query.days) || undefined,
+    });
+    reply.header('content-type', 'text/csv; charset=utf-8');
+    reply.header(
+      'content-disposition',
+      `attachment; filename="dashboard-${stats.generatedAt.slice(0, 10)}.csv"`,
+    );
+    reply.header('cache-control', 'private, no-store');
+    return reply.send(statsToCsv(stats));
   });
 
   app.post('/retention/purge', async (request, reply) => {

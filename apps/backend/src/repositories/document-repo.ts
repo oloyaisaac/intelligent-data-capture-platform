@@ -19,6 +19,7 @@ export class DocumentsRepository {
     pageCount?: number;
     documentType?: DocumentType;
     status?: DocumentStatus;
+    projectId?: string | null;
   }): Promise<DocumentRow> {
     const now = nowIso();
     const row: DocumentRow = {
@@ -35,14 +36,15 @@ export class DocumentsRepository {
       document_type: input.documentType ?? 'unknown',
       status: input.status ?? 'uploaded',
       template_id: null,
+      project_id: input.projectId ?? null,
       deleted_at: null,
       created_at: now,
       updated_at: now,
     };
     await this.db.execute(
       `INSERT INTO documents (id, organisation_id, uploaded_by, device_id, idempotency_key, storage_key,
-        mime_type, size_bytes, sha256, page_count, document_type, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        mime_type, size_bytes, sha256, page_count, document_type, status, project_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.organisation_id,
@@ -56,6 +58,7 @@ export class DocumentsRepository {
         row.page_count,
         row.document_type,
         row.status,
+        row.project_id,
         row.created_at,
         row.updated_at,
       ],
@@ -83,6 +86,7 @@ export class DocumentsRepository {
       status?: DocumentStatus;
       documentType?: DocumentType;
       deviceId?: string;
+      projectId?: string;
       includeDeleted?: boolean;
       limit?: number;
       cursor?: string;
@@ -102,6 +106,10 @@ export class DocumentsRepository {
     if (filters.deviceId) {
       clauses.push('device_id = ?');
       params.push(filters.deviceId);
+    }
+    if (filters.projectId) {
+      clauses.push('project_id = ?');
+      params.push(filters.projectId);
     }
     if (filters.cursor) {
       clauses.push('created_at < ?');

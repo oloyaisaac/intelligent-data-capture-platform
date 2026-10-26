@@ -87,6 +87,11 @@ All keys are documented in `.env.example`. Rules:
 - If you add a new key, add it to `.env.example` **with a placeholder** in the same commit.
 - Missing or invalid configuration must fail fast at startup with a clear message (`BACK-001`).
 
+Invitation links are built from `APP_ORIGIN` (`<APP_ORIGIN>/#/accept-invite?token=…`), so set it to
+the URL people actually open, not the API's own address. `INVITATION_TTL_SECONDS` (default 7 days)
+is how long such a link stays usable; there is no email delivery, so the link is returned by
+`POST /users/invite` exactly once.
+
 ## 5. Standard scripts (target surface)
 
 These are the commands the project will standardise on (`FOUND-003`, `FOUND-004`). Only `npm install` works today.

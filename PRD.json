@@ -429,7 +429,7 @@
       ],
       "dependsOn": ["MOB-001"],
       "artifacts": [
-        "apps/mobile/src/capture/QrScannerView.tsx",
+        "apps/mobile/src/capture/imagePipeline.ts",
         "apps/mobile/src/screens/CaptureScreen.tsx"
       ]
     },
@@ -480,7 +480,7 @@
       "priority": "must",
       "description": "Asynchronous job pipeline that runs OCR (with a local engine as default and a cloud provider as an option) and stores per-page text with word-level geometry.",
       "acceptanceCriteria": [
-        "Jobs run asynchronously with status transitions queued \u2192 running \u2192 succeeded/failed.",
+        "Jobs run asynchronously with status transitions queued → running → succeeded/failed.",
         "Failures are retried with backoff and surface an actionable error message.",
         "Per-page text and geometry are persisted for downstream extraction.",
         "Average invoice-sized page processes in under 10 seconds in the reference environment."
@@ -497,7 +497,7 @@
       "priority": "must",
       "description": "Classify each document into form, receipt, invoice, ID, contract, table or handwritten and store a confidence score.",
       "acceptanceCriteria": [
-        "Classifier returns the document type plus a 0\u20131 confidence.",
+        "Classifier returns the document type plus a 0–1 confidence.",
         "Low-confidence classifications are flagged for human review.",
         "Classification accuracy meets the agreed benchmark on the labelled test set."
       ],
@@ -707,7 +707,7 @@
       "id": "CON-003",
       "epic": "EP-CONNECT",
       "title": "MySQL, PostgreSQL and SQLite connectors",
-      "status": "in_progress",
+      "status": "done",
       "phase": 2,
       "priority": "must",
       "description": "Database connectors with schema introspection, mapped inserts/updates and configurable conflict handling.",
@@ -720,7 +720,8 @@
       "dependsOn": ["CON-001", "MAP-001"],
       "artifacts": [
         "packages/connectors/src/sqlite-connector.ts",
-        "packages/connectors/src/postgres-connector.ts"
+        "packages/connectors/src/postgres-connector.ts",
+        "packages/connectors/src/mysql-connector.ts"
       ]
     },
     {
@@ -785,7 +786,7 @@
       "id": "BATCH-001",
       "epic": "EP-TEAM",
       "title": "Batch processing",
-      "status": "pending",
+      "status": "done",
       "phase": 2,
       "priority": "should",
       "description": "Upload and process many documents at once with progress, partial failure handling and per-item results.",
@@ -795,13 +796,18 @@
         "Progress and results are exportable."
       ],
       "dependsOn": ["AI-003", "MOB-003"],
-      "artifacts": ["apps/backend/src/batch/*"]
+      "artifacts": [
+        "apps/backend/src/services/batch-service.ts",
+        "apps/backend/src/http/routes/batch-routes.ts",
+        "apps/backend/src/repositories/batch-repo.ts",
+        "apps/desktop/src/pages/BatchesPage.tsx"
+      ]
     },
     {
       "id": "TEAM-001",
       "epic": "EP-TEAM",
       "title": "Organisations, projects and team roles",
-      "status": "in_progress",
+      "status": "done",
       "phase": 2,
       "priority": "should",
       "description": "Multi-tenant organisations with projects, invitations, role assignment and review assignment.",
@@ -813,7 +819,12 @@
       "dependsOn": ["AUTH-002"],
       "artifacts": [
         "apps/backend/src/services/organisation-service.ts",
-        "apps/backend/src/http/routes/organisation-routes.ts"
+        "apps/backend/src/http/routes/organisation-routes.ts",
+        "apps/backend/src/services/project-service.ts",
+        "apps/backend/src/http/routes/project-routes.ts",
+        "apps/backend/src/repositories/project-repo.ts",
+        "apps/desktop/src/pages/ProjectsPage.tsx",
+        "apps/desktop/src/pages/AcceptInvitePage.tsx"
       ]
     },
     {
@@ -918,7 +929,7 @@
       "status": "pending",
       "phase": 3,
       "priority": "could",
-      "description": "Rule and agent driven workflows, e.g. invoice uploaded \u2192 extracted \u2192 validated \u2192 saved to accounting \u2192 user notified.",
+      "description": "Rule and agent driven workflows, e.g. invoice uploaded → extracted → validated → saved to accounting → user notified.",
       "acceptanceCriteria": [
         "Workflows can be created from a visual builder.",
         "Each run is logged with inputs, outputs and failures.",
@@ -931,7 +942,7 @@
       "id": "DASH-001",
       "epic": "EP-INSIGHT",
       "title": "Analytics dashboard",
-      "status": "in_progress",
+      "status": "done",
       "phase": 3,
       "priority": "could",
       "description": "Volume, accuracy, review time, connector success rate and cost per document, filterable by project and period.",
@@ -943,6 +954,8 @@
       "dependsOn": ["AI-003", "AUDIT-001"],
       "artifacts": [
         "apps/desktop/src/pages/DashboardPage.tsx",
+        "apps/desktop/src/lib/charts.ts",
+        "apps/backend/src/services/organisation-service.ts",
         "apps/backend/src/http/routes/organisation-routes.ts"
       ]
     },
@@ -960,7 +973,11 @@
         "RTL layouts render without clipped controls."
       ],
       "dependsOn": ["MOB-001", "DESK-001"],
-      "artifacts": ["packages/shared/src/i18n.ts"]
+      "artifacts": [
+        "packages/shared/src/i18n.ts",
+        "apps/desktop/src/lib/i18n.ts",
+        "apps/mobile/src/screens/CaptureScreen.tsx"
+      ]
     },
     {
       "id": "VOICE-001",

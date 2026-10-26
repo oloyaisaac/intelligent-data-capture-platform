@@ -88,6 +88,7 @@ export interface DocumentRow {
   document_type: DocumentType;
   status: DocumentStatus;
   template_id: string | null;
+  project_id: string | null;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -263,5 +264,48 @@ export interface ApiKeyRow {
   created_by: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  created_at: string;
+}
+
+export interface BatchRow {
+  id: string;
+  organisation_id: string;
+  name: string;
+  project_id: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface BatchItemRow {
+  id: string;
+  batch_id: string;
+  document_id: string | null;
+  position: number;
+  filename: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface ProjectRow {
+  id: string;
+  organisation_id: string;
+  name: string;
+  key: string;
+  created_by: string;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvitationRow {
+  id: string;
+  organisation_id: string;
+  user_id: string;
+  email: string;
+  role: string;
+  token_hash: string;
+  invited_by: string;
+  expires_at: string;
+  used_at: string | null;
   created_at: string;
 }

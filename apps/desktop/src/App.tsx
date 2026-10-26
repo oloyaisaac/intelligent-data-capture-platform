@@ -3,7 +3,10 @@ import type { UserSummary } from '@idcp/shared';
 import { ApiClient, ApiError, BridgeTokenStorage, MemoryTokenStorage } from './api/client';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { BatchesPage } from './pages/BatchesPage';
 import { DocumentsPage } from './pages/DocumentsPage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { ReviewPage } from './pages/ReviewPage';
 import { ExportsPage } from './pages/ExportsPage';
 import { ConnectorsPage } from './pages/ConnectorsPage';
@@ -11,6 +14,8 @@ import { TemplatesPage } from './pages/TemplatesPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { Badge } from './components/ui';
+import { LOCALE_OPTIONS, loadLocale, saveLocale, translator } from './lib/i18n';
+import type { Locale } from '@idcp/shared';
 
 /**
  * Application shell (DESK-001).
@@ -23,12 +28,15 @@ import { Badge } from './components/ui';
 export type Route =
   | { name: 'dashboard' }
   | { name: 'documents'; documentId?: string; status?: string }
+  | { name: 'batches' }
+  | { name: 'projects' }
   | { name: 'review'; documentId?: string }
   | { name: 'exports' }
   | { name: 'connectors' }
   | { name: 'templates' }
   | { name: 'devices' }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'accept-invite'; token: string };
 
 export function parseRoute(hash: string): Route {
   const cleaned = hash.replace(/^#\/?/, '');
@@ -37,10 +45,16 @@ export function parseRoute(hash: string): Route {
   const segment = (path ?? '').split('/')[0];
 
   switch (segment) {
+    case 'accept-invite':
+      return { name: 'accept-invite', token: params.get('token') ?? '' };
     case 'documents':
       return { name: 'documents', status: params.get('status') ?? undefined };
     case 'review':
       return { name: 'review', documentId: params.get('documentId') ?? undefined };
+    case 'batches':
+      return { name: 'batches' };
+    case 'projects':
+      return { name: 'projects' };
     case 'exports':
       return { name: 'exports' };
     case 'connectors':
@@ -71,15 +85,31 @@ export function routeHref(route: Route): string {
   }
 }
 
-const NAV: Array<{ route: Route; label: string; section?: string }> = [
-  { route: { name: 'dashboard' }, label: 'Overview' },
-  { route: { name: 'documents' }, label: 'Documents' },
-  { route: { name: 'review' }, label: 'Review' },
-  { route: { name: 'exports' }, label: 'Exports' },
-  { route: { name: 'templates' }, label: 'Templates', section: 'Configure' },
-  { route: { name: 'connectors' }, label: 'Connectors' },
-  { route: { name: 'devices' }, label: 'Devices' },
-  { route: { name: 'settings' }, label: 'Settings' },
+const NAV: Array<{
+  route: Route;
+  labelKey:
+    | 'nav.overview'
+    | 'nav.documents'
+    | 'nav.batches'
+    | 'nav.review'
+    | 'nav.exports'
+    | 'nav.projects'
+    | 'nav.templates'
+    | 'nav.connectors'
+    | 'nav.devices'
+    | 'nav.settings';
+  sectionKey?: 'nav.configure';
+}> = [
+  { route: { name: 'dashboard' }, labelKey: 'nav.overview' },
+  { route: { name: 'documents' }, labelKey: 'nav.documents' },
+  { route: { name: 'batches' }, labelKey: 'nav.batches' },
+  { route: { name: 'review' }, labelKey: 'nav.review' },
+  { route: { name: 'exports' }, labelKey: 'nav.exports' },
+  { route: { name: 'projects' }, labelKey: 'nav.projects', sectionKey: 'nav.configure' },
+  { route: { name: 'templates' }, labelKey: 'nav.templates', sectionKey: 'nav.configure' },
+  { route: { name: 'connectors' }, labelKey: 'nav.connectors' },
+  { route: { name: 'devices' }, labelKey: 'nav.devices' },
+  { route: { name: 'settings' }, labelKey: 'nav.settings' },
 ];
 
 function createClient(onSessionExpired: () => void): ApiClient {
@@ -97,6 +127,8 @@ export function App(): React.JSX.Element {
   const [user, setUser] = useState<UserSummary | null>(null);
   const [booted, setBooted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [locale, setLocale] = useState<Locale>(() => loadLocale());
+  const t = useMemo(() => translator(locale), [locale]);
 
   const client = useMemo(
     () =>
@@ -138,6 +170,24 @@ export function App(): React.JSX.Element {
     );
   }
 
+  // The invitation link opens before sign-in: the token itself is the credential.
+  if (!user && route.name === 'accept-invite') {
+    return (
+      <AcceptInvitePage
+        client={client}
+        token={route.token}
+        onAccepted={async () => {
+          try {
+            setUser(await client.me());
+            setError(null);
+          } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Could not load your account.');
+          }
+        }}
+      />
+    );
+  }
+
   if (!user) {
     return (
       <LoginPage
@@ -168,15 +218,15 @@ export function App(): React.JSX.Element {
         </div>
 
         {NAV.map((entry) => (
-          <React.Fragment key={entry.label}>
-            {entry.section && <div className="nav-section">{entry.section}</div>}
+          <React.Fragment key={entry.labelKey}>
+            {entry.sectionKey && <div className="nav-section">{t(entry.sectionKey)}</div>}
             <button
               type="button"
               className="nav-item"
               aria-current={route.name === entry.route.name ? 'page' : undefined}
               onClick={() => navigate(entry.route)}
             >
-              {entry.label}
+              {t(entry.labelKey)}
             </button>
           </React.Fragment>
         ))}
@@ -195,7 +245,7 @@ export function App(): React.JSX.Element {
                 setUser(null);
               }}
             >
-              Sign out
+              {t('action.signOut')}
             </button>
           </div>
         </div>
@@ -204,7 +254,9 @@ export function App(): React.JSX.Element {
       <div className="main">
         <header className="topbar">
           <span className="topbar-title">
-            {NAV.find((entry) => entry.route.name === route.name)?.label ?? 'Overview'}
+            {NAV.find((entry) => entry.route.name === route.name)
+              ? t(NAV.find((entry) => entry.route.name === route.name)!.labelKey)
+              : t('nav.overview')}
           </span>
           <div className="topbar-spacer" />
           <span className="dim">{user.organisationName}</span>
@@ -233,11 +285,29 @@ export function App(): React.JSX.Element {
           {route.name === 'review' && (
             <ReviewPage client={client} initialDocumentId={route.documentId} />
           )}
+          {route.name === 'batches' && <BatchesPage client={client} />}
+          {route.name === 'projects' && (
+            <ProjectsPage
+              client={client}
+              canManage={user.role === 'owner' || user.role === 'admin'}
+            />
+          )}
           {route.name === 'exports' && <ExportsPage client={client} />}
           {route.name === 'connectors' && <ConnectorsPage client={client} />}
           {route.name === 'templates' && <TemplatesPage client={client} />}
           {route.name === 'devices' && <DevicesPage client={client} />}
-          {route.name === 'settings' && <SettingsPage client={client} role={user.role} />}
+          {route.name === 'settings' && (
+            <SettingsPage
+              client={client}
+              role={user.role}
+              locale={locale}
+              localeOptions={LOCALE_OPTIONS}
+              onLocaleChange={(next) => {
+                setLocale(next);
+                saveLocale(next);
+              }}
+            />
+          )}
         </div>
       </div>
     </div>

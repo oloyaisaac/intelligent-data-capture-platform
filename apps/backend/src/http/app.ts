@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { AppError, isAppError, toErrorEnvelope, type HealthResponse } from '@idcp/shared';
+import { MAX_BATCH_FILES } from '../services/batch-service';
 import { corsOrigins } from '../config';
 import type { Services } from '../services/container';
 import { createGuards } from './guards';
@@ -15,6 +16,8 @@ import { registerOrganisationRoutes } from './routes/organisation-routes';
 import { registerTemplateRoutes } from './routes/template-routes';
 import { registerApiKeyRoutes } from './routes/api-key-routes';
 import { registerRealtimeRoutes } from './routes/realtime-routes';
+import { registerBatchRoutes } from './routes/batch-routes';
+import { registerProjectRoutes } from './routes/project-routes';
 
 /**
  * HTTP application factory. Separated from `index.ts` so tests can build an app around an
@@ -39,11 +42,13 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
     exposedHeaders: ['X-Request-Id', 'Retry-After'],
   });
 
+  // A single document upload passes its own `files: 1` limit; the global limit has to leave room
+  // for batch uploads (BATCH-001), which carry many files in one request.
   await app.register(multipart, {
     limits: {
       fileSize: services.config.MAX_UPLOAD_MB * 1024 * 1024,
-      files: 1,
-      fields: 10,
+      files: MAX_BATCH_FILES + 1,
+      fields: 20,
     },
   });
 
@@ -177,6 +182,8 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
       registerTemplateRoutes(scope, services, guards);
       registerApiKeyRoutes(scope, services, guards);
       registerRealtimeRoutes(scope, services, guards);
+      registerBatchRoutes(scope, services, guards);
+      registerProjectRoutes(scope, services, guards);
     },
     { prefix: '/api/v1' },
   );

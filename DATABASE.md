@@ -138,6 +138,7 @@ Unique: `(organisation_id, user_id)`.
 | document_type           | text                       | `form`,`receipt`,`invoice`,`id`,`contract`,`table`,`handwritten`,`unknown`                |
 | status                  | text not null              | `uploaded`,`queued`,`processing`,`extracted`,`needs_review`,`approved`,`failed`,`deleted` |
 | template_id             | uuid FK → templates null   |                                                                                           |
+| project_id              | uuid FK → projects null    | TEAM-001 grouping label; never widens visibility                                          |
 | deleted_at              | timestamptz                | soft delete before purge                                                                  |
 | created_at / updated_at | timestamptz                |                                                                                           |
 
@@ -363,6 +364,50 @@ Snapshot of a template's field list, written on creation and on every field-list
 | fields          | jsonb               | NOT NULL                    | Field list at that version      |
 | created_by      | uuid FK → users     | NULL                        | Who made the change             |
 | created_at      | timestamptz         | NOT NULL                    |                                 |
+
+### 3.22 `projects` _(TEAM-001)_
+
+A grouping label inside one organisation (branch, client, month). Not a second tenant: every
+query still filters by `organisation_id` first.
+
+| Column                  | Type            | Constraints                               | Notes                     |
+| ----------------------- | --------------- | ----------------------------------------- | ------------------------- |
+| id                      | uuid            | PK                                        |                           |
+| organisation_id         | uuid FK → orgs  | NOT NULL                                  | Tenant scope              |
+| name                    | text            | NOT NULL                                  | ≤ 120 characters          |
+| key                     | text            | NOT NULL, `UNIQUE (organisation_id, key)` | Uppercase identifier      |
+| created_by              | uuid FK → users | NULL                                      |                           |
+| archived_at             | timestamptz     | NULL                                      | Archive instead of delete |
+| created_at / updated_at | timestamptz     | NOT NULL                                  |                           |
+
+### 3.23 `batches` / `batch_items` _(BATCH-001)_
+
+A batch records _which files were asked for_; progress is derived from the documents, so a counter
+can never disagree with reality.
+
+`batches`: `id`, `organisation_id`, `name`, `project_id` (nullable), `created_by`,
+`created_at`.
+
+`batch_items`: `id`, `batch_id` FK (cascade), `document_id` (nullable — a file rejected before a
+document existed), `position`, `filename`, `error`, `created_at`, `UNIQUE (batch_id, position)`.
+
+### 3.24 `invitations` _(TEAM-001)_
+
+Expiring, single-use invitation links. Only the SHA-256 hash of the token is stored, so a database
+leak cannot be replayed as invitations.
+
+| Column          | Type            | Constraints        | Notes                                        |
+| --------------- | --------------- | ------------------ | -------------------------------------------- |
+| id              | uuid            | PK                 |                                              |
+| organisation_id | uuid FK → orgs  | NOT NULL           | Tenant scope                                 |
+| user_id         | uuid FK → users | NOT NULL           | Existing or newly-created, passwordless user |
+| email           | text            | NOT NULL           | Invitation target                            |
+| role            | text            | NOT NULL           | Applied to the membership                    |
+| token_hash      | text            | NOT NULL, `UNIQUE` | SHA-256 of the token                         |
+| invited_by      | uuid FK → users | NULL               |                                              |
+| expires_at      | timestamptz     | NOT NULL           | `INVITATION_TTL_SECONDS` (default 7 days)    |
+| used_at         | timestamptz     | NULL               | Set once; the guard is a conditional update  |
+| created_at      | timestamptz     | NOT NULL           |                                              |
 
 ### 3.21 `api_keys` _(implemented)_
 

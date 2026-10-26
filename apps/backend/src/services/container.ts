@@ -13,6 +13,8 @@ import { createSecretBox, type SecretBox } from './crypto';
 import { AuthService } from './auth-service';
 import { PairingService } from './pairing-service';
 import { DocumentService } from './document-service';
+import { BatchService } from './batch-service';
+import { ProjectService } from './project-service';
 import { ReviewService } from './review-service';
 import { ExportService } from './export-service';
 import { ConnectorService } from './connector-service';
@@ -35,6 +37,8 @@ export interface Services {
   auth: AuthService;
   pairing: PairingService;
   documents: DocumentService;
+  batches: BatchService;
+  projects: ProjectService;
   reviews: ReviewService;
   exports: ExportService;
   connectors: ConnectorService;
@@ -75,6 +79,8 @@ export function buildServices(options: BuildServicesOptions): Services {
   const auth = new AuthService(db, config, tokens, hasher, logger);
   const pairing = new PairingService(db, config, tokens, hub, logger);
   const documents = new DocumentService(db, config, storage, hub, logger);
+  const batches = new BatchService(db, hub, documents, logger);
+  const projects = new ProjectService(db, logger);
   const reviews = new ReviewService(db, hub, logger);
   const exports = new ExportService(db, config, storage, hub, logger);
   const connectors = new ConnectorService(db, registry, secretBox, hub, logger);
@@ -97,6 +103,8 @@ export function buildServices(options: BuildServicesOptions): Services {
     auth,
     pairing,
     documents,
+    batches,
+    projects,
     reviews,
     exports,
     connectors,

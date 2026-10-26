@@ -9,6 +9,14 @@ import {
 import { PersistedQueueStorage } from '../src/state/queueStorage';
 import { ApiClient, ApiError, assertSecureEndpoint } from '../src/api/client';
 import { MemorySecureStore } from '../src/auth/memoryStore';
+import {
+  chooseJpegQuality,
+  cropRectForQuad,
+  planProcessing,
+  processCapture,
+  resizeFor,
+  type ImageTransformer,
+} from '../src/capture/imagePipeline';
 
 class MemoryStorage implements QueueStorage {
   items: QueueItem[] = [];
@@ -336,5 +344,121 @@ describe('API client', () => {
       status: 400,
       message: 'Email or password is incorrect.',
     });
+  });
+});
+
+describe('capture pipeline (MOB-002)', () => {
+  const frame = { width: 4032, height: 3024 };
+
+  it('crops to the detected document with padding, clamped to the frame', () => {
+    const rect = cropRectForQuad(
+      {
+        topLeft: { x: 100, y: 200 },
+        topRight: { x: 3900, y: 210 },
+        bottomRight: { x: 3950, y: 2900 },
+        bottomLeft: { x: 90, y: 2880 },
+      },
+      frame,
+      0,
+    );
+    expect(rect).toEqual({ originX: 90, originY: 200, width: 3860, height: 2700 });
+  });
+
+  it('ignores a degenerate quad instead of cropping the document away', () => {
+    const tap = {
+      topLeft: { x: 10, y: 10 },
+      topRight: { x: 14, y: 10 },
+      bottomRight: { x: 14, y: 14 },
+      bottomLeft: { x: 10, y: 14 },
+    };
+    expect(cropRectForQuad(tap, frame)).toBeNull();
+    expect(cropRectForQuad(null, frame)).toBeNull();
+  });
+
+  it('downscales to the target long edge but never upscales', () => {
+    expect(resizeFor({ width: 4032, height: 3024 }, 1600)).toEqual({ width: 1600, height: 1200 });
+    expect(resizeFor({ width: 1200, height: 900 }, 1600)).toBeNull();
+  });
+
+  it('chooses a quality that fits the byte budget without going below the floor', () => {
+    expect(chooseJpegQuality(500_000, { maxBytes: 2_000_000 })).toEqual({
+      quality: 0.85,
+      fits: true,
+    });
+
+    // A 2.5 MB frame can be squeezed under 2 MB without falling below the quality floor.
+    const squeezed = chooseJpegQuality(2_500_000, { maxBytes: 2_000_000 });
+    expect(squeezed.quality).toBeLessThan(0.85);
+    expect(squeezed.quality).toBeGreaterThanOrEqual(0.6);
+    expect(squeezed.fits).toBe(true);
+
+    const hopeless = chooseJpegQuality(60_000_000, { maxBytes: 2_000_000 });
+    expect(hopeless.quality).toBe(0.6);
+    expect(hopeless.fits).toBe(false);
+  });
+
+  it('plans crop, enhance, resize and compress in one explainable step list', () => {
+    const plan = planProcessing({
+      frame,
+      quad: {
+        topLeft: { x: 200, y: 200 },
+        topRight: { x: 3800, y: 200 },
+        bottomRight: { x: 3800, y: 2800 },
+        bottomLeft: { x: 200, y: 2800 },
+      },
+      estimatedBytes: 8_000_000,
+      washedOut: true,
+    });
+
+    expect(plan.crop).toBeTruthy();
+    expect(plan.resize).toEqual({ width: 1600, height: 1156 });
+    expect(plan.enhance).toBe(true);
+    expect(plan.quality).toBeLessThan(0.85);
+    expect(plan.steps).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^crop /),
+        'resize to 1600×1156',
+        'boost contrast',
+      ]),
+    );
+  });
+
+  it('applies the plan in order and still uploads when a step is unavailable', async () => {
+    const calls: string[] = [];
+    const transformer: ImageTransformer = {
+      crop: async () => {
+        calls.push('crop');
+        throw new Error('not supported on this device');
+      },
+      enhance: async (uri) => {
+        calls.push('enhance');
+        return `${uri}#enhanced`;
+      },
+      resize: async (uri) => {
+        calls.push('resize');
+        return `${uri}#small`;
+      },
+      compress: async (uri, quality) => {
+        calls.push(`compress:${quality}`);
+        return `${uri}#compressed`;
+      },
+    };
+
+    const result = await processCapture(transformer, 'file://raw.jpg', {
+      frame,
+      quad: {
+        topLeft: { x: 200, y: 200 },
+        topRight: { x: 3800, y: 200 },
+        bottomRight: { x: 3800, y: 2800 },
+        bottomLeft: { x: 200, y: 2800 },
+      },
+      estimatedBytes: 9_000_000,
+      washedOut: true,
+    });
+
+    // Crop failed, so the rest still ran against the original frame.
+    expect(calls[0]).toBe('crop');
+    expect(result.uri).toBe('file://raw.jpg#enhanced#small#compressed');
+    expect(result.plan.steps).toContain('crop unavailable, uploading the full frame');
   });
 });

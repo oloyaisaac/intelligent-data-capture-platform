@@ -85,7 +85,7 @@ export function createGuards(services: Services) {
     return request.actor;
   };
 
-  const requireRole = (role: Role) => async (request: FastifyRequest, _reply: FastifyReply) => {
+  const requireRole = (role: Role) => async (request: FastifyRequest, _reply?: FastifyReply) => {
     const actor = await authenticate(request);
     if (!roleAtLeast(actor.role, role)) {
       throw new AppError('ROLE_REQUIRED', 'You do not have permission to do that.');

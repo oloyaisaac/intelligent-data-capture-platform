@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { API_KEY_SCOPES, ROLES, type ApiKeyScope } from '@idcp/shared';
+import { API_KEY_SCOPES, ROLES, type ApiKeyScope, type Locale } from '@idcp/shared';
 import type { ApiClient } from '../api/client';
 import { formatDateTime } from '../lib/format';
 import { Badge, Card, EmptyState, ErrorBanner, Field, Modal, useAsync } from '../components/ui';
@@ -12,9 +12,15 @@ import { Badge, Card, EmptyState, ErrorBanner, Field, Modal, useAsync } from '..
 export function SettingsPage({
   client,
   role,
+  locale = 'en',
+  localeOptions = [],
+  onLocaleChange,
 }: {
   client: ApiClient;
   role: string;
+  locale?: Locale;
+  localeOptions?: Array<{ locale: Locale; label: string }>;
+  onLocaleChange?: (locale: Locale) => void;
 }): React.JSX.Element {
   const organisation = useAsync(() => client.organisation(), []);
   const users = useAsync(() => client.listUsers(), []);
@@ -25,6 +31,7 @@ export function SettingsPage({
   const [retentionDays, setRetentionDays] = useState<number | ''>('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('reviewer');
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [createdKey, setCreatedKey] = useState<{ key: string; name: string } | null>(null);
@@ -55,6 +62,29 @@ export function SettingsPage({
   return (
     <div className="stack">
       <h1>Settings</h1>
+
+      {onLocaleChange && localeOptions.length > 0 && (
+        <Card title="Language">
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <Field
+              label="Interface language"
+              hint="Missing translations fall back to English; the choice is remembered on this device."
+            >
+              <select
+                className="select"
+                value={locale}
+                onChange={(event) => onLocaleChange(event.target.value as Locale)}
+              >
+                {localeOptions.map((option) => (
+                  <option key={option.locale} value={option.locale}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        </Card>
+      )}
       <ErrorBanner message={error} />
       {notice && (
         <div className="notice" role="status">
@@ -216,9 +246,14 @@ export function SettingsPage({
               onClick={async () => {
                 setError(null);
                 try {
-                  await client.inviteUser({ email: inviteEmail.trim(), role: inviteRole });
+                  const { invitation } = await client.inviteUser({
+                    email: inviteEmail.trim(),
+                    role: inviteRole,
+                  });
                   setInviteEmail('');
-                  setNotice('Invitation sent. It expires and can be used once.');
+                  // No email delivery is configured, so the link is shown once, for the admin to pass on.
+                  setInviteLink(invitation.acceptUrl);
+                  setNotice('Invitation ready. Share the link — it expires and works once.');
                   await users.reload();
                 } catch (caught) {
                   setError(
@@ -229,6 +264,27 @@ export function SettingsPage({
             >
               Send invitation
             </button>
+          </div>
+        )}
+
+        {inviteLink && (
+          <div className="notice" role="status">
+            <div className="stack" style={{ gap: 4 }}>
+              <strong>Invitation link</strong>
+              <code className="mono" style={{ wordBreak: 'break-all' }}>
+                {inviteLink}
+              </code>
+              <button
+                className="button secondary small"
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(inviteLink);
+                  setNotice('Link copied.');
+                }}
+              >
+                Copy link
+              </button>
+            </div>
           </div>
         )}
       </Card>

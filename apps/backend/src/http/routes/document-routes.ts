@@ -61,6 +61,10 @@ export function registerDocumentRoutes(
       filename: file.filename,
       idempotencyKey,
       documentType,
+      projectId:
+        typeof fields.projectId?.value === 'string' && fields.projectId.value
+          ? fields.projectId.value
+          : undefined,
     });
 
     return reply.code(result.duplicate ? 200 : 201).send({
@@ -88,6 +92,7 @@ export function registerDocumentRoutes(
       status,
       documentType,
       deviceId: query.deviceId,
+      projectId: query.projectId,
       limit: Math.min(Number(query.limit ?? 25) || 25, MAX_LIST),
       cursor: query.cursor,
     });

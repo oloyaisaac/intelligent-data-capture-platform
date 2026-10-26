@@ -37,7 +37,25 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 - **Contracts in CI** — `scripts/validate-prd.mjs` (PRD integrity), `scripts/validate-openapi.mjs`
   (OpenAPI 3.1, cross-checked against the registered routes) and `scripts/generate-udm-schema.mjs`
   (UDM JSON Schema generated from the zod schema, checked for staleness).
-- 213 automated tests across 14 suites.
+- **Batches** — upload up to 100 files in one request; every file becomes its own document, a file
+  that cannot be read is reported as a failed item instead of failing the batch, progress is derived
+  from the documents, and per-item results export as CSV (`BATCH-001`).
+- **Projects and invitations** — projects group documents and batches inside an organisation;
+  invitations are expiring and single-use (only the SHA-256 of the token is stored) and are accepted
+  from a dedicated screen that sets the password and signs the person in (`TEAM-001`).
+- **MySQL connector** — first-class MySQL/MariaDB destination alongside PostgreSQL and SQLite, with
+  schema introspection, transactional inserts and identifier validation (`CON-003`).
+- **Desktop** — Batches page (multi-file upload with live per-item results) and Projects page; the
+  team settings now show the invitation link once, because this deployment sends no email.
+- **Analytics dashboard** — `/stats` now returns status counts, document-type mix and a daily
+  series (1–90 days, default 14) computed from the documents themselves; the desktop draws it as an
+  accessible SVG bar chart plus a status mix bar, and the figures download as CSV (`DASH-001`).
+- **Capture pipeline on mobile** — crop to the detected page, contrast pass, downscale to 1600 px
+  and JPEG compression under a byte budget, all decided by pure functions and applied through an
+  injected transformer; a step that is unavailable leaves the capture intact (`MOB-002`).
+- **Runtime language switch** — navigation and settings are translated from the shared `en/sw/fr`
+  catalogues, with the choice remembered per device (`I18N-001` in progress).
+- 17 suites; the count of automated tests is tracked in `TESTING.md`.
 
 ### Changed
 

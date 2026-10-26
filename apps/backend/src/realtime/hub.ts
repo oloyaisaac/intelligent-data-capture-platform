@@ -18,7 +18,9 @@ export type RealtimeEvent =
   | 'document:approved'
   | 'document:failed'
   | 'connector:run_updated'
-  | 'export:ready';
+  | 'export:ready'
+  | 'batch:created'
+  | 'batch:updated';
 
 export interface RealtimeHub {
   /** Publish to everyone in an organisation (desktop dashboards, review screens). */

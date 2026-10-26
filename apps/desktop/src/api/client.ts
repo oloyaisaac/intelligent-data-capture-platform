@@ -6,6 +6,7 @@ import type {
   CompletePairingResponse,
   Connector,
   CreateApiKeyRequest,
+  CreateProjectRequest,
   CreateConnectorRequest,
   CreateExportRequest,
   CreateMappingProfileRequest,
@@ -16,15 +17,21 @@ import type {
   DocumentListResponse,
   DocumentResultResponse,
   DocumentSummary,
+  BatchSummary,
+  CreatedInvitation,
   ExportRecord,
+  Invitation,
   MappingProfile,
   Organisation,
   PatchFieldsResponse,
+  Project,
   ReviewQueueResponse,
   ReviewSession,
+  StatsResponse,
   Template,
   TemplateDetail,
   TokenPair,
+  UpdateProjectRequest,
   UpdateTemplateRequest,
   UserSummary,
 } from '@idcp/shared';
@@ -98,6 +105,14 @@ export interface ApiClientOptions {
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
+/** Files chosen in the renderer; each becomes its own document on the server. */
+export interface CreateBatchInput {
+  files: File[];
+  name?: string;
+  projectId?: string;
+  documentType?: string;
+}
+
 interface RequestOptions {
   method?: Method;
   body?: unknown;
@@ -147,6 +162,21 @@ export class ApiClient {
       method: options.method ?? 'GET',
       headers,
       body,
+      credentials: 'include',
+    });
+  }
+
+  /**
+   * Multipart requests cannot go through `send`: the browser sets the boundary itself, so the
+   * `content-type` header must be left alone.
+   */
+  private async sendForm(path: string, form: FormData): Promise<Response> {
+    const headers: Record<string, string> = { accept: 'application/json' };
+    if (this.accessToken) headers.authorization = `Bearer ${this.accessToken}`;
+    return this.fetchImpl(`${this.baseUrl}${path}`, {
+      method: 'POST',
+      headers,
+      body: form,
       credentials: 'include',
     });
   }
@@ -228,6 +258,13 @@ export class ApiClient {
       body: input,
       anonymous: true,
     });
+    this.accessToken = pair.accessToken;
+    await this.storage.write({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
+    return pair.user;
+  }
+
+  /** Stores a token pair obtained outside `login` (accepting an invitation). */
+  async adoptSession(pair: TokenPair): Promise<UserSummary> {
     this.accessToken = pair.accessToken;
     await this.storage.write({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
     return pair.user;
@@ -479,10 +516,6 @@ export class ApiClient {
     return this.request('/users');
   }
 
-  inviteUser(input: { email: string; role: string }): Promise<{ status: string }> {
-    return this.request('/users/invite', { method: 'POST', body: input });
-  }
-
   changeRole(userId: string, role: string): Promise<unknown> {
     return this.request(`/users/${userId}/role`, { method: 'PATCH', body: { role } });
   }
@@ -513,18 +546,85 @@ export class ApiClient {
     return this.request(`/audit-logs${suffix}`);
   }
 
-  stats(): Promise<{
-    documents: Record<string, number>;
-    reviews: Record<string, number>;
-    exports: Record<string, number>;
-    connectors: number;
-    devices: number;
-  }> {
-    return this.request('/stats');
+  stats(days = 14): Promise<StatsResponse> {
+    return this.request(`/stats?days=${days}`);
+  }
+
+  downloadStatsCsv(days = 14): Promise<{ blob: Blob; filename: string }> {
+    return this.download(`/stats.csv?days=${days}`);
   }
 
   purgeRetention(): Promise<{ purged: number }> {
     return this.request('/retention/purge', { method: 'POST', body: {} });
+  }
+
+  // --- Batches (BATCH-001) ------------------------------------------------
+
+  /** One request for many files; per-file failures come back as failed items, not an error. */
+  async createBatch(input: CreateBatchInput): Promise<BatchSummary> {
+    const form = new FormData();
+    if (input.name) form.append('name', input.name);
+    if (input.projectId) form.append('projectId', input.projectId);
+    if (input.documentType) form.append('documentType', input.documentType);
+    for (const file of input.files) form.append('files', file, file.name);
+
+    const response = await this.sendForm('/batches', form);
+    if (!response.ok) throw await this.toError(response);
+    return (await response.json()) as BatchSummary;
+  }
+
+  listBatches(limit = 25): Promise<{ items: BatchSummary[] }> {
+    return this.request(`/batches?limit=${limit}`);
+  }
+
+  getBatch(id: string): Promise<BatchSummary> {
+    return this.request(`/batches/${id}`);
+  }
+
+  downloadBatchResults(id: string): Promise<{ blob: Blob; filename: string }> {
+    return this.download(`/batches/${id}/results.csv`);
+  }
+
+  // --- Projects and invitations (TEAM-001) --------------------------------
+
+  listProjects(includeArchived = false): Promise<{ items: Project[] }> {
+    return this.request(`/projects${includeArchived ? '?includeArchived=true' : ''}`);
+  }
+
+  createProject(input: CreateProjectRequest): Promise<Project> {
+    return this.request('/projects', { method: 'POST', body: input });
+  }
+
+  updateProject(id: string, patch: UpdateProjectRequest): Promise<Project> {
+    return this.request(`/projects/${id}`, { method: 'PATCH', body: patch });
+  }
+
+  archiveProject(id: string): Promise<void> {
+    return this.request(`/projects/${id}`, { method: 'DELETE' });
+  }
+
+  listInvitations(): Promise<{ items: Invitation[] }> {
+    return this.request('/invitations');
+  }
+
+  inviteUser(input: {
+    email: string;
+    role: string;
+  }): Promise<{ status: string; invitation: CreatedInvitation }> {
+    return this.request('/users/invite', { method: 'POST', body: input });
+  }
+
+  revokeInvitation(id: string): Promise<void> {
+    return this.request(`/invitations/${id}`, { method: 'DELETE' });
+  }
+
+  /** Used by the accept-invite screen; the token in the URL is the credential. */
+  acceptInvitation(input: { token: string; password: string }): Promise<TokenPair> {
+    return this.request(`/invitations/${encodeURIComponent(input.token)}/accept`, {
+      method: 'POST',
+      body: { password: input.password },
+      anonymous: true,
+    });
   }
 
   // --- API keys -----------------------------------------------------------

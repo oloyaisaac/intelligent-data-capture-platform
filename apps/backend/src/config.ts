@@ -52,6 +52,8 @@ const ConfigSchema = z.object({
   APP_ORIGIN: z.string().default('http://localhost:5173'),
   CORS_ORIGINS: z.string().default(''),
   EXPORTS_TTL_SECONDS: IntFromString(7 * 24 * 60 * 60, 60),
+  /** TEAM-001: how long an invitation link stays usable. */
+  INVITATION_TTL_SECONDS: IntFromString(7 * 24 * 60 * 60, 300, 30 * 24 * 60 * 60),
   WORKER_ENABLED: booleanish.default(true),
   WORKER_POLL_INTERVAL_MS: IntFromString(500, 50, 60_000),
 });

@@ -237,6 +237,50 @@ current role, even after a role change.
 
 ---
 
+## DEC-018 — Batch progress is derived, never stored
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** A batch stores only its items (`batch_items`) and a nullable `document_id`; the
+`processed`, `succeeded` and `failed` counters and each item's status are computed from the
+documents when the batch is read.
+
+**Reason:** Counters that are maintained separately from the documents drift the first time a job is
+retried, a document is deleted by retention, or two workers touch the same item. Deriving progress
+makes "what the batch claims" and "what the documents say" the same thing by construction, and
+costs one query per batch read (batches are read by a person watching a screen, not in a hot loop).
+
+**Alternatives considered:** A `status` column on `batch_items` updated by the worker (fast reads,
+two sources of truth); a materialised counters row updated in the same transaction as the document
+(also fast, still driftable on backfill).
+
+**Consequences:** `GET /batches/:id` costs a lookup per item; a batch is capped at 100 files, so the
+cost is bounded. A file rejected before a document exists is stored with `document_id = NULL` and an
+`error`, which is why `batch_items.document_id` is nullable.
+
+---
+
+## DEC-019 — Invitation tokens are stored hashed, and shown once
+
+**Date:** 2026-10-26 · **Status:** Accepted
+
+**Decision:** `POST /users/invite` mints a random token, stores only its SHA-256 in `invitations`,
+and returns the accept URL in that response. This deployment sends no email, so the admin passes the
+link on. Acceptance marks `used_at` with a conditional update (the double-use guard) and expires
+after `INVITATION_TTL_SECONDS` (default 7 days).
+
+**Reason:** An invitation is a bearer credential for an account. Hashing it means a database leak
+cannot be replayed as invitations, and comparing hashes keeps the lookup a single indexed query.
+Returning the link instead of pretending to email it keeps the flow honest and testable.
+
+**Alternatives considered:** Storing the token plaintext (simpler, leaks usable credentials);
+building SMTP delivery now (out of scope, and untested without a mail server).
+
+**Consequences:** There is no "resend" that produces the same link — a new invitation is a new row.
+`GET /invitations` never returns tokens, so a lost link means revoke and invite again.
+
+---
+
 ## Template for new decisions
 
 ```markdown

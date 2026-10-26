@@ -1,6 +1,8 @@
 import {
   AppError,
   badRequest,
+  type CreatedInvitation,
+  type Invitation,
   type RegisterRequest,
   type Role,
   type TokenPair,
@@ -18,6 +20,8 @@ import {
   UsersRepository,
 } from '../repositories/auth-repo';
 import { AuditRepository } from '../repositories/system-repo';
+import { InvitationsRepository } from '../repositories/project-repo';
+import type { InvitationRow } from '../repositories/types';
 import { validatePasswordStrength, type PasswordHasher } from '../auth/password';
 import type { TokenService } from '../auth/tokens';
 
@@ -54,6 +58,7 @@ export class AuthService {
   private readonly memberships: MembershipsRepository;
   private readonly sessions: SessionsRepository;
   private readonly audit: AuditRepository;
+  private readonly invitations: InvitationsRepository;
 
   constructor(
     private readonly db: Database,
@@ -67,6 +72,7 @@ export class AuthService {
     this.memberships = new MembershipsRepository(db);
     this.sessions = new SessionsRepository(db);
     this.audit = new AuditRepository(db);
+    this.invitations = new InvitationsRepository(db);
   }
 
   private async issueTokens(
@@ -247,13 +253,13 @@ export class AuthService {
     };
   }
 
-  /** Invite by email: creates a disabled-password user and a pending membership. */
+  /** TEAM-001: invite by email with an expiring, single-use token (no email delivery configured). */
   async invite(input: {
     email: string;
     role: Role;
     invitedBy: string;
     organisationId: string;
-  }): Promise<void> {
+  }): Promise<CreatedInvitation> {
     const existing = await this.users.findByEmail(input.email);
     const user =
       existing ??
@@ -264,19 +270,41 @@ export class AuthService {
       }));
 
     const alreadyMember = await this.db.one(
-      'SELECT id FROM memberships WHERE organisation_id = ? AND user_id = ?',
+      'SELECT id FROM memberships WHERE organisation_id = ? AND user_id = ? AND accepted_at IS NOT NULL',
       [input.organisationId, user.id],
     );
     if (alreadyMember)
       throw new AppError('CONFLICT', 'That person is already in this organisation.');
 
-    await this.memberships.create({
+    const pending = await this.db.one(
+      'SELECT id FROM memberships WHERE organisation_id = ? AND user_id = ?',
+      [input.organisationId, user.id],
+    );
+    if (!pending) {
+      await this.memberships.create({
+        organisationId: input.organisationId,
+        userId: user.id,
+        role: input.role,
+        invitedBy: input.invitedBy,
+        accepted: false,
+      });
+    }
+
+    const token = this.createOneTimeToken();
+    const expiresAt = new Date(
+      Date.now() + this.config.INVITATION_TTL_SECONDS * 1000,
+    ).toISOString();
+    const invitation = await this.invitations.create({
       organisationId: input.organisationId,
       userId: user.id,
+      email: user.email,
       role: input.role,
+      // Only the hash is stored: a leaked database cannot be replayed as invitations.
+      tokenHash: hashToken(token),
       invitedBy: input.invitedBy,
-      accepted: false,
+      expiresAt,
     });
+
     await this.audit.record({
       organisationId: input.organisationId,
       actorType: 'user',
@@ -284,12 +312,95 @@ export class AuthService {
       action: 'user.invited',
       targetType: 'user',
       targetId: user.id,
-      metadata: { role: input.role },
+      metadata: { role: input.role, invitationId: invitation.id },
     });
+
+    return {
+      ...toInvitation(invitation),
+      token,
+      acceptUrl: `${this.config.APP_ORIGIN.replace(/\/$/, '')}/#/accept-invite?token=${token}`,
+    };
+  }
+
+  listInvitations(organisationId: string): Promise<Invitation[]> {
+    return this.invitations
+      .listForOrganisation(organisationId)
+      .then((rows) => rows.map(toInvitation));
+  }
+
+  async revokeInvitation(organisationId: string, id: string): Promise<void> {
+    const row = await this.db.one<InvitationRow>(
+      'SELECT * FROM invitations WHERE organisation_id = ? AND id = ?',
+      [organisationId, id],
+    );
+    if (!row) throw new AppError('NOT_FOUND', 'Invitation not found.');
+    await this.invitations.revoke(id);
+  }
+
+  /**
+   * Accept an invitation: sets the password, activates the membership and signs the person in.
+   * The token is single-use — a second attempt with the same link fails.
+   */
+  async acceptInvitation(
+    input: { token: string; password: string },
+    context: RequestContext = {},
+  ): Promise<TokenPair> {
+    const strength = validatePasswordStrength(input.password);
+    if (!strength.ok) throw badRequest(strength.reason ?? 'Password is not strong enough.');
+
+    const invitation = await this.invitations.findByTokenHash(hashToken(input.token));
+    const invalid = new AppError('UNAUTHENTICATED', 'This invitation link is not valid any more.');
+    if (!invitation) throw invalid;
+    if (invitation.used_at || invitation.expires_at <= nowIso()) {
+      throw new AppError(
+        'UNAUTHENTICATED',
+        'This invitation has expired. Ask an admin for a new one.',
+      );
+    }
+
+    const consumed = await this.invitations.consume(invitation.id);
+    if (!consumed) throw invalid;
+
+    const passwordHash = await this.hasher.hash(input.password);
+    await this.users.setPassword(invitation.user_id, passwordHash);
+    await this.db.execute(
+      'UPDATE memberships SET accepted_at = ?, updated_at = ? WHERE organisation_id = ? AND user_id = ?',
+      [nowIso(), nowIso(), invitation.organisation_id, invitation.user_id],
+    );
+
+    await this.audit.record({
+      organisationId: invitation.organisation_id,
+      actorType: 'user',
+      actorId: invitation.user_id,
+      action: 'user.invitation_accepted',
+      targetType: 'user',
+      targetId: invitation.user_id,
+      ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+    });
+
+    const user = await this.users.findById(invitation.user_id);
+    if (!user) throw invalid;
+    const membership = await this.db.one<{ organisation_id: string; role: Role }>(
+      'SELECT organisation_id, role FROM memberships WHERE organisation_id = ? AND user_id = ?',
+      [invitation.organisation_id, invitation.user_id],
+    );
+    if (!membership) throw invalid;
+    return this.issueTokens(user, membership, context);
   }
 
   /** Random one-time token used for invitations/password resets (delivery is out of scope). */
   createOneTimeToken(): string {
     return newToken(24);
   }
+}
+
+function toInvitation(row: InvitationRow): Invitation {
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role as Role,
+    expiresAt: row.expires_at,
+    usedAt: row.used_at,
+    createdAt: row.created_at,
+  };
 }

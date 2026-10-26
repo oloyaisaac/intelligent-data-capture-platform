@@ -13,7 +13,14 @@ import {
 } from '../src/lib/format';
 import { bulkApprovable, canApprove, pendingChanges, reviewRows } from '../src/lib/review';
 import { connectRealtime, eventsUrl } from '../src/lib/realtime';
+import { buildBarChart, describeChart, shares } from '../src/lib/charts';
+import { DashboardPage } from '../src/pages/DashboardPage';
+import { LOCALE_OPTIONS, loadLocale, resolveLocale, saveLocale, translator } from '../src/lib/i18n';
+import { createTranslator, translationCoverage } from '@idcp/shared';
 import { LoginPage } from '../src/pages/LoginPage';
+import { AcceptInvitePage } from '../src/pages/AcceptInvitePage';
+import { BatchesPage } from '../src/pages/BatchesPage';
+import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { ReviewPage } from '../src/pages/ReviewPage';
 import type { Udm } from '@idcp/shared';
 
@@ -137,6 +144,122 @@ describe('review rules (REV-001)', () => {
   });
 });
 
+describe('interface language (I18N-001)', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+    cleanup();
+  });
+
+  it('prefers a stored choice, then the browser language, then English', () => {
+    expect(resolveLocale('sw', 'fr-FR')).toBe('sw');
+    expect(resolveLocale(null, 'sw-KE')).toBe('sw');
+    expect(resolveLocale(null, 'fr')).toBe('fr');
+    expect(resolveLocale('de', null)).toBe('en');
+    expect(resolveLocale(null, null)).toBe('en');
+  });
+
+  it('remembers a choice and offers each locale by its own name', () => {
+    expect(loadLocale()).toBe('en');
+    saveLocale('fr');
+    expect(loadLocale()).toBe('fr');
+    expect(LOCALE_OPTIONS.map((option) => option.label)).toEqual([
+      'English',
+      'Kiswahili',
+      'Français',
+    ]);
+  });
+
+  it('translates the navigation and falls back to English for gaps', () => {
+    expect(translator('sw')('nav.documents')).toBe('Nyaraka');
+    expect(translator('fr')('nav.projects')).toBe('Projets');
+    expect(createTranslator('sw')('app.name')).toBe('IDCP');
+    // Every locale covers the navigation, so no screen is half in one language.
+    for (const locale of ['sw', 'fr'] as const) {
+      expect(translationCoverage(locale)).toBeGreaterThan(0.45);
+      expect(createTranslator(locale)('nav.batches')).toBeTruthy();
+    }
+  });
+});
+
+describe('chart geometry (DASH-001)', () => {
+  const points = [
+    { date: '2026-10-24', uploaded: 2, approved: 1, failed: 0 },
+    { date: '2026-10-25', uploaded: 0, approved: 0, failed: 0 },
+    { date: '2026-10-26', uploaded: 4, approved: 4, failed: 1 },
+  ];
+
+  it('scales bars to the tallest day and flips y for SVG', () => {
+    const chart = buildBarChart(points, 'uploaded', { width: 300, height: 100, gap: 0 });
+    expect(chart.max).toBe(4);
+    expect(chart.bars).toHaveLength(3);
+    expect(chart.bars[0]?.width).toBe(100);
+    // The tallest bar reaches the top; the empty day has no height but keeps its slot.
+    expect(chart.bars[2]).toMatchObject({ y: 0, height: 100 });
+    expect(chart.bars[1]).toMatchObject({ y: 100, height: 0 });
+  });
+
+  it('does not divide by zero when nothing has happened', () => {
+    const chart = buildBarChart(
+      points.map((point) => ({ ...point, uploaded: 0 })),
+      'uploaded',
+    );
+    expect(chart.max).toBe(1);
+    expect(chart.bars.every((bar) => bar.height === 0)).toBe(true);
+    expect(describeChart(chart, 'documents')).toContain('0 documents');
+  });
+
+  it('rounds shares to exactly 100 percent', () => {
+    expect(shares({ a: 1, b: 1, c: 1 })).toEqual([
+      { key: 'a', value: 1, percent: 34 },
+      { key: 'b', value: 1, percent: 33 },
+      { key: 'c', value: 1, percent: 33 },
+    ]);
+    expect(shares({})).toEqual([]);
+    expect(shares({ zero: 0, one: 5 })).toEqual([{ key: 'one', value: 5, percent: 100 }]);
+  });
+});
+
+describe('dashboard (DASH-001)', () => {
+  afterEach(cleanup);
+
+  it('draws the 14-day series and states the peak day for screen readers', async () => {
+    const timeline = Array.from({ length: 14 }, (_, index) => ({
+      date: `2026-10-${String(index + 13).padStart(2, '0')}`,
+      uploaded: index === 5 ? 7 : 1,
+      approved: 0,
+      failed: 0,
+    }));
+
+    const client = new ApiClient({
+      baseUrl: 'https://idcp.test/api/v1',
+      fetchImpl: (async (url: string) => {
+        if (String(url).includes('/stats')) {
+          return jsonResponse({
+            organisationId: 'org-1',
+            documents: { queued: 3, approved: 2 },
+            totalDocuments: 5,
+            jobs: { completed: 5 },
+            documentTypes: { invoice: 4, receipt: 1 },
+            timeline,
+            connectors: { total: 1, active: 1 },
+            exports: { total: 1, ready: 1 },
+            review: { pending: 3, approved: 2 },
+            generatedAt: new Date().toISOString(),
+          });
+        }
+        return jsonResponse({ items: [] });
+      }) as unknown as typeof fetch,
+    });
+
+    render(<DashboardPage client={client} accessToken={null} />);
+
+    const chart = await screen.findByRole('img');
+    expect(chart.getAttribute('aria-label')).toContain('the highest day');
+    expect(await screen.findByText('Peak day: 7')).toBeTruthy();
+    expect(await screen.findByText(/invoice 4/)).toBeTruthy();
+  });
+});
+
 describe('routing', () => {
   it('parses hash routes, including a deep link to a record', () => {
     expect(parseRoute('')).toEqual({ name: 'dashboard' });
@@ -146,6 +269,15 @@ describe('routing', () => {
       status: 'needs_review',
     });
     expect(parseRoute('#/nonsense')).toEqual({ name: 'dashboard' });
+  });
+
+  it('parses the invitation link the backend mints', () => {
+    expect(parseRoute('#/accept-invite?token=abc123')).toEqual({
+      name: 'accept-invite',
+      token: 'abc123',
+    });
+    expect(parseRoute('#/batches')).toEqual({ name: 'batches' });
+    expect(parseRoute('#/projects')).toEqual({ name: 'projects' });
   });
 
   it('round-trips a route through its href', () => {
@@ -402,5 +534,105 @@ describe('review screen', () => {
     expect((client.patchFields as jest.Mock).mock.calls[0]![1]).toEqual([
       { fieldPath: 'invoice.due_date', value: '2024-04-01' },
     ]);
+  });
+});
+
+describe('batch screen (BATCH-001)', () => {
+  afterEach(cleanup);
+
+  const batch = {
+    id: 'batch-1',
+    name: 'Morning intake',
+    total: 2,
+    processed: 2,
+    succeeded: 1,
+    failed: 1,
+    status: 'completed_with_errors' as const,
+    createdAt: new Date().toISOString(),
+    items: [
+      { position: 0, filename: 'a.png', documentId: 'doc-a', status: 'succeeded' as const },
+      {
+        position: 1,
+        filename: 'notes.txt',
+        documentId: null,
+        status: 'failed' as const,
+        error: 'That file type is not supported.',
+      },
+    ],
+  };
+
+  it('shows per-file failures instead of hiding them', async () => {
+    const client = new ApiClient({
+      baseUrl: 'https://idcp.test/api/v1',
+      fetchImpl: (async (url: string) => {
+        if (String(url).includes('/projects')) return jsonResponse({ items: [] });
+        return jsonResponse({ items: [batch] });
+      }) as unknown as typeof fetch,
+    });
+
+    render(<BatchesPage client={client} />);
+
+    expect(await screen.findByText('Morning intake')).toBeTruthy();
+    expect(screen.getByText('completed with errors')).toBeTruthy();
+    expect(screen.getByText('1 failed', { exact: false })).toBeTruthy();
+  });
+});
+
+describe('projects screen (TEAM-001)', () => {
+  afterEach(cleanup);
+
+  it('archives a project rather than deleting it', async () => {
+    const calls: string[] = [];
+    const client = new ApiClient({
+      baseUrl: 'https://idcp.test/api/v1',
+      fetchImpl: (async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? 'GET'} ${url}`);
+        if ((init?.method ?? 'GET') === 'PATCH') {
+          return jsonResponse({
+            id: 'p1',
+            name: 'Records',
+            key: 'REC',
+            archivedAt: new Date().toISOString(),
+          });
+        }
+        return jsonResponse({
+          items: [{ id: 'p1', name: 'Records', key: 'REC', createdAt: new Date().toISOString() }],
+        });
+      }) as unknown as typeof fetch,
+    });
+
+    render(<ProjectsPage client={client} canManage />);
+
+    expect(await screen.findByText('Records')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(calls.some((call) => call.startsWith('PATCH'))).toBe(true));
+  });
+});
+
+describe('accept-invitation screen (TEAM-001)', () => {
+  afterEach(cleanup);
+
+  it('insists the two passwords match before calling the API', async () => {
+    let called = false;
+    const client = new ApiClient({
+      baseUrl: 'https://idcp.test/api/v1',
+      fetchImpl: (async () => {
+        called = true;
+        return jsonResponse({});
+      }) as unknown as typeof fetch,
+    });
+
+    render(<AcceptInvitePage client={client} token="token-123" onAccepted={() => undefined} />);
+
+    fireEvent.change(screen.getByLabelText(/^Password/), {
+      target: { value: 'a much better password' },
+    });
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'something else entirely' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Set password and sign in' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('do not match');
+    expect(called).toBe(false);
   });
 });

@@ -334,6 +334,62 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX idx_templates_org_type ON templates(organisation_id, document_type, active)`,
     ],
   },
+  {
+    id: '004_batches_projects_invitations',
+    sql: [
+      // BATCH-001: a batch groups uploads so progress can be monitored as one unit. Items are
+      // separate documents, so one failure never fails the batch.
+      `CREATE TABLE batches (
+        id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        project_id TEXT,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX idx_batches_org_time ON batches(organisation_id, created_at DESC)`,
+      `CREATE TABLE batch_items (
+        id TEXT PRIMARY KEY,
+        batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+        document_id TEXT,
+        position INTEGER NOT NULL,
+        filename TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE (batch_id, position)
+      )`,
+      `CREATE INDEX idx_batch_items_batch ON batch_items(batch_id, position)`,
+      // TEAM-001: projects group work inside an organisation.
+      `CREATE TABLE projects (
+        id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        key TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        archived_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (organisation_id, key)
+      )`,
+      `CREATE INDEX idx_projects_org ON projects(organisation_id, created_at DESC)`,
+      `ALTER TABLE documents ADD COLUMN project_id TEXT`,
+      `CREATE INDEX idx_documents_project ON documents(organisation_id, project_id)`,
+      // TEAM-001: invitations are single-use and expire; only the hash is stored.
+      `CREATE TABLE invitations (
+        id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        invited_by TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at TEXT,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX idx_invitations_org ON invitations(organisation_id, created_at DESC)`,
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {

@@ -16,6 +16,12 @@
   --warning: #dfa63f;
   --success: #3ea97a;
   --info: #4f96d6;
+  /* Chart tones, mirroring the badge colours so a legend and a bar never disagree. */
+  --tone-neutral: #8fa4b3;
+  --tone-info: #4f96d6;
+  --tone-success: #3ea97a;
+  --tone-warning: #dfa63f;
+  --tone-danger: #d8635a;
   --radius-sm: 6px;
   --radius: 10px;
   --radius-lg: 16px;
