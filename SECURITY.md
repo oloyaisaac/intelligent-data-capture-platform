@@ -55,9 +55,22 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
   Account page exposes the same through `GET /auth/sessions`, `DELETE /auth/sessions/{id}` and
   `POST /auth/logout-all`.
 - Device credentials: 256-bit random, hashed at rest, stored on the device in **secure storage** (Android Keystore / iOS Keychain / OS keychain on desktop), never in plain preferences or AsyncStorage.
-- Multi-factor authentication is required for the `owner` and `admin` roles before enterprise release.
-  **It is not implemented yet** — the single largest security gap in the product, tracked in
-  `AUDIT-2026-10.md` §4.1 and `TASKS.md`.
+- Multi-factor authentication (TOTP, RFC 6238) is available on every account and **recommended** for
+  `owner` and `admin` (DEC-034). It is not yet enforced by policy — an administrator cannot require
+  it for a role, which is the remaining gap recorded in `AUDIT-2026-10.md` §4.1.
+  - Enrolment (`POST /auth/mfa/enrol`) confirms the password and returns a secret plus an
+    `otpauth://` URI; nothing is switched on until the first code is confirmed.
+  - The secret is 160 bits of base32, encrypted at rest with AES-256-GCM and AAD `mfa:<userId>`, and
+    is never returned again. An undecryptable secret is treated as _not enrolled_ rather than a
+    lockout — the person re-enrols.
+  - `POST /auth/login` returns a five-minute `challengeToken` (JWT, `aud: idcp-mfa`) instead of a
+    session. Only `POST /auth/mfa/verify` accepts it; it grants no refresh token on its own.
+  - Codes are compared in constant time within ±1 time step. Verification is rate limited per client
+    address, because the caller is not authenticated yet.
+  - Ten single-use recovery codes are issued once, stored only as SHA-256 hashes of their normalised
+    form, consumed on use and audited (`auth.mfa_recovery_used`).
+  - Disabling requires the password **and** a live code, so a stolen session alone cannot remove it.
+    Enabling, disabling and regenerating codes are all audited.
 
 ## 5. Authorisation
 

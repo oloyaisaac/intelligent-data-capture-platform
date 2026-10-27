@@ -6,10 +6,17 @@ import {
   type Invitation,
   type RegisterRequest,
   type Role,
+  type LoginResponse,
+  type MfaConfirmResponse,
+  type MfaStartResponse,
+  type MfaStatus,
   type Session as SessionDto,
+  LEGAL_VERSION,
+  type TermsAcceptance,
   type TokenPair,
   type UserSummary,
 } from '@idcp/shared';
+import { randomBytes } from 'node:crypto';
 import { hashIp, hashToken, newToken } from '@idcp/shared/ids';
 import type { Config } from '../config';
 import type { Database } from '../db/database';
@@ -27,6 +34,8 @@ import { InvitationsRepository } from '../repositories/project-repo';
 import type { InvitationRow } from '../repositories/types';
 import { validatePasswordStrength, type PasswordHasher } from '../auth/password';
 import type { TokenService } from '../auth/tokens';
+import { generateTotpSecret, otpauthUri, verifyTotp } from '../auth/totp';
+import type { SecretBox } from './crypto';
 
 export interface RequestContext {
   ip?: string;
@@ -70,6 +79,8 @@ export class AuthService {
     private readonly tokens: TokenService,
     private readonly hasher: PasswordHasher,
     private readonly logger: Logger,
+    /** Encrypts TOTP secrets at rest; the AAD binds each ciphertext to its account (DEC-034). */
+    private readonly secrets: SecretBox,
   ) {
     this.orgs = new OrganisationsRepository(db);
     this.users = new UsersRepository(db);
@@ -154,6 +165,10 @@ export class AuthService {
         email: input.email,
         passwordHash,
         displayName: input.displayName,
+        // The checkbox is validated at the edge (`acceptTerms: true`); the record is written here,
+        // server-side, so it cannot be forged or skipped by another client (DEC-032).
+        termsAcceptedAt: nowIso(),
+        termsVersion: LEGAL_VERSION,
       });
       const membership = await memberships.create({
         organisationId: organisation.id,
@@ -168,6 +183,7 @@ export class AuthService {
         action: 'auth.register',
         targetType: 'user',
         targetId: user.id,
+        metadata: { termsVersion: LEGAL_VERSION },
       });
 
       return this.issueTokens(user, membership, context);
@@ -177,7 +193,7 @@ export class AuthService {
   async login(
     input: { email: string; password: string },
     context: RequestContext = {},
-  ): Promise<TokenPair> {
+  ): Promise<LoginResponse> {
     const user = await this.users.findByEmail(input.email);
     const generic = new AppError('INVALID_CREDENTIALS', 'Email or password is incorrect.');
 
@@ -205,6 +221,24 @@ export class AuthService {
     const membership = await this.memberships.findForUser(user.id);
     if (!membership) throw generic;
 
+    // The password was right; that is half of what MFA asks for (DEC-034). No tokens yet: a
+    // challenge token proves *this* password check and expires in five minutes.
+    if (user.mfa_enabled_at && user.mfa_secret_enc) {
+      await this.audit.record({
+        organisationId: membership.organisation_id,
+        actorType: 'user',
+        actorId: user.id,
+        action: 'auth.login',
+        ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+        metadata: { mfa: 'challenge_issued' },
+      });
+      return {
+        mfaRequired: true,
+        challengeToken: this.tokens.signMfaChallenge(user.id),
+        expiresInSeconds: 300,
+      };
+    }
+
     await this.users.recordLogin(user.id);
     await this.audit.record({
       organisationId: membership.organisation_id,
@@ -215,6 +249,245 @@ export class AuthService {
     });
 
     return this.issueTokens(user, membership, context);
+  }
+
+  // --- Multi-factor authentication (DEC-034) -------------------------------
+
+  private mfaContext(userId: string): string {
+    return `mfa:${userId}`;
+  }
+
+  private decryptSecret(user: { id: string; mfa_secret_enc: string | null }): string | null {
+    if (!user.mfa_secret_enc) return null;
+    try {
+      return this.secrets.decrypt(user.mfa_secret_enc, this.mfaContext(user.id));
+    } catch {
+      // A secret encrypted with an older application secret cannot be recovered; the account is
+      // told to enrol again rather than being locked out (DEC-034).
+      this.logger.warn('stored MFA secret could not be decrypted', { userId: user.id });
+      return null;
+    }
+  }
+
+  async mfaStatus(actor: AuthenticatedActor): Promise<MfaStatus> {
+    const user = await this.users.findById(actor.userId);
+    if (!user) throw new AppError('UNAUTHENTICATED', 'Account not found.');
+    return {
+      enabled: user.mfa_enabled_at !== null,
+      enabledAt: user.mfa_enabled_at,
+      recoveryCodesRemaining: parseRecoveryHashes(user.mfa_recovery_hashes).length,
+    };
+  }
+
+  /** Step one: prove the password, receive a secret that is not yet active. */
+  async startMfaEnrolment(
+    actor: AuthenticatedActor,
+    password: string,
+    context: RequestContext = {},
+  ): Promise<MfaStartResponse> {
+    const user = await this.users.findById(actor.userId);
+    if (!user || user.disabled_at) throw new AppError('UNAUTHENTICATED', 'Account not found.');
+    if (user.mfa_enabled_at) {
+      throw new AppError('CONFLICT', 'Two-factor authentication is already on for this account.');
+    }
+    if (!user.password_hash) {
+      throw new AppError('CONFLICT', 'Set a password before turning on two-factor authentication.');
+    }
+    const valid = await this.hasher.verify(user.password_hash, password);
+    if (!valid) {
+      await this.audit.record({
+        organisationId: actor.organisationId,
+        actorType: 'user',
+        actorId: user.id,
+        action: 'auth.login_failed',
+        ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+        metadata: { step: 'mfa_enrolment' },
+      });
+      throw new AppError('INVALID_CREDENTIALS', 'That password is not correct.');
+    }
+
+    const secret = generateTotpSecret();
+    await this.users.setMfaSecret(user.id, this.secrets.encrypt(secret, this.mfaContext(user.id)));
+    const issuer = 'IDCP';
+    return {
+      secret,
+      otpauthUri: otpauthUri({ secret, account: user.email, issuer }),
+      issuer,
+      account: user.email,
+    };
+  }
+
+  /** Step two: prove the app produces codes, then turn the factor on and hand out recovery codes. */
+  async confirmMfaEnrolment(
+    actor: AuthenticatedActor,
+    code: string,
+    context: RequestContext = {},
+  ): Promise<MfaConfirmResponse> {
+    const user = await this.users.findById(actor.userId);
+    if (!user || user.disabled_at) throw new AppError('UNAUTHENTICATED', 'Account not found.');
+    if (user.mfa_enabled_at) {
+      throw new AppError('CONFLICT', 'Two-factor authentication is already on for this account.');
+    }
+    const secret = this.decryptSecret(user);
+    if (!secret) {
+      throw new AppError('CONFLICT', 'Start the setup again: this account has no pending secret.');
+    }
+    if (!verifyTotp(secret, code)) {
+      throw new AppError('INVALID_CODE', 'That code is not valid. Codes change every 30 seconds.');
+    }
+
+    const codes = this.createRecoveryCodes(10);
+    const enabledAt = await this.users.enableMfa(
+      user.id,
+      codes.map((plain) => hashToken(normaliseRecoveryCode(plain))),
+    );
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: 'user',
+      actorId: user.id,
+      action: 'auth.mfa_enabled',
+      ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+    });
+    return { enabledAt, recoveryCodes: codes };
+  }
+
+  /** Turning the factor off is a downgrade, so it needs both the password and a live code. */
+  async disableMfa(
+    actor: AuthenticatedActor,
+    password: string,
+    code: string,
+    context: RequestContext = {},
+  ): Promise<void> {
+    const user = await this.users.findById(actor.userId);
+    if (!user || user.disabled_at) throw new AppError('UNAUTHENTICATED', 'Account not found.');
+    if (!user.mfa_enabled_at)
+      throw new AppError('CONFLICT', 'Two-factor authentication is not on.');
+    if (!user.password_hash || !(await this.hasher.verify(user.password_hash, password))) {
+      throw new AppError('INVALID_CREDENTIALS', 'That password is not correct.');
+    }
+    if (!(await this.consumeSecondFactor(user, code, actor.organisationId))) {
+      throw new AppError('INVALID_CODE', 'That code is not valid. Codes change every 30 seconds.');
+    }
+    await this.users.disableMfa(user.id);
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: 'user',
+      actorId: user.id,
+      action: 'auth.mfa_disabled',
+      ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+    });
+  }
+
+  /** New recovery codes, authorised by a live code from the app. */
+  async regenerateRecoveryCodes(
+    actor: AuthenticatedActor,
+    code: string,
+  ): Promise<{ recoveryCodes: string[] }> {
+    const user = await this.users.findById(actor.userId);
+    if (!user || !user.mfa_enabled_at) {
+      throw new AppError('CONFLICT', 'Two-factor authentication is not on.');
+    }
+    if (!(await this.consumeSecondFactor(user, code, actor.organisationId))) {
+      throw new AppError('INVALID_CODE', 'That code is not valid. Codes change every 30 seconds.');
+    }
+    const codes = this.createRecoveryCodes(10);
+    await this.users.setRecoveryHashes(
+      user.id,
+      codes.map((plain) => hashToken(normaliseRecoveryCode(plain))),
+    );
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: 'user',
+      actorId: user.id,
+      action: 'auth.mfa_recovery_regenerated',
+    });
+    return { recoveryCodes: codes };
+  }
+
+  /** Step two of a login: exchange the challenge and a code for a real session. */
+  async completeMfaLogin(
+    challengeToken: string,
+    code: string,
+    context: RequestContext = {},
+  ): Promise<TokenPair> {
+    const challenge = this.tokens.verifyMfaChallenge(challengeToken);
+    const invalid = new AppError(
+      'UNAUTHENTICATED',
+      'That sign-in attempt has expired. Start again.',
+    );
+    if (!challenge) throw invalid;
+
+    const user = await this.users.findById(challenge.userId);
+    const membership = await this.memberships.findForUser(challenge.userId);
+    if (!user || !membership || user.disabled_at || !user.mfa_enabled_at) throw invalid;
+
+    if (!(await this.consumeSecondFactor(user, code, membership.organisation_id))) {
+      await this.audit.record({
+        organisationId: membership.organisation_id,
+        actorType: 'user',
+        actorId: user.id,
+        action: 'auth.login_failed',
+        ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+        metadata: { step: 'mfa' },
+      });
+      throw new AppError('INVALID_CODE', 'That code is not valid. Codes change every 30 seconds.');
+    }
+
+    await this.users.recordLogin(user.id);
+    await this.audit.record({
+      organisationId: membership.organisation_id,
+      actorType: 'user',
+      actorId: user.id,
+      action: 'auth.login',
+      ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+      metadata: { mfa: 'verified' },
+    });
+    return this.issueTokens(user, membership, context);
+  }
+
+  /** A TOTP code, or a recovery code, which is removed from the list when it works. */
+  private async consumeSecondFactor(
+    user: { id: string; mfa_secret_enc: string | null; mfa_recovery_hashes: string | null },
+    code: string,
+    organisationId: string,
+  ): Promise<boolean> {
+    const trimmed = code.trim();
+    const secret = this.decryptSecret(user);
+    if (secret && verifyTotp(secret, trimmed)) return true;
+
+    if (!/^[A-Za-z0-9-]{6,20}$/.test(trimmed)) return false;
+    const hash = hashToken(normaliseRecoveryCode(trimmed));
+    const hashes = parseRecoveryHashes(user.mfa_recovery_hashes);
+    if (!hashes.includes(hash)) return false;
+    await this.users.setRecoveryHashes(
+      user.id,
+      hashes.filter((candidate) => candidate !== hash),
+    );
+    await this.audit.record({
+      organisationId,
+      actorType: 'user',
+      actorId: user.id,
+      action: 'auth.mfa_recovery_used',
+      metadata: { remaining: hashes.length - 1 },
+    });
+    return true;
+  }
+
+  /**
+   * Human-readable recovery codes: eight characters from an alphabet without `I`, `O`, `0` or `1`,
+   * shown as `XXXX-XXXX`. Only the hash of the normalised form is stored, so the dashes and the
+   * case somebody types do not matter.
+   */
+  private createRecoveryCodes(count: number): string[] {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = randomBytes(count * 8);
+    return Array.from({ length: count }, (_unused, index) => {
+      let raw = '';
+      for (let offset = 0; offset < 8; offset += 1) {
+        raw += alphabet[bytes[index * 8 + offset]! % alphabet.length];
+      }
+      return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+    });
   }
 
   /** Rotate a refresh token: the presented token is revoked and a new pair is issued. */
@@ -414,7 +687,35 @@ export class AuthService {
       role: membership.role,
       organisationId: organisation.id,
       organisationName: organisation.name,
+      terms: describeTerms(user.terms_accepted_at, user.terms_version),
     };
+  }
+
+  /**
+   * Accepts the current legal pack (DEC-032).
+   *
+   * Accounts created before the terms existed, and accounts whose pack has since been revised, land
+   * here. Re-accepting the same version is allowed: it is a confirmation, not a new fact, so the
+   * timestamp is refreshed and the audit entry repeated.
+   */
+  async acceptTerms(
+    actor: AuthenticatedActor,
+    context: RequestContext = {},
+  ): Promise<TermsAcceptance> {
+    const user = await this.users.findById(actor.userId);
+    if (!user || user.disabled_at) throw new AppError('UNAUTHENTICATED', 'Account not found.');
+    const acceptedAt = await this.users.recordTermsAcceptance(user.id, LEGAL_VERSION);
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: 'user',
+      actorId: user.id,
+      action: 'legal.terms_accepted',
+      targetType: 'user',
+      targetId: user.id,
+      ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+      metadata: { version: LEGAL_VERSION },
+    });
+    return { acceptedAt, version: LEGAL_VERSION, current: true };
   }
 
   /** TEAM-001: invite by email with an expiring, single-use token (no email delivery configured). */
@@ -567,4 +868,36 @@ function toInvitation(row: InvitationRow): Invitation {
     usedAt: row.used_at,
     createdAt: row.created_at,
   };
+}
+
+/**
+ * Describes the acceptance record against the pack that ships today (DEC-032).
+ *
+ * `current` is what the UI acts on: false means either "never accepted" (an account older than the
+ * terms) or "accepted an earlier version", and in both cases the person is asked again.
+ */
+function describeTerms(acceptedAt: string | null, version: string | null): TermsAcceptance {
+  return {
+    acceptedAt,
+    version,
+    current: acceptedAt !== null && version === LEGAL_VERSION,
+  };
+}
+
+/** Recovery codes are stored as a JSON array of hashes; anything else reads as "none left". */
+function parseRecoveryHashes(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Recovery codes are compared without dashes and without case. */
+function normaliseRecoveryCode(code: string): string {
+  return code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 }

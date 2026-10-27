@@ -8,6 +8,12 @@ These terms govern use of the AI Universal Data Capture Platform ("the Service")
 organisation, signing in or using the Service you accept them on behalf of the organisation you
 represent, and you confirm you may do so.
 
+**How acceptance is recorded.** Creating an account requires ticking the acceptance box; the Service
+stores the date, the account and the version of these terms that was accepted, and records it in the
+organisation's audit trail. When these terms are revised, the version changes and every account is
+asked to accept the current version before continuing. That record is our evidence of the contract;
+the version accepted is shown to the account holder in **Account → Terms and privacy**.
+
 ---
 
 ## 1. The Service

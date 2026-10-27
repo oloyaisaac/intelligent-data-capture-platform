@@ -16,6 +16,10 @@ import type {
   CreatedApiKey,
   DataExport,
   Device,
+  LoginResponse,
+  MfaConfirmResponse,
+  MfaStartResponse,
+  MfaStatus,
   DuplicateCheckResponse,
   EraseAccountResponse,
   DocumentListResponse,
@@ -35,6 +39,7 @@ import type {
   StatsResponse,
   Template,
   TemplateDetail,
+  TermsAcceptance,
   TokenPair,
   UpdateProjectRequest,
   UpdateTemplateRequest,
@@ -48,6 +53,14 @@ import type {
  * Tokens live in the OS keychain through the Electron bridge when it is present, and in memory
  * otherwise (the browser build used for development must not persist secrets to localStorage).
  */
+
+/** Thrown instead of returning a session when the account has MFA on (DEC-034). */
+export class MfaRequiredError extends Error {
+  constructor() {
+    super('Enter the code from your authenticator app.');
+    this.name = 'MfaRequiredError';
+  }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -132,6 +145,8 @@ export class ApiClient {
   private readonly storage: TokenStorage;
   /** Session id of the current token pair; used to mark the caller's row in the session list. */
   private sessionId: string | null = null;
+  /** Set between the password step and the second factor (DEC-034). */
+  private pendingChallenge: string | null = null;
   private readonly fetchImpl: typeof fetch;
   private accessToken: string | null = null;
 
@@ -247,6 +262,7 @@ export class ApiClient {
   private async clearSession(): Promise<void> {
     this.accessToken = null;
     this.sessionId = null;
+    this.pendingChallenge = null;
     await this.storage.write({ accessToken: null, refreshToken: null });
   }
 
@@ -261,16 +277,69 @@ export class ApiClient {
 
   // --- Auth ---------------------------------------------------------------
 
+  /**
+   * Signs in. With MFA enrolled the API answers with a challenge instead of tokens, which is
+   * surfaced as `MfaRequiredError` so the screen can ask for the six-digit code and call
+   * `completeMfa` (DEC-034).
+   */
   async login(input: { email: string; password: string }): Promise<UserSummary> {
-    const pair = await this.request<TokenPair>('/auth/login', {
+    const result = await this.request<LoginResponse>('/auth/login', {
       method: 'POST',
       body: input,
       anonymous: true,
     });
-    this.accessToken = pair.accessToken;
-    this.sessionId = pair.sessionId;
-    await this.storage.write({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
-    return pair.user;
+    if ('mfaRequired' in result) {
+      this.pendingChallenge = result.challengeToken;
+      throw new MfaRequiredError();
+    }
+    return this.adoptSession(result);
+  }
+
+  /** Second half of a sign-in: the challenge token plus a code (or a recovery code). */
+  async completeMfa(code: string): Promise<UserSummary> {
+    const challengeToken = this.pendingChallenge;
+    if (!challengeToken) throw new ApiError('UNAUTHENTICATED', 'Start signing in again.', 401);
+    const pair = await this.request<TokenPair>('/auth/mfa/verify', {
+      method: 'POST',
+      body: { challengeToken, code },
+      anonymous: true,
+    });
+    this.pendingChallenge = null;
+    return this.adoptSession(pair);
+  }
+
+  mfaStatus(): Promise<MfaStatus> {
+    return this.request<MfaStatus>('/auth/mfa');
+  }
+
+  /** Step one: the password buys a secret that is not switched on yet. */
+  startMfaEnrolment(password: string): Promise<MfaStartResponse> {
+    return this.request<MfaStartResponse>('/auth/mfa/enrol', {
+      method: 'POST',
+      body: { password },
+    });
+  }
+
+  /** Step two: a working code switches the factor on and returns the recovery codes once. */
+  confirmMfaEnrolment(code: string): Promise<MfaConfirmResponse> {
+    return this.request<MfaConfirmResponse>('/auth/mfa/enrol/confirm', {
+      method: 'POST',
+      body: { code },
+    });
+  }
+
+  disableMfa(password: string, code: string): Promise<void> {
+    return this.request<void>('/auth/mfa/disable', {
+      method: 'POST',
+      body: { password, code },
+    });
+  }
+
+  regenerateRecoveryCodes(code: string): Promise<{ recoveryCodes: string[] }> {
+    return this.request<{ recoveryCodes: string[] }>('/auth/mfa/recovery-codes', {
+      method: 'POST',
+      body: { code },
+    });
   }
 
   /** Stores a token pair obtained outside `login` (accepting an invitation). */
@@ -286,6 +355,8 @@ export class ApiClient {
     password: string;
     displayName: string;
     organisationName: string;
+    /** The sign-up checkbox; the API rejects a registration without it (DEC-032). */
+    acceptTerms: true;
   }): Promise<UserSummary> {
     const pair = await this.request<TokenPair>('/auth/register', {
       method: 'POST',
@@ -312,6 +383,23 @@ export class ApiClient {
 
   me(): Promise<UserSummary> {
     return this.request<UserSummary>('/auth/me');
+  }
+
+  /** Accept the legal pack that ships today; returns the record that was written (DEC-032). */
+  acceptTerms(): Promise<TermsAcceptance> {
+    return this.request<TermsAcceptance>('/auth/terms/accept', { method: 'POST', body: {} });
+  }
+
+  /** The audit trail as CSV. `download()` keeps the filename the server chose. */
+  auditLogCsv(filters: { action?: string; actorId?: string } = {}): Promise<{
+    blob: Blob;
+    filename: string;
+  }> {
+    const query = new URLSearchParams();
+    if (filters.action) query.set('action', filters.action);
+    if (filters.actorId) query.set('actorId', filters.actorId);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.download(`/audit-logs.csv${suffix}`);
   }
 
   // --- Account recovery, sessions and privacy ------------------------------
@@ -661,7 +749,7 @@ export class ApiClient {
   }
 
   auditLogs(
-    query: { actor?: string; action?: string; from?: string; to?: string; limit?: number } = {},
+    query: { actorId?: string; action?: string; from?: string; to?: string; limit?: number } = {},
   ): Promise<{
     items: Array<{
       id: string;

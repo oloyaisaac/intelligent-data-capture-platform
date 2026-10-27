@@ -458,6 +458,37 @@ describe('sign-in screen', () => {
     expect(alert.textContent).toContain('Email or password is incorrect.');
   });
 
+  it('will not create an account until the terms are accepted (DEC-032)', async () => {
+    const register = jest.fn(async () => ({
+      id: 'user-1',
+      email: 'new@example.com',
+      displayName: 'New',
+      role: 'owner' as const,
+      organisationId: 'org-1',
+      organisationName: 'Acme',
+    }));
+    const client = { register } as unknown as ApiClient;
+    render(<LoginPage client={client} onSignedIn={() => undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create a new workspace' }));
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@example.com' } });
+    fireEvent.change(screen.getByLabelText(/^Password/), {
+      target: { value: 'a long enough password' },
+    });
+    fireEvent.change(screen.getByLabelText(/Organisation/), { target: { value: 'Acme' } });
+
+    const submit = screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+
+    fireEvent.click(screen.getByLabelText(/I accept the Terms of Service/));
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(register).toHaveBeenCalledTimes(1));
+    // The checkbox is transmitted as a literal true; the server records the version it shipped.
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ acceptTerms: true }));
+  });
+
   it('offers the 12-character rule while creating an account', () => {
     const client = new ApiClient({
       baseUrl: 'https://idcp.test/api/v1',
@@ -818,6 +849,23 @@ describe('correction learning (REV-002)', () => {
     fireEvent.click(toggle);
     await waitFor(() => expect(updateOrganisation).toHaveBeenCalled());
     expect(updateOrganisation).toHaveBeenCalledWith({ learningOptIn: true });
+  });
+
+  it('downloads the audit log as a file for an auditor (AUDIT-2026-10)', async () => {
+    URL.createObjectURL = jest.fn(() => 'blob:audit');
+    URL.revokeObjectURL = jest.fn();
+    const auditLogCsv = jest.fn(async () => ({
+      blob: new Blob(['created_at,action\r\n'], { type: 'text/csv' }),
+      filename: 'audit-log-2026-10-27.csv',
+    }));
+    render(<SettingsPage client={settingsClient({ auditLogCsv })} role="owner" />);
+    await screen.findByText('invoice.number');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download audit log' }));
+
+    await waitFor(() => expect(auditLogCsv).toHaveBeenCalledTimes(1));
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect((await screen.findByRole('status')).textContent).toContain('Audit log downloaded');
   });
 
   it('does not show the opt-in to a reviewer', async () => {
@@ -1260,6 +1308,37 @@ describe('account page: password, sessions and privacy', () => {
         session('s-1', { userAgent: 'Firefox on Linux', current: true }),
         session('s-2', { userAgent: 'Pixel 8' }),
       ],
+      me: async () => ({
+        id: 'user-1',
+        email: 'owner@example.com',
+        displayName: 'Owner',
+        role: 'owner',
+        organisationId: 'org-1',
+        organisationName: 'Acme',
+        terms: { acceptedAt: '2026-10-27T08:00:00.000Z', version: '2026-10', current: true },
+      }),
+      acceptTerms: jest.fn(async () => ({
+        acceptedAt: '2026-10-27T09:00:00.000Z',
+        version: '2026-10',
+        current: true,
+      })),
+      mfaStatus: jest.fn(async () => ({
+        enabled: false,
+        enabledAt: null,
+        recoveryCodesRemaining: 0,
+      })),
+      startMfaEnrolment: jest.fn(async () => ({
+        secret: 'JBSWY3DPEHPK3PXP',
+        otpauthUri: 'otpauth://totp/IDCP:owner@example.com?secret=JBSWY3DPEHPK3PXP',
+        issuer: 'IDCP',
+        account: 'owner@example.com',
+      })),
+      confirmMfaEnrolment: jest.fn(async () => ({
+        enabledAt: '2026-10-27T10:00:00.000Z',
+        recoveryCodes: ['AAAA-BBBB', 'CCCC-DDDD'],
+      })),
+      disableMfa: jest.fn(async () => undefined),
+      regenerateRecoveryCodes: jest.fn(async () => ({ recoveryCodes: ['EEEE-FFFF'] })),
       changePassword: jest.fn(async () => ({ revokedSessions: 2 })),
       revokeSession: jest.fn(async () => undefined),
       logoutAll: jest.fn(async () => ({ revokedSessions: 2 })),
@@ -1346,6 +1425,63 @@ describe('account page: password, sessions and privacy', () => {
     expect((await screen.findByRole('status')).textContent).toContain('downloaded');
   });
 
+  it('shows which version of the terms this account accepted', async () => {
+    render(<AccountPage client={accountClient()} onSessionEnded={() => undefined} />);
+    await screen.findAllByTestId('session-row');
+
+    expect(screen.getByText(/Terms version 2026-10 accepted on/)).toBeTruthy();
+    // Nothing to press when the record is current.
+    expect(screen.queryByRole('button', { name: 'Accept the current terms' })).toBeNull();
+  });
+
+  it('asks an account on an older pack to accept, and records it', async () => {
+    const client = accountClient({
+      me: async () => ({
+        id: 'user-1',
+        email: 'owner@example.com',
+        displayName: 'Owner',
+        role: 'owner',
+        organisationId: 'org-1',
+        organisationName: 'Acme',
+        terms: { acceptedAt: '2020-01-10T08:00:00.000Z', version: '2020-01', current: false },
+      }),
+    });
+    render(<AccountPage client={client} onSessionEnded={() => undefined} />);
+    await screen.findAllByTestId('session-row');
+
+    expect(
+      screen.getByText(/The terms were revised after you accepted version 2020-01/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Accept the current terms' }));
+
+    await waitFor(() => expect(client.acceptTerms).toHaveBeenCalledTimes(1));
+    expect((await screen.findByRole('status')).textContent).toContain('current terms are accepted');
+  });
+
+  it('enrols a second factor and shows the recovery codes once (DEC-034)', async () => {
+    const client = accountClient();
+    render(<AccountPage client={client} onSessionEnded={() => undefined} />);
+    await screen.findAllByTestId('session-row');
+
+    fireEvent.change(screen.getByLabelText(/^Password/), {
+      target: { value: 'secret passphrase' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Set up two-factor authentication' }));
+
+    // The secret is shown for the authenticator app, never again after this.
+    expect((await screen.findByTestId('mfa-secret')).textContent).toBe('JBSWY3DPEHPK3PXP');
+    fireEvent.change(screen.getByLabelText(/Authentication code/), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on' }));
+
+    await waitFor(() => expect(client.confirmMfaEnrolment).toHaveBeenCalledWith('123456'));
+    const codes = await screen.findByTestId('recovery-codes');
+    expect(codes.textContent).toContain('AAAA-BBBB');
+    expect(codes.textContent).toContain('CCCC-DDDD');
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'Two-factor authentication is on',
+    );
+  });
+
   it('will not erase until DELETE is typed, then ends the session', async () => {
     const client = accountClient();
     const onSessionEnded = jest.fn();
@@ -1356,7 +1492,7 @@ describe('account page: password, sessions and privacy', () => {
     fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), {
       target: { value: 'delete' },
     });
-    fireEvent.change(screen.getByLabelText(/^Password/), {
+    fireEvent.change(screen.getByLabelText('Your password'), {
       target: { value: 'secret passphrase' },
     });
     expect(button.disabled).toBe(true);

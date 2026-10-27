@@ -84,7 +84,7 @@ export function buildServices(options: BuildServicesOptions): Services {
   const secretBox = createSecretBox(config.JWT_SECRET);
   const registry = new ConnectorRegistry();
 
-  const auth = new AuthService(db, config, tokens, hasher, logger);
+  const auth = new AuthService(db, config, tokens, hasher, logger, secretBox);
   const pairing = new PairingService(db, config, tokens, hub, logger);
   const documents = new DocumentService(db, config, storage, hub, logger);
   const batches = new BatchService(db, hub, documents, logger);

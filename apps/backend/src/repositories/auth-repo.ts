@@ -87,6 +87,9 @@ export class UsersRepository {
     passwordHash: string | null;
     displayName: string;
     locale?: string;
+    /** Set together with the password at sign-up or invitation acceptance (DEC-032). */
+    termsAcceptedAt?: string | null;
+    termsVersion?: string | null;
   }): Promise<UserRow> {
     const row: UserRow = {
       id: newId(),
@@ -97,18 +100,25 @@ export class UsersRepository {
       email_verified_at: null,
       last_login_at: null,
       disabled_at: null,
+      terms_accepted_at: input.termsAcceptedAt ?? null,
+      terms_version: input.termsVersion ?? null,
+      mfa_secret_enc: null,
+      mfa_enabled_at: null,
+      mfa_recovery_hashes: null,
       created_at: nowIso(),
       updated_at: nowIso(),
     };
     await this.db.execute(
-      `INSERT INTO users (id, email, password_hash, display_name, locale, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, email, password_hash, display_name, locale, terms_accepted_at, terms_version, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.email,
         row.password_hash,
         row.display_name,
         row.locale,
+        row.terms_accepted_at,
+        row.terms_version,
         row.created_at,
         row.updated_at,
       ],
@@ -138,6 +148,52 @@ export class UsersRepository {
       nowIso(),
       id,
     ]);
+  }
+
+  // --- Multi-factor authentication (DEC-034) -------------------------------
+
+  async setMfaSecret(id: string, encryptedSecret: string): Promise<void> {
+    await this.db.execute('UPDATE users SET mfa_secret_enc = ?, updated_at = ? WHERE id = ?', [
+      encryptedSecret,
+      nowIso(),
+      id,
+    ]);
+  }
+
+  async enableMfa(id: string, recoveryHashes: string[]): Promise<string> {
+    const enabledAt = nowIso();
+    await this.db.execute(
+      'UPDATE users SET mfa_enabled_at = ?, mfa_recovery_hashes = ?, updated_at = ? WHERE id = ?',
+      [enabledAt, JSON.stringify(recoveryHashes), enabledAt, id],
+    );
+    return enabledAt;
+  }
+
+  /** Clears the factor completely: no secret, no codes, no enabled timestamp. */
+  async disableMfa(id: string): Promise<void> {
+    await this.db.execute(
+      `UPDATE users SET mfa_secret_enc = NULL, mfa_enabled_at = NULL, mfa_recovery_hashes = NULL,
+        updated_at = ? WHERE id = ?`,
+      [nowIso(), id],
+    );
+  }
+
+  async setRecoveryHashes(id: string, recoveryHashes: string[]): Promise<void> {
+    await this.db.execute('UPDATE users SET mfa_recovery_hashes = ?, updated_at = ? WHERE id = ?', [
+      JSON.stringify(recoveryHashes),
+      nowIso(),
+      id,
+    ]);
+  }
+
+  /** Records acceptance of the current legal pack and returns the timestamp used (DEC-032). */
+  async recordTermsAcceptance(id: string, version: string): Promise<string> {
+    const acceptedAt = nowIso();
+    await this.db.execute(
+      'UPDATE users SET terms_accepted_at = ?, terms_version = ?, updated_at = ? WHERE id = ?',
+      [acceptedAt, version, acceptedAt, id],
+    );
+    return acceptedAt;
   }
 
   /**

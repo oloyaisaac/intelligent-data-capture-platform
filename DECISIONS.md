@@ -638,6 +638,100 @@ horizontal scaling (`DEC-029`). The defaults are mirrored in `legal/PRIVACY.md` 
 
 ---
 
+## DEC-032 — Acceptance of the legal pack is a server-side record, keyed by version
+
+**Date:** 2026-10-27 · **Status:** Accepted
+
+**Decision:** Registration requires `acceptTerms: true`, and the server — not the client — writes
+`users.terms_accepted_at` and `users.terms_version` from the `LEGAL_VERSION` constant, auditing
+`auth.register` with that version. `GET /auth/me` returns the record and whether it is current;
+`POST /auth/terms/accept` writes it for accounts that predate the pack or whose pack was revised.
+The acceptance is displayed to the account holder under **Account → Terms and privacy**.
+
+**Reason:** A privacy policy nobody agreed to protects nobody, and "the customer clicked through the
+sign-up form" is not evidence a year later. Storing the version that was accepted turns the terms
+into a contract that can be proved per account, and makes a material revision a measurable event
+rather than an edit buried in a repository. Sending the version from the client would let any client
+claim any version, so the server stamps it.
+
+**Alternatives considered:** A boolean `accepted_terms` column (proves nothing about _what_ was
+accepted, so a revision cannot be detected); a separate `terms_acceptances` history table (correct
+for a legal archive, but the per-account record plus the append-only audit trail already answers the
+two questions a dispute asks: did they accept, and which version); a click-through modal on every
+product update (hostile, and unenforceable at the API layer).
+
+**Consequences:** `LEGAL_VERSION` must be bumped in the same commit as a material change to the
+documents — `legal/README.md` states the rule and `npm run test:legal` keeps the pack internally
+consistent. Accounts created before the feature report `current: false` until they accept, and the
+desktop shows the prompt; the API does not lock anybody out, because a lockout triggered by a policy
+edit is a worse outcome than a stale acceptance.
+
+---
+
+## DEC-033 — `trustProxy` is configuration, not a constant
+
+**Date:** 2026-10-27 · **Status:** Accepted
+
+**Decision:** `TRUST_PROXY` (default `true`) controls whether Fastify trusts `X-Forwarded-For` when
+deriving `request.ip`. It is true by default because the documented deployment (§ `DEPLOYMENT.md`) is
+behind nginx/Caddy, which overwrites the header. A deployment that exposes the API directly sets
+`TRUST_PROXY=false`.
+
+**Reason:** The header is attacker-controlled unless something in front of the API rewrites it. With
+proxy trust always on, a direct client can rotate a fake `X-Forwarded-For` per request and walk past
+the per-IP rate limits on login and password reset — the two endpoints where rate limiting matters
+most. The per-account limits still apply, which is why this was medium rather than critical.
+
+**Alternatives considered:** Leaving it hard-coded `true` (correct for the documented topology, wrong
+for the topology a hurried operator actually builds); defaulting to `false` (breaks the documented
+proxy setup: every request would appear to come from the proxy, collapsing per-IP limits into one
+shared bucket); a numeric hop count (more precise, needs the operator to know their topology exactly).
+
+**Consequences:** One more key in `ENVIRONMENT.md` and `.env.example`, guarded by
+`test/config.test.ts`. `DEPLOYMENT.md` tells the operator which value belongs to which topology.
+
+---
+
+## DEC-034 — TOTP as the second factor, with recovery codes and no lockout path
+
+**Date:** 2026-10-27 · **Status:** Accepted
+
+**Decision:** Accounts can enable a second factor built on RFC 6238 TOTP (SHA-1, six digits, 30-second
+step, ±1 step of drift). `/auth/login` returns `{ mfaRequired: true, challengeToken,
+expiresInSeconds: 300 }` instead of a session when the account has one; the challenge is a JWT with
+`aud: idcp-mfa` that only `POST /auth/mfa/verify` accepts. Enabling requires the password _and_ a
+live code, and yields ten single-use recovery codes stored only as SHA-256 hashes of their normalised
+form. Disabling requires the password _and_ a live code. The secret is 160 bits of base32, encrypted
+with the existing `SecretBox` (AES-256-GCM, AAD `mfa:<userId>`) and never returned after enrolment.
+
+**Reason:** `AUDIT-2026-10.md` §4.1 named missing MFA the single largest security gap: one password
+was one secret, and the product stores invoices, ID documents and contracts. TOTP is the cheapest
+factor that actually changes that — every authenticator app already speaks it, workers have no
+hardware tokens, and it needs no new dependency (HMAC-SHA-1 is in Node's `crypto`).
+
+**Alternatives considered:** WebAuthn/passkeys (stronger against phishing, but needs device support,
+a registration flow per device and a dependency; the right follow-up, not the first step). SMS (a
+SIM-swap liability and a per-message cost). Email codes (reuses the mail transport this deployment
+does not have, DEC-030). Enforcing MFA for `owner`/`admin` from day one (locks out any deployment
+that has no enrolled owner until an operator edits the database). Storing the secret in plaintext
+(would make any database read a permanent second-factor compromise).
+
+**Consequences:**
+
+- An undecryptable secret is treated as _not enrolled_: the server logs a warning and the person
+  re-enrols, rather than being locked out of their own account.
+- The challenge is deliberately short-lived (5 minutes) and carries no refresh token, so a
+  half-finished sign-in grants nothing.
+- Recovery codes are the only bypass, so they are shown once, hashed at rest, consumed on use and
+  audited (`auth.mfa_recovery_used`, alongside `auth.mfa_enabled`, `auth.mfa_disabled`,
+  `auth.mfa_recovery_regenerated`).
+- Verification failures are limited per client address (`mfa-verify:<ip>`) because the caller is not
+  authenticated yet; enrolment attempts are limited per account.
+- Enrolment is self-service, not organisation policy: an administrator cannot yet require MFA for a
+  role. That is recorded, not implied, in `PRD.json` (AUTH-001 `verification.notVerified`).
+
+---
+
 ## Template for new decisions
 
 Copy this block, replace `DEC-0NN` with the next free number, and keep the list in numeric order.

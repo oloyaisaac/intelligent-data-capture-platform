@@ -28,12 +28,30 @@ export const PaginationSchema = z.object({
   cursor: z.string().max(200).optional(),
 });
 
+/**
+ * Acceptance of the terms at sign-up.
+ *
+ * `z.literal(true)` rather than a boolean: a client cannot create an account by omitting the field or
+ * sending `false`, and the record of *what* was accepted is written server-side (DEC-032).
+ */
+export const TermsAcceptanceSchema = z
+  .object({
+    acceptedAt: z.string().nullable(),
+    version: z.string().nullable(),
+    /** False when the pack has been revised since this account accepted it. */
+    current: z.boolean(),
+  })
+  .strict();
+export type TermsAcceptance = z.infer<typeof TermsAcceptanceSchema>;
+
 export const RegisterRequestSchema = z
   .object({
     email: EmailSchema,
     password: PasswordSchema,
     displayName: z.string().trim().min(1).max(120),
     organisationName: z.string().trim().min(2).max(120),
+    /** The sign-up form's "I accept the Terms and the Privacy Policy" checkbox. */
+    acceptTerms: z.literal(true),
   })
   .strict();
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
@@ -46,6 +64,64 @@ export const LoginRequestSchema = z
   .strict();
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
+// --- Multi-factor authentication (DEC-034) ---------------------------------
+
+export const MfaStatusSchema = z
+  .object({
+    enabled: z.boolean(),
+    enabledAt: z.string().nullable(),
+    /** Unused recovery codes left; the person needs to know when to regenerate. */
+    recoveryCodesRemaining: z.number().int(),
+  })
+  .strict();
+export type MfaStatus = z.infer<typeof MfaStatusSchema>;
+
+export const MfaStartRequestSchema = z.object({ password: z.string().min(1) }).strict();
+export type MfaStartRequest = z.infer<typeof MfaStartRequestSchema>;
+
+export const MfaStartResponseSchema = z
+  .object({
+    /** Base32 secret. Shown once, then stored encrypted (AES-256-GCM) and never returned again. */
+    secret: z.string(),
+    otpauthUri: z.string(),
+    issuer: z.string(),
+    account: z.string(),
+  })
+  .strict();
+export type MfaStartResponse = z.infer<typeof MfaStartResponseSchema>;
+
+export const MfaCodeSchema = z.string().regex(/^\d{6}$/, 'Enter the 6-digit code from your app.');
+export const MfaConfirmRequestSchema = z.object({ code: MfaCodeSchema }).strict();
+export type MfaConfirmRequest = z.infer<typeof MfaConfirmRequestSchema>;
+
+export const MfaConfirmResponseSchema = z
+  .object({
+    enabledAt: z.string(),
+    /** Shown exactly once. Stored only as hashes; there is no way to read them back. */
+    recoveryCodes: z.array(z.string()),
+  })
+  .strict();
+export type MfaConfirmResponse = z.infer<typeof MfaConfirmResponseSchema>;
+
+export const MfaVerifyRequestSchema = z
+  .object({
+    challengeToken: z.string().min(20).max(2_000),
+    /** Six digits from the authenticator app, or one of the recovery codes. */
+    code: z.string().min(6).max(40),
+  })
+  .strict();
+export type MfaVerifyRequest = z.infer<typeof MfaVerifyRequestSchema>;
+
+export const MfaDisableRequestSchema = z
+  .object({ password: z.string().min(1), code: z.string().min(6).max(40) })
+  .strict();
+export type MfaDisableRequest = z.infer<typeof MfaDisableRequestSchema>;
+
+export const MfaRecoveryRequestSchema = z.object({ code: MfaCodeSchema }).strict();
+export type MfaRecoveryRequest = z.infer<typeof MfaRecoveryRequestSchema>;
+
+// --- Sessions (AUTH-003) ----------------------------------------------------
+
 export const RefreshRequestSchema = z
   .object({ refreshToken: z.string().min(20).max(500) })
   .strict();
@@ -57,6 +133,8 @@ export const UserSummarySchema = z.object({
   role: z.enum(ROLES),
   organisationId: z.string(),
   organisationName: z.string(),
+  /** Only `GET /auth/me` fills this in; a token pair does not need it. */
+  terms: TermsAcceptanceSchema.optional(),
 });
 export type UserSummary = z.infer<typeof UserSummarySchema>;
 
@@ -69,6 +147,24 @@ export const TokenPairSchema = z.object({
   user: UserSummarySchema,
 });
 export type TokenPair = z.infer<typeof TokenPairSchema>;
+
+/**
+ * Login is one step for most people and two for anyone with MFA on (DEC-034).
+ *
+ * A correct password returns a short-lived challenge instead of tokens; the password is never
+ * enough on its own once a second factor is enrolled, which is the whole point of enrolling.
+ */
+export const MfaChallengeSchema = z
+  .object({
+    mfaRequired: z.literal(true),
+    challengeToken: z.string().min(20),
+    expiresInSeconds: z.number().int().positive(),
+  })
+  .strict();
+export type MfaChallenge = z.infer<typeof MfaChallengeSchema>;
+
+export const LoginResponseSchema = z.union([TokenPairSchema, MfaChallengeSchema]);
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
 
 // --- Account recovery and session control ----------------------------------
 

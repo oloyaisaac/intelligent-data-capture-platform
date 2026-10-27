@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  AppError,
   badRequest,
   DOCUMENT_STATUSES,
   DOCUMENT_TYPES,
@@ -37,6 +38,12 @@ export function registerDocumentRoutes(
     if (!file) throw badRequest('No file was uploaded.');
 
     const buffer = await file.toBuffer();
+    // `toBuffer()` normally throws once the limit is crossed, but a stream that ends exactly at a
+    // chunk boundary can come back truncated and silent. Checking the flag is what makes the limit
+    // deterministic rather than dependent on how the bytes happened to arrive.
+    if (file.file.truncated || buffer.byteLength > services.config.MAX_UPLOAD_MB * 1024 * 1024) {
+      throw new AppError('PAYLOAD_TOO_LARGE', 'The upload is too large.');
+    }
     const fields = file.fields as Record<string, { value?: unknown } | undefined>;
     // Accept the key as a header (preferred) or as a form field (browser FormData).
     const idempotencyKeyHeader = request.headers['idempotency-key'];

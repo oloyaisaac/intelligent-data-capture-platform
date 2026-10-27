@@ -199,6 +199,7 @@ describe('password recovery and sessions', () => {
           password: 'correct horse battery staple',
           displayName: 'Owner',
           organisationName: 'Sessions Ltd',
+          acceptTerms: true,
         },
       },
     );

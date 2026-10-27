@@ -5,6 +5,11 @@ import {
   ChangePasswordRequestSchema,
   ForgotPasswordRequestSchema,
   LoginRequestSchema,
+  MfaConfirmRequestSchema,
+  MfaDisableRequestSchema,
+  MfaRecoveryRequestSchema,
+  MfaStartRequestSchema,
+  MfaVerifyRequestSchema,
   RefreshRequestSchema,
   RegisterRequestSchema,
   ResetPasswordRequestSchema,
@@ -91,6 +96,16 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services, gua
     return services.auth.me(actor);
   });
 
+  /** DEC-032: accounts older than the legal pack, or whose pack was revised, accept it here. */
+  app.post('/auth/terms/accept', async (request) => {
+    const actor = await guards.authenticate(request);
+    return services.auth.acceptTerms(actor, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+      ipHash: request.clientIpHash,
+    });
+  });
+
   // --- Password reset (DEC-030) -------------------------------------------
 
   /**
@@ -156,5 +171,87 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services, gua
     const actor = await guards.authenticate(request);
     const result = await services.auth.revokeAllSessions(actor);
     return reply.send(result);
+  });
+
+  // --- Multi-factor authentication (DEC-034) -------------------------------
+
+  app.get('/auth/mfa', async (request) => {
+    const actor = await guards.authenticate(request);
+    return services.auth.mfaStatus(actor);
+  });
+
+  /** Step one: confirm the password and receive a secret that is not switched on yet. */
+  app.post('/auth/mfa/enrol', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    const parsed = MfaStartRequestSchema.safeParse(request.body);
+    if (!parsed.success) throw badRequest('Enter your password to start.');
+    const key = `mfa-enrol:${actor.userId}`;
+    if (!services.authLimiter.hit(key)) {
+      throw new AppError('RATE_LIMITED', 'Too many attempts. Try again in a few minutes.');
+    }
+    const result = await services.auth.startMfaEnrolment(actor, parsed.data.password, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+      ipHash: request.clientIpHash,
+    });
+    return reply.send(result);
+  });
+
+  /** Step two: prove the app works, then the factor is on and the recovery codes are returned once. */
+  app.post('/auth/mfa/enrol/confirm', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    const parsed = MfaConfirmRequestSchema.safeParse(request.body);
+    if (!parsed.success) throw badRequest('Enter the 6-digit code from your authenticator app.');
+    const key = `mfa-confirm:${actor.userId}`;
+    if (!services.authLimiter.hit(key)) {
+      throw new AppError('RATE_LIMITED', 'Too many attempts. Try again in a few minutes.');
+    }
+    const result = await services.auth.confirmMfaEnrolment(actor, parsed.data.code, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+      ipHash: request.clientIpHash,
+    });
+    services.authLimiter.reset(key);
+    return reply.send(result);
+  });
+
+  /** The second half of a login. Anonymous: the challenge token is the only credential. */
+  app.post('/auth/mfa/verify', async (request, reply) => {
+    const parsed = MfaVerifyRequestSchema.safeParse(request.body);
+    if (!parsed.success) throw badRequest('Enter the code from your authenticator app.');
+    const key = `mfa-verify:${request.ip}`;
+    if (!services.authLimiter.hit(key)) {
+      reply.header('Retry-After', String(services.authLimiter.retryAfterSeconds(key)));
+      throw new AppError('RATE_LIMITED', 'Too many attempts. Wait a moment and try again.');
+    }
+    const tokens = await services.auth.completeMfaLogin(
+      parsed.data.challengeToken,
+      parsed.data.code,
+      {
+        ip: request.ip,
+        userAgent: request.headers['user-agent'],
+        ipHash: request.clientIpHash,
+      },
+    );
+    services.authLimiter.reset(key);
+    return reply.send(tokens);
+  });
+
+  app.post('/auth/mfa/disable', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    const parsed = MfaDisableRequestSchema.safeParse(request.body);
+    if (!parsed.success) throw badRequest('Enter your password and a current code.');
+    await services.auth.disableMfa(actor, parsed.data.password, parsed.data.code, {
+      ip: request.ip,
+      ipHash: request.clientIpHash,
+    });
+    return reply.code(204).send();
+  });
+
+  app.post('/auth/mfa/recovery-codes', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    const parsed = MfaRecoveryRequestSchema.safeParse(request.body);
+    if (!parsed.success) throw badRequest('Enter a current code from your authenticator app.');
+    return reply.send(await services.auth.regenerateRecoveryCodes(actor, parsed.data.code));
   });
 }

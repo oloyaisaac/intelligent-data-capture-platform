@@ -6,6 +6,7 @@ import {
   type DocumentResultResponse,
   type DocumentUploadResponse,
   type ExportRecord,
+  type LoginResponse,
   type PatchFieldsResponse,
   type ReviewQueueResponse,
   type ReviewSession,
@@ -25,6 +26,17 @@ import {
  *  - turn error envelopes into typed errors with a message safe to show a person
  *  - refuse to talk to a non-HTTPS endpoint outside development
  */
+
+/**
+ * The password was right but a second factor is required (DEC-034). `login` has already stashed the
+ * challenge token, so the screen only has to ask for the code and call `completeMfa`.
+ */
+export class MfaRequiredError extends Error {
+  constructor() {
+    super('Enter the code from your authenticator app.');
+    this.name = 'MfaRequiredError';
+  }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -202,14 +214,35 @@ export class ApiClient {
     return tokens;
   }
 
+  private pendingChallenge: string | null = null;
+
+  /** Either a session, or an `MfaRequiredError` carrying the pending challenge (DEC-034). */
   async login(input: { email: string; password: string }): Promise<TokenPair> {
-    const tokens = await this.request<TokenPair>('/auth/login', {
+    const result = await this.request<LoginResponse>('/auth/login', {
       method: 'POST',
       body: input,
       anonymous: true,
     });
-    await this.store.saveTokens(tokens);
-    return tokens;
+    if ('mfaRequired' in result) {
+      this.pendingChallenge = result.challengeToken;
+      throw new MfaRequiredError();
+    }
+    await this.store.saveTokens(result);
+    return result;
+  }
+
+  /** Second half of sign-in: the challenge token from `login`, plus a code or recovery code. */
+  async completeMfa(code: string): Promise<TokenPair> {
+    const challengeToken = this.pendingChallenge;
+    if (!challengeToken) throw new ApiError('UNAUTHENTICATED', 'Start signing in again.', 401);
+    const pair = await this.request<TokenPair>('/auth/mfa/verify', {
+      method: 'POST',
+      body: { challengeToken, code },
+      anonymous: true,
+    });
+    this.pendingChallenge = null;
+    await this.store.saveTokens(pair);
+    return pair;
   }
 
   /** Revokes the refresh token server-side, then clears local state. */
@@ -222,6 +255,7 @@ export class ApiClient {
         anonymous: true,
       }).catch(() => undefined);
     }
+    this.pendingChallenge = null;
     await this.store.clear();
   }
 

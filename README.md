@@ -8,7 +8,7 @@ IDCP is an AI-powered bridge between physical documents and digital business sys
 > The repository contains the backend API (Fastify 5 over SQLite/PostgreSQL), the desktop renderer
 > (React 19 + Vite with an Electron shell), the mobile app (React Native), the connector SDK and the
 > test suite behind them: `npm run verify` typechecks, lints, checks the PRD/OpenAPI/packaging
-> contracts and runs 376 tests in 26 suites. What is deliberately not here yet — signed installers,
+> contracts and runs 406 tests in 30 suites. What is deliberately not here yet — signed installers,
 > live-database connector runs and the Socket.IO transport — is listed in
 > [`AGENT_STATE.md`](AGENT_STATE.md).
 
@@ -187,7 +187,7 @@ npm run verify         # typecheck + lint + PRD/OpenAPI/packaging contracts + al
 npm test               # Jest projects: shared, connectors, backend, desktop, mobile
 ```
 
-`npm run verify` is the same command CI runs; it currently passes with 376 tests in 26 suites.
+`npm run verify` is the same command CI runs; it currently passes with 406 tests in 30 suites.
 
 ### Basic usage
 

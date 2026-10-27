@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ApiError, type ApiClient } from '../api/client';
+import { ApiError, MfaRequiredError, type ApiClient } from '../api/client';
 import { ErrorBanner, Field } from '../components/ui';
 import { useTranslator } from '../lib/locale';
 
@@ -7,6 +7,12 @@ import { useTranslator } from '../lib/locale';
 function resetTokenFromHash(hash: string): string | null {
   const query = hash.split('?')[1] ?? '';
   return new URLSearchParams(query).get('token');
+}
+
+/** Opens a legal document published by the API, without leaving the app's state behind. */
+function openLegal(slug: 'terms' | 'privacy'): void {
+  if (typeof window === 'undefined') return;
+  window.open(`${window.location.origin}/api/v1/legal/${slug}`, '_blank', 'noopener,noreferrer');
 }
 
 /**
@@ -27,14 +33,16 @@ export function LoginPage({
 }): React.JSX.Element {
   const initialHash = typeof window === 'undefined' ? '' : window.location.hash;
   const hashToken = resetTokenFromHash(initialHash);
-  const [mode, setMode] = useState<'signin' | 'register' | 'forgot' | 'reset'>(
+  const [mode, setMode] = useState<'signin' | 'register' | 'forgot' | 'reset' | 'mfa'>(
     hashToken ? 'reset' : 'signin',
   );
+  const [mfaCode, setMfaCode] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [organisationName, setOrganisationName] = useState('');
   const [token, setToken] = useState(hashToken ?? '');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [devResetUrl, setDevResetUrl] = useState<string | null>(null);
@@ -51,12 +59,16 @@ export function LoginPage({
       if (mode === 'signin') {
         await client.login({ email: email.trim(), password });
         onSignedIn();
+      } else if (mode === 'mfa') {
+        await client.completeMfa(mfaCode.trim());
+        onSignedIn();
       } else if (mode === 'register') {
         await client.register({
           email: email.trim(),
           password,
           displayName: displayName.trim() || email.split('@')[0] || 'Owner',
           organisationName: organisationName.trim(),
+          acceptTerms: true,
         });
         onSignedIn();
       } else if (mode === 'forgot') {
@@ -74,6 +86,13 @@ export function LoginPage({
         setMode('signin');
       }
     } catch (caught) {
+      if (caught instanceof MfaRequiredError) {
+        // Password accepted; ask for the second factor instead of pretending this failed.
+        setPassword('');
+        setMode('mfa');
+        setNotice(null);
+        return;
+      }
       setError(caught instanceof ApiError ? caught.message : t('login.networkError'));
     } finally {
       setBusy(false);
@@ -97,6 +116,7 @@ export function LoginPage({
               {mode === 'register' && t('login.registerTitle')}
               {mode === 'forgot' && t('login.forgotTitle')}
               {mode === 'reset' && t('login.resetTitle')}
+              {mode === 'mfa' && t('login.mfaTitle')}
             </h1>
             <p className="muted" style={{ margin: 0 }}>
               {t('app.tagline')}
@@ -119,7 +139,7 @@ export function LoginPage({
           </div>
         )}
 
-        {mode !== 'reset' && (
+        {mode !== 'reset' && mode !== 'mfa' && (
           <Field
             label={t('auth.email')}
             hint={mode === 'forgot' ? t('login.forgotHint') : undefined}
@@ -147,7 +167,20 @@ export function LoginPage({
           </Field>
         )}
 
-        {mode !== 'forgot' && (
+        {mode === 'mfa' && (
+          <Field label={t('login.mfaCode')} hint={t('login.mfaCodeHint')}>
+            <input
+              className="input"
+              value={mfaCode}
+              required
+              autoComplete="one-time-code"
+              inputMode="text"
+              onChange={(event) => setMfaCode(event.target.value)}
+            />
+          </Field>
+        )}
+
+        {mode !== 'forgot' && mode !== 'mfa' && (
           <Field
             label={mode === 'reset' ? t('account.newPassword') : t('auth.password')}
             hint={mode === 'signin' ? undefined : t('auth.passwordHint')}
@@ -183,23 +216,64 @@ export function LoginPage({
                 onChange={(event) => setOrganisationName(event.target.value)}
               />
             </Field>
+            {/*
+              The acceptance is recorded server-side with the version that shipped (DEC-032). It is a
+              deliberate click, not a footnote: a contract nobody agreed to is not a contract.
+            */}
+            <div className="stack" style={{ gap: 4 }}>
+              <label className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  required
+                  onChange={(event) => setAcceptedTerms(event.target.checked)}
+                />
+                <span>{t('login.acceptTerms')}</span>
+              </label>
+              <div className="row" style={{ gap: 8 }}>
+                <button
+                  type="button"
+                  className="link"
+                  data-testid="terms-link"
+                  onClick={() => openLegal('terms')}
+                >
+                  {t('login.termsLink')}
+                </button>
+                <button
+                  type="button"
+                  className="link"
+                  data-testid="privacy-link"
+                  onClick={() => openLegal('privacy')}
+                >
+                  {t('login.privacyLink')}
+                </button>
+              </div>
+            </div>
           </>
         )}
 
         <button
           className="button"
           type="submit"
-          disabled={busy || (mode !== 'reset' && !email) || (mode !== 'forgot' && !password)}
+          disabled={
+            busy ||
+            (mode !== 'reset' && mode !== 'mfa' && !email) ||
+            (mode !== 'forgot' && mode !== 'mfa' && !password) ||
+            (mode === 'register' && !acceptedTerms) ||
+            (mode === 'mfa' && !mfaCode.trim())
+          }
         >
           {busy
             ? t('login.pleaseWait')
-            : mode === 'signin'
-              ? t('action.signIn')
-              : mode === 'register'
-                ? t('action.register')
-                : mode === 'forgot'
-                  ? t('login.sendResetLink')
-                  : t('login.setNewPassword')}
+            : mode === 'mfa'
+              ? t('login.verify')
+              : mode === 'signin'
+                ? t('action.signIn')
+                : mode === 'register'
+                  ? t('action.register')
+                  : mode === 'forgot'
+                    ? t('login.sendResetLink')
+                    : t('login.setNewPassword')}
         </button>
 
         {mode === 'signin' && (

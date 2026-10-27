@@ -230,6 +230,7 @@ export async function registerAccount(
       password: overrides.password ?? 'correct horse battery staple',
       displayName: 'Test User',
       organisationName: overrides.organisationName ?? 'Test Trading Ltd',
+      acceptTerms: true,
     },
   });
   if (response.statusCode !== 201) {

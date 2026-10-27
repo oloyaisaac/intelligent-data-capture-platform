@@ -31,7 +31,7 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false,
     bodyLimit: services.config.MAX_REQUEST_MB * 1024 * 1024,
-    trustProxy: true,
+    trustProxy: services.config.TRUST_PROXY,
   });
 
   const allowedOrigins = corsOrigins(services.config);

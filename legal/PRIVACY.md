@@ -32,6 +32,7 @@ the party to contact first: it decides what is captured, how long it is kept and
 | Review records      | Who approved or corrected what, before and after values                                                  | Accountability, quality                   |
 | Destination data    | The rows written to a spreadsheet or database you configured                                             | Delivering the export you asked for       |
 | Audit trail         | Actor, action, target, timestamp, hashed IP                                                              | Security and legal accountability         |
+| Acceptance record   | Which version of the terms an account accepted, and when                                                 | Proving the contract exists (DEC-032)     |
 | Optional cloud AI   | Document content sent to a provider **only if your organisation turns it on**                            | Higher-accuracy extraction                |
 
 We do **not** use cookies or advertising trackers in the API, do not sell personal data, and do not

@@ -193,7 +193,8 @@ export class AuditRepository {
       clauses.push('created_at <= ?');
       params.push(filters.to);
     }
-    params.push(Math.min(filters.limit ?? 100, 500));
+    // 500 is the page size the UI asks for; the CSV export asks for more, up to 5,000.
+    params.push(Math.min(filters.limit ?? 100, 5_000));
     return this.db.query<AuditLogRow>(
       `SELECT * FROM audit_logs WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT ?`,
       params,

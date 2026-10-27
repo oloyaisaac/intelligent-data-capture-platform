@@ -6,6 +6,15 @@
 /** Version of the Universal Data Model. Bump the major on breaking changes. */
 export const UDM_VERSION = '1.0';
 
+/**
+ * Version of the legal pack in `legal/` (privacy policy, terms, DPA).
+ *
+ * Stored against every account that accepts the terms, so a contract can be proved years later and a
+ * material change can be re-presented: bump this string in the same commit that changes the documents.
+ * `legal/README.md` records the rule.
+ */
+export const LEGAL_VERSION = '2026-10';
+
 /** Roles, ordered from most to least privileged. */
 export const ROLES = ['owner', 'admin', 'reviewer', 'operator', 'viewer'] as const;
 export type Role = (typeof ROLES)[number];
@@ -120,6 +129,8 @@ export const ERROR_CODES = {
   PAYLOAD_TOO_LARGE: 413,
   UNSUPPORTED_MEDIA_TYPE: 415,
   UNPROCESSABLE: 422,
+  /** A six-digit code or recovery code that is well-formed but wrong or expired (DEC-034). */
+  INVALID_CODE: 422,
   PAIRING_TOKEN_EXPIRED: 422,
   PAIRING_TOKEN_USED: 422,
   RATE_LIMITED: 429,
@@ -130,32 +141,56 @@ export type ErrorCode = keyof typeof ERROR_CODES;
 
 /** Audit actions. Always `<entity>.<verb>` so logs are easy to filter. */
 export const AUDIT_ACTIONS = [
+  'api_key.created',
+  'api_key.revoked',
   'auth.login',
   'auth.login_failed',
+  'auth.mfa_disabled',
+  'auth.mfa_enabled',
+  'auth.mfa_recovery_regenerated',
+  'auth.mfa_recovery_used',
   'auth.logout',
+  'auth.password_changed',
+  'auth.password_reset',
+  'auth.password_reset_requested',
   'auth.register',
-  'device.paired',
-  'device.revoked',
-  'device.renamed',
-  'document.uploaded',
-  'document.viewed',
-  'document.deleted',
-  'document.reprocessed',
-  'document.approved',
-  'document.rejected',
-  'document.field_corrected',
-  'export.created',
-  'export.downloaded',
+  'auth.session_revoked',
+  'auth.sessions_revoked_all',
+  'audit.exported',
+  'batch.created',
   'connector.created',
-  'connector.updated',
   'connector.deleted',
   'connector.run',
+  'connector.updated',
+  'device.paired',
+  'device.renamed',
+  'device.revoked',
+  'document.approved',
+  'document.deleted',
+  'document.field_corrected',
+  'document.rejected',
+  'document.reprocessed',
+  'document.uploaded',
+  'document.viewed',
+  'export.created',
+  'export.downloaded',
+  'legal.terms_accepted',
   'mapping.created',
-  'mapping.updated',
+  'marketplace.package_installed',
+  'marketplace.package_rolled_back',
   'organisation.updated',
-  'user.invited',
-  'user.role_changed',
-  'user.removed',
+  'privacy.account_erased',
+  'project.archived',
+  'project.created',
   'retention.purged',
+  'review.corrections_exported',
+  'template.created',
+  'template.disabled',
+  'user.invitation_accepted',
+  'user.invited',
+  'user.removed',
+  'user.role_changed',
+  'workflow.created',
+  'workflow.run_approved',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
