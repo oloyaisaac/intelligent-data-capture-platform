@@ -24,6 +24,8 @@ import { ApiKeyService } from './api-key-service';
 import { MarketplaceService } from './marketplace-service';
 import { WorkflowService } from './workflow-service';
 import { Worker } from './worker';
+import { PrivacyService } from './privacy-service';
+import { MaintenanceService } from './maintenance-service';
 
 export interface Services {
   config: Config;
@@ -50,6 +52,8 @@ export interface Services {
   marketplace: MarketplaceService;
   workflows: WorkflowService;
   worker: Worker;
+  privacy: PrivacyService;
+  maintenance: MaintenanceService;
   authLimiter: AttemptLimiter;
   pairingLimiter: AttemptLimiter;
 }
@@ -94,6 +98,8 @@ export function buildServices(options: BuildServicesOptions): Services {
   const templates = new TemplateService(db, logger);
   const apiKeys = new ApiKeyService(db, logger);
   const worker = new Worker(db, config, storage, provider, hub, documents, logger, templates);
+  const privacy = new PrivacyService(db, storage, hasher, logger);
+  const maintenance = new MaintenanceService(db, config, storage, logger);
 
   return {
     config,
@@ -120,6 +126,8 @@ export function buildServices(options: BuildServicesOptions): Services {
     marketplace,
     workflows,
     worker,
+    privacy,
+    maintenance,
     authLimiter: new AttemptLimiter(
       config.RATE_LIMIT_AUTH_PER_15_MIN,
       15 * 60 * 1000,

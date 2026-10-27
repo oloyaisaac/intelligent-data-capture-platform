@@ -5,21 +5,24 @@
 
 ---
 
-**Last updated:** 2026-10-26
-**Updated by:** Arena agent session (documentation truth-up: `.env.example`, DEC-013/DEC-029, runtime docs)
-**Branch:** `arena/423769cc-intelligent-data-capture-platf`
+**Last updated:** 2026-10-27
+**Updated by:** Arena agent session (hardening pass: legal pack, account recovery, privacy rights, scheduled housekeeping)
+**Branch:** `arena/19ee7491-intelligent-data-capture-platf`
 **Phase:** M1 and M2 complete; Phase 3 in progress
 
 ## Current task
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
 `npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
-346 tests in 22 suites).
+legal pack contract, 376 tests in 26 suites).
 
-The last round was documentation, not features: `PRD.json` stopped drifting from the code a while
-ago, so this time the prose and `.env.example` were checked against a real `migrate → seed → dev`
-run and corrected. `apps/backend/test/config.test.ts` now fails if `.env.example` and
-`ConfigSchema` disagree in either direction, which is the guard that would have caught the broken file.
+The last round was a hardening pass, prompted by "would a customer actually be able to use this?" It
+was feature-complete but not deployable as a business: no privacy policy or terms, no password
+recovery, no way to sign out of a lost device, no data-subject export or erasure, and nothing that
+enforced the retention periods `SECURITY.md` promised. All of that now exists — `legal/`,
+`DEC-030` (password reset), `DEC-031` (maintenance scheduler), `GET /me/export`, `POST /me/erase`,
+security headers and an access log — and `AUDIT-2026-10.md` records what was found, what changed and
+the residual risk with an owner for each item. Read that file before promising anything to a buyer.
 
 **All 45 stories are `done`.** The product described by `PRD.json` is built; the remaining work is the
 deliberate release-side gaps listed below.
@@ -44,8 +47,8 @@ used to strand its document in `processing` forever, because nothing ever moved 
 | --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Shared contracts, UDM, money/dates/CSV/dedupe/i18n/review rules | `packages/shared`                      | 49 tests. `mergeRecord` reports every value it refuses to overwrite. Node-only helpers live at `@idcp/shared/ids`.                                          |
 | Connector SDK + CSV, SQLite, PostgreSQL, MySQL, Google Sheets   | `packages/connectors`                  | 29 tests. `update()` is implemented for SQLite/PostgreSQL/MySQL (transactional, identifier-validated).                                                      |
-| Backend API (Fastify 5)                                         | `apps/backend`                         | 170 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
-| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 55 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
+| Backend API (Fastify 5)                                         | `apps/backend`                         | 195 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
+| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 60 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
 | Mobile (React Native 0.86)                                      | `apps/mobile`                          | 43 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                                                |
 | CI, PRD + API contracts, generators                             | `.github/workflows/ci.yml`, `scripts/` | `validate-prd.mjs`, `validate-openapi.mjs`, `generate-udm-schema.mjs`, `validate-packaging.mjs`, plus `config.test.ts` guarding `.env.example`.             |
 

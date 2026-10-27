@@ -27,6 +27,7 @@ import { DocumentsPage } from '../src/pages/DocumentsPage';
 import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { ReviewPage } from '../src/pages/ReviewPage';
 import { SettingsPage } from '../src/pages/SettingsPage';
+import { AccountPage } from '../src/pages/AccountPage';
 import { MarketplacePage, permissionLabel } from '../src/marketplace/MarketplacePage';
 import { LocaleProvider, applyDocumentLocale, useTranslator } from '../src/lib/locale';
 import { documentTypeLabel, roleLabel, statusLabel } from '../src/lib/labels';
@@ -1236,5 +1237,139 @@ describe('localisation sweep (I18N-001)', () => {
     }
     render(<Probe />);
     expect(screen.getByText('Documents')).toBeTruthy();
+  });
+});
+
+describe('account page: password, sessions and privacy', () => {
+  afterEach(cleanup);
+
+  const session = (
+    id: string,
+    overrides: Partial<{ userAgent: string | null; current: boolean }> = {},
+  ) => ({
+    id,
+    createdAt: '2026-10-27T08:00:00.000Z',
+    expiresAt: '2026-11-26T08:00:00.000Z',
+    userAgent: overrides.userAgent ?? 'Firefox on Linux',
+    current: overrides.current ?? false,
+  });
+
+  function accountClient(overrides: Partial<ApiClient> = {}): ApiClient {
+    const client = {
+      sessions: async () => [
+        session('s-1', { userAgent: 'Firefox on Linux', current: true }),
+        session('s-2', { userAgent: 'Pixel 8' }),
+      ],
+      changePassword: jest.fn(async () => ({ revokedSessions: 2 })),
+      revokeSession: jest.fn(async () => undefined),
+      logoutAll: jest.fn(async () => ({ revokedSessions: 2 })),
+      exportMyData: jest.fn(async () => ({
+        generatedAt: '2026-10-27T08:30:00.000Z',
+        formatVersion: 1,
+        account: {
+          id: 'user-1',
+          email: 'owner@example.com',
+          displayName: 'Owner',
+          locale: 'en',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          lastLoginAt: null,
+        },
+        organisations: [],
+        documents: [],
+        reviews: [],
+        auditEntries: [],
+        notes: [],
+      })),
+      eraseAccount: jest.fn(async () => ({
+        erased: true,
+        anonymisedAt: '2026-10-27T08:35:00.000Z',
+        retainedRecords: 'Approved records',
+      })),
+      ...overrides,
+    };
+    return client as unknown as ApiClient;
+  }
+
+  beforeEach(() => {
+    // jsdom has neither, and a real download is not what is under test here.
+    URL.createObjectURL = jest.fn(() => 'blob:my-data');
+    URL.revokeObjectURL = jest.fn();
+  });
+
+  it('lists the sessions and marks the one the app is using', async () => {
+    render(<AccountPage client={accountClient()} onSessionEnded={() => undefined} />);
+
+    expect(await screen.findAllByTestId('session-row')).toHaveLength(2);
+    expect(screen.getByText('Firefox on Linux')).toBeTruthy();
+    expect(screen.getByText('Pixel 8')).toBeTruthy();
+    expect(screen.getAllByText(/This device/).length).toBeGreaterThan(0);
+  });
+
+  it('signs out everywhere and hands the shell back to the sign-in screen', async () => {
+    const client = accountClient();
+    const onSessionEnded = jest.fn();
+    render(<AccountPage client={client} onSessionEnded={onSessionEnded} />);
+    await screen.findAllByTestId('session-row');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out everywhere' }));
+
+    await waitFor(() => expect(client.logoutAll).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onSessionEnded).toHaveBeenCalledTimes(1));
+  });
+
+  it('changes the password and says how many other sign-ins were ended', async () => {
+    const client = accountClient();
+    render(<AccountPage client={client} onSessionEnded={() => undefined} />);
+    await screen.findAllByTestId('session-row');
+
+    fireEvent.change(screen.getByLabelText('Current password'), {
+      target: { value: 'correct horse battery staple' },
+    });
+    fireEvent.change(screen.getByLabelText(/^New password/), {
+      target: { value: 'a brand new passphrase' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+
+    await waitFor(() => expect(client.changePassword).toHaveBeenCalledTimes(1));
+    expect((await screen.findByRole('status')).textContent).toContain('2 other sign-in');
+  });
+
+  it('downloads the data export as a dated json file', async () => {
+    const client = accountClient();
+    render(<AccountPage client={client} onSessionEnded={() => undefined} />);
+    await screen.findAllByTestId('session-row');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download my data' }));
+
+    await waitFor(() => expect(client.exportMyData).toHaveBeenCalledTimes(1));
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect((await screen.findByRole('status')).textContent).toContain('downloaded');
+  });
+
+  it('will not erase until DELETE is typed, then ends the session', async () => {
+    const client = accountClient();
+    const onSessionEnded = jest.fn();
+    render(<AccountPage client={client} onSessionEnded={onSessionEnded} />);
+    await screen.findAllByTestId('session-row');
+
+    const button = screen.getByRole('button', { name: 'Erase permanently' }) as HTMLButtonElement;
+    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), {
+      target: { value: 'delete' },
+    });
+    fireEvent.change(screen.getByLabelText(/^Password/), {
+      target: { value: 'secret passphrase' },
+    });
+    expect(button.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), {
+      target: { value: 'DELETE' },
+    });
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(client.eraseAccount).toHaveBeenCalledWith({ password: 'secret passphrase' }),
+    );
+    await waitFor(() => expect(onSessionEnded).toHaveBeenCalledTimes(1));
   });
 });

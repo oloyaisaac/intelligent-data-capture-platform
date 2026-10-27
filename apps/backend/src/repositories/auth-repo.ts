@@ -2,7 +2,13 @@ import type { Role } from '@idcp/shared';
 import { newId } from '@idcp/shared/ids';
 import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
-import type { MembershipRow, OrganisationRow, SessionRow, UserRow } from './types';
+import type {
+  MembershipRow,
+  OrganisationRow,
+  PasswordResetRow,
+  SessionRow,
+  UserRow,
+} from './types';
 
 export class OrganisationsRepository {
   constructor(private readonly db: Database) {}
@@ -132,6 +138,94 @@ export class UsersRepository {
       nowIso(),
       id,
     ]);
+  }
+
+  /**
+   * Erase the personal data on an account while keeping the row, so the audit trail and any
+   * organisation records that reference it stay intact (privacy policy §7, GDPR art. 17(3)).
+   * The address is replaced with a unique, undeliverable placeholder: re-registering the old
+   * address later must work.
+   */
+  async anonymise(id: string): Promise<void> {
+    await this.db.execute(
+      `UPDATE users
+          SET email = ?, display_name = ?, password_hash = NULL, disabled_at = ?, updated_at = ?
+        WHERE id = ?`,
+      [`deleted-${id}@erased.invalid`, 'Erased account', nowIso(), nowIso(), id],
+    );
+  }
+}
+
+/** Single-use, hashed password-reset tokens (DEC-030). */
+export class PasswordResetsRepository {
+  constructor(private readonly db: Database) {}
+
+  async create(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: string;
+  }): Promise<PasswordResetRow> {
+    const row: PasswordResetRow = {
+      id: newId(),
+      user_id: input.userId,
+      token_hash: input.tokenHash,
+      expires_at: input.expiresAt,
+      used_at: null,
+      created_at: nowIso(),
+    };
+    await this.db.execute(
+      `INSERT INTO password_resets (id, user_id, token_hash, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [row.id, row.user_id, row.token_hash, row.expires_at, row.created_at],
+    );
+    return row;
+  }
+
+  findByTokenHash(tokenHash: string): Promise<PasswordResetRow | null> {
+    return this.db.one<PasswordResetRow>('SELECT * FROM password_resets WHERE token_hash = ?', [
+      tokenHash,
+    ]);
+  }
+
+  /**
+   * Mark a token used. Returns false when another request already consumed it, which is what makes
+   * the reset single-use even under two concurrent submissions.
+   */
+  async markUsed(id: string): Promise<boolean> {
+    const before = await this.db.one<{ used_at: string | null }>(
+      'SELECT used_at FROM password_resets WHERE id = ?',
+      [id],
+    );
+    if (!before || before.used_at) return false;
+    await this.db.execute(
+      'UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL',
+      [nowIso(), id],
+    );
+    const after = await this.db.one<{ used_at: string | null }>(
+      'SELECT used_at FROM password_resets WHERE id = ?',
+      [id],
+    );
+    return Boolean(after?.used_at);
+  }
+
+  /** Invalidate every outstanding token for a person (a new request or a completed reset). */
+  async invalidateOutstanding(userId: string): Promise<void> {
+    await this.db.execute(
+      'UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL',
+      [nowIso(), userId],
+    );
+  }
+
+  async deleteUsedBefore(cutoff: string): Promise<number> {
+    const rows = await this.db.query<{ id: string }>(
+      'SELECT id FROM password_resets WHERE used_at IS NOT NULL AND used_at < ?',
+      [cutoff],
+    );
+    if (rows.length === 0) return 0;
+    await this.db.execute('DELETE FROM password_resets WHERE used_at IS NOT NULL AND used_at < ?', [
+      cutoff,
+    ]);
+    return rows.length;
   }
 }
 
@@ -280,10 +374,48 @@ export class SessionsRepository {
     );
   }
 
-  async revokeAllForUser(userId: string): Promise<void> {
-    await this.db.execute(
-      'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL',
-      [nowIso(), userId],
+  async revokeAllForUser(userId: string, exceptId?: string): Promise<number> {
+    const rows = await this.db.query<{ id: string }>(
+      exceptId
+        ? 'SELECT id FROM sessions WHERE user_id = ? AND revoked_at IS NULL AND id <> ?'
+        : 'SELECT id FROM sessions WHERE user_id = ? AND revoked_at IS NULL',
+      exceptId ? [userId, exceptId] : [userId],
     );
+    if (rows.length === 0) return 0;
+    await this.db.execute(
+      exceptId
+        ? 'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND id <> ?'
+        : 'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL',
+      exceptId ? [nowIso(), userId, exceptId] : [nowIso(), userId],
+    );
+    return rows.length;
+  }
+
+  /** Live sessions for the account screen: newest first, revoked and expired rows omitted. */
+  listForUser(userId: string, now: string = nowIso()): Promise<SessionRow[]> {
+    return this.db.query<SessionRow>(
+      `SELECT * FROM sessions
+        WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?
+        ORDER BY created_at DESC`,
+      [userId, now],
+    );
+  }
+
+  findByIdForUser(userId: string, id: string): Promise<SessionRow | null> {
+    return this.db.one<SessionRow>('SELECT * FROM sessions WHERE id = ? AND user_id = ?', [
+      id,
+      userId,
+    ]);
+  }
+
+  /** Housekeeping: drop sessions that expired long ago (they can never be used again). */
+  async deleteExpiredBefore(cutoff: string): Promise<number> {
+    const rows = await this.db.query<{ id: string }>(
+      'SELECT id FROM sessions WHERE expires_at < ?',
+      [cutoff],
+    );
+    if (rows.length === 0) return 0;
+    await this.db.execute('DELETE FROM sessions WHERE expires_at < ?', [cutoff]);
+    return rows.length;
   }
 }

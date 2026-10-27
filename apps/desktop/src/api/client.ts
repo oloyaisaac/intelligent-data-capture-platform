@@ -14,8 +14,10 @@ import type {
   CreateTemplateRequest,
   CorrectionStatsResponse,
   CreatedApiKey,
+  DataExport,
   Device,
   DuplicateCheckResponse,
+  EraseAccountResponse,
   DocumentListResponse,
   DocumentResultResponse,
   DocumentSummary,
@@ -29,6 +31,7 @@ import type {
   Project,
   ReviewQueueResponse,
   ReviewSession,
+  Session,
   StatsResponse,
   Template,
   TemplateDetail,
@@ -127,6 +130,8 @@ interface RequestOptions {
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly storage: TokenStorage;
+  /** Session id of the current token pair; used to mark the caller's row in the session list. */
+  private sessionId: string | null = null;
   private readonly fetchImpl: typeof fetch;
   private accessToken: string | null = null;
 
@@ -234,12 +239,14 @@ export class ApiClient {
     }
     const pair = (await response.json()) as TokenPair;
     this.accessToken = pair.accessToken;
+    this.sessionId = pair.sessionId;
     await this.storage.write({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
     return pair.accessToken;
   }
 
   private async clearSession(): Promise<void> {
     this.accessToken = null;
+    this.sessionId = null;
     await this.storage.write({ accessToken: null, refreshToken: null });
   }
 
@@ -261,6 +268,7 @@ export class ApiClient {
       anonymous: true,
     });
     this.accessToken = pair.accessToken;
+    this.sessionId = pair.sessionId;
     await this.storage.write({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
     return pair.user;
   }
@@ -268,6 +276,7 @@ export class ApiClient {
   /** Stores a token pair obtained outside `login` (accepting an invitation). */
   async adoptSession(pair: TokenPair): Promise<UserSummary> {
     this.accessToken = pair.accessToken;
+    this.sessionId = pair.sessionId;
     await this.storage.write({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
     return pair.user;
   }
@@ -284,6 +293,7 @@ export class ApiClient {
       anonymous: true,
     });
     this.accessToken = pair.accessToken;
+    this.sessionId = pair.sessionId;
     await this.storage.write({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
     return pair.user;
   }
@@ -302,6 +312,71 @@ export class ApiClient {
 
   me(): Promise<UserSummary> {
     return this.request<UserSummary>('/auth/me');
+  }
+
+  // --- Account recovery, sessions and privacy ------------------------------
+
+  /** Always resolves; the API never says whether the address exists (privacy policy §7). */
+  forgotPassword(email: string): Promise<{ accepted: true; resetUrl?: string }> {
+    return this.request('/auth/password/forgot', {
+      method: 'POST',
+      body: { email },
+      anonymous: true,
+    });
+  }
+
+  resetPassword(input: { token: string; password: string }): Promise<void> {
+    return this.request('/auth/password/reset', {
+      method: 'POST',
+      body: input,
+      anonymous: true,
+    });
+  }
+
+  async changePassword(input: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<{ revokedSessions: number }> {
+    const { refreshToken } = await this.storage.read();
+    return this.request('/auth/password/change', {
+      method: 'POST',
+      body: { ...input, refreshToken },
+    });
+  }
+
+  async sessions(): Promise<Session[]> {
+    // The session id is not a secret and is not persisted: after a restart the list simply does not
+    // mark a row as "this device", which is the honest answer.
+    const response = await this.request<{ items: Session[] }>(
+      `/auth/sessions${this.sessionId ? `?current=${encodeURIComponent(this.sessionId)}` : ''}`,
+    );
+    return response.items;
+  }
+
+  revokeSession(id: string): Promise<void> {
+    return this.request(`/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  async logoutAll(): Promise<{ revokedSessions: number }> {
+    const result = await this.request<{ revokedSessions: number }>('/auth/logout-all', {
+      method: 'POST',
+      body: {},
+    });
+    await this.clearSession();
+    return result;
+  }
+
+  exportMyData(): Promise<DataExport> {
+    return this.request('/me/export');
+  }
+
+  async eraseAccount(input: { password: string }): Promise<EraseAccountResponse> {
+    const result = await this.request<EraseAccountResponse>('/me/erase', {
+      method: 'POST',
+      body: { password: input.password, confirm: 'DELETE' },
+    });
+    await this.clearSession();
+    return result;
   }
 
   // --- Pairing ------------------------------------------------------------

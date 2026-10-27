@@ -45,6 +45,10 @@ jobs:
       - name: OpenAPI contract
         run: npm run test:api
 
+      # The privacy policy, terms and DPA are published by the API, so they are checked like code.
+      - name: Legal pack
+        run: npm run test:legal
+
       - name: Tests
         run: npm test -- --ci --reporters=default
 

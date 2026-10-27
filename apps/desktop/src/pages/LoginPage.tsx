@@ -3,11 +3,20 @@ import { ApiError, type ApiClient } from '../api/client';
 import { ErrorBanner, Field } from '../components/ui';
 import { useTranslator } from '../lib/locale';
 
+/** Reads a reset token from `#/reset-password?token=…`, which is what the API hands out. */
+function resetTokenFromHash(hash: string): string | null {
+  const query = hash.split('?')[1] ?? '';
+  return new URLSearchParams(query).get('token');
+}
+
 /**
- * Sign in / create the first account.
+ * Sign in, create the first account, or recover a password.
  *
  * The password rule is stated before submitting (12+ characters) rather than after a rejection,
  * and server errors are surfaced verbatim because they are already written for people.
+ *
+ * Recovery is honest about this deployment: the API sends no email, so outside production the
+ * reset link is shown on screen instead of pretending a message went out.
  */
 export function LoginPage({
   client,
@@ -16,12 +25,19 @@ export function LoginPage({
   client: ApiClient;
   onSignedIn: () => void;
 }): React.JSX.Element {
-  const [mode, setMode] = useState<'signin' | 'register'>('signin');
+  const initialHash = typeof window === 'undefined' ? '' : window.location.hash;
+  const hashToken = resetTokenFromHash(initialHash);
+  const [mode, setMode] = useState<'signin' | 'register' | 'forgot' | 'reset'>(
+    hashToken ? 'reset' : 'signin',
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [organisationName, setOrganisationName] = useState('');
+  const [token, setToken] = useState(hashToken ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [devResetUrl, setDevResetUrl] = useState<string | null>(null);
   const t = useTranslator();
   const [busy, setBusy] = useState(false);
 
@@ -30,18 +46,33 @@ export function LoginPage({
     if (busy) return;
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       if (mode === 'signin') {
         await client.login({ email: email.trim(), password });
-      } else {
+        onSignedIn();
+      } else if (mode === 'register') {
         await client.register({
           email: email.trim(),
           password,
           displayName: displayName.trim() || email.split('@')[0] || 'Owner',
           organisationName: organisationName.trim(),
         });
+        onSignedIn();
+      } else if (mode === 'forgot') {
+        const result = await client.forgotPassword(email.trim());
+        setNotice(t('login.resetSent'));
+        if (result.resetUrl) {
+          const issued = resetTokenFromHash(result.resetUrl);
+          setDevResetUrl(result.resetUrl);
+          if (issued) setToken(issued);
+        }
+      } else {
+        await client.resetPassword({ token: token.trim(), password });
+        setNotice(t('login.resetDone'));
+        setPassword('');
+        setMode('signin');
       }
-      onSignedIn();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : t('login.networkError'));
     } finally {
@@ -62,7 +93,10 @@ export function LoginPage({
           </div>
           <div>
             <h1 className="login-title">
-              {mode === 'signin' ? t('login.title') : t('login.registerTitle')}
+              {mode === 'signin' && t('login.title')}
+              {mode === 'register' && t('login.registerTitle')}
+              {mode === 'forgot' && t('login.forgotTitle')}
+              {mode === 'reset' && t('login.resetTitle')}
             </h1>
             <p className="muted" style={{ margin: 0 }}>
               {t('app.tagline')}
@@ -71,32 +105,64 @@ export function LoginPage({
         </div>
 
         <ErrorBanner message={error} />
+        {notice && (
+          <div className="muted" role="status" data-testid="login-notice">
+            {notice}
+          </div>
+        )}
+        {devResetUrl && (
+          <div className="muted" style={{ wordBreak: 'break-all' }}>
+            {t('login.devResetLink')}{' '}
+            <a href={devResetUrl} data-testid="dev-reset-link">
+              {devResetUrl}
+            </a>
+          </div>
+        )}
 
-        <Field label={t('auth.email')}>
-          <input
-            className="input"
-            type="email"
-            value={email}
-            autoComplete="email"
-            required
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </Field>
+        {mode !== 'reset' && (
+          <Field
+            label={t('auth.email')}
+            hint={mode === 'forgot' ? t('login.forgotHint') : undefined}
+          >
+            <input
+              className="input"
+              type="email"
+              value={email}
+              autoComplete="email"
+              required
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </Field>
+        )}
 
-        <Field
-          label={t('auth.password')}
-          hint={mode === 'register' ? t('auth.passwordHint') : undefined}
-        >
-          <input
-            className="input"
-            type="password"
-            value={password}
-            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-            minLength={mode === 'register' ? 12 : undefined}
-            required
-            onChange={(event) => setPassword(event.target.value)}
-          />
-        </Field>
+        {mode === 'reset' && (
+          <Field label={t('login.resetCode')}>
+            <input
+              className="input"
+              value={token}
+              required
+              autoComplete="one-time-code"
+              onChange={(event) => setToken(event.target.value)}
+            />
+          </Field>
+        )}
+
+        {mode !== 'forgot' && (
+          <Field
+            label={mode === 'reset' ? t('account.newPassword') : t('auth.password')}
+            hint={mode === 'signin' ? undefined : t('auth.passwordHint')}
+          >
+            <input
+              className="input"
+              type="password"
+              value={password}
+              autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+              minLength={mode === 'signin' ? undefined : 12}
+              required
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </Field>
+        )}
 
         {mode === 'register' && (
           <>
@@ -120,13 +186,35 @@ export function LoginPage({
           </>
         )}
 
-        <button className="button" type="submit" disabled={busy || !email || !password}>
+        <button
+          className="button"
+          type="submit"
+          disabled={busy || (mode !== 'reset' && !email) || (mode !== 'forgot' && !password)}
+        >
           {busy
             ? t('login.pleaseWait')
             : mode === 'signin'
               ? t('action.signIn')
-              : t('action.register')}
+              : mode === 'register'
+                ? t('action.register')
+                : mode === 'forgot'
+                  ? t('login.sendResetLink')
+                  : t('login.setNewPassword')}
         </button>
+
+        {mode === 'signin' && (
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              setMode('forgot');
+              setError(null);
+              setNotice(null);
+            }}
+          >
+            {t('login.forgotPassword')}
+          </button>
+        )}
 
         <button
           type="button"
@@ -134,9 +222,15 @@ export function LoginPage({
           onClick={() => {
             setMode(mode === 'signin' ? 'register' : 'signin');
             setError(null);
+            setNotice(null);
+            setDevResetUrl(null);
           }}
         >
-          {mode === 'signin' ? t('login.switchToRegister') : t('login.switchToSignin')}
+          {mode === 'signin'
+            ? t('login.switchToRegister')
+            : mode === 'register'
+              ? t('login.switchToSignin')
+              : t('login.backToSignIn')}
         </button>
       </form>
     </div>

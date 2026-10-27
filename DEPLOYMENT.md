@@ -196,18 +196,22 @@ no longer exist.
 Ordered by what would hurt first. Everything here is deliberate and listed in `AGENT_STATE.md`;
 none of it is a bug the code hides.
 
-| Gap                                                             | Consequence today                                                                                                                               | Fix                                                                      |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| No `Dockerfile`, image build, deploy job or IaC                 | Releases are manual on one host (§3)                                                                                                            | Add an image build + publish step, then the pipeline above               |
-| No backup or restore script                                     | Losing the host loses the database **and** the documents; the operator must schedule `VACUUM INTO` themselves (§5)                              | Ship `npm run db:backup` + a restore test                                |
-| No metrics endpoint or alerting                                 | Only logs and the health check; "queue depth" and "p95 latency" are not measured                                                                | `/metrics` for queue depth, job outcomes, extraction latency             |
-| No access log                                                   | Requests are not logged (only the audit trail for privileged actions)                                                                           | `onResponse` hook with method, path, status, duration, request id        |
-| Rate limiting is in-process memory                              | Resets on restart and does not cover a second instance; `trustProxy` is on, so `X-Forwarded-For` is only trustworthy behind a proxy you control | Shared limiter when a queue/cache exists; make `trustProxy` configurable |
-| No security headers (no helmet)                                 | No `HSTS`, `X-Frame-Options` or `Referrer-Policy`; `X-Content-Type-Options: nosniff` is per-download                                            | Add a headers hook plus a test                                           |
-| Automation absent for retention, expired exports, dead sessions | Retention runs only when an admin posts `/retention/purge`; expired exports stay on disk; `sessions`/`pairing_sessions` rows accumulate         | A daily scheduled job in the worker                                      |
-| No dependency vulnerability scan in CI                          | `npm audit` reports 8 advisories (1 critical via `shell-quote`, `zod` and `image-size` high) but CI does not fail on them                       | Audit job once the upgrades land; `zod` needs a v3 → v4 migration        |
-| Signed installers not built                                     | Desktop/mobile distribution is manual (§7)                                                                                                      | Release workflow per platform (DEC-022)                                  |
-| No browser or device e2e                                        | Integration tests cover the API, nothing covers a real click path                                                                               | Playwright (desktop), Detox or Maestro (mobile)                          |
+| Gap                                             | Consequence today                                                                                                                                                      | Fix                                                                      |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| No `Dockerfile`, image build, deploy job or IaC | Releases are manual on one host (§3)                                                                                                                                   | Add an image build + publish step, then the pipeline above               |
+| No backup or restore script                     | Losing the host loses the database **and** the documents; the operator must schedule `VACUUM INTO` themselves (§5)                                                     | Ship `npm run db:backup` + a restore test                                |
+| No metrics endpoint or alerting                 | Only logs and the health check; "queue depth" and "p95 latency" are not measured                                                                                       | `/metrics` for queue depth, job outcomes, extraction latency             |
+| Rate limiting is in-process memory              | Resets on restart and does not cover a second instance; `trustProxy` is on, so `X-Forwarded-For` is only trustworthy behind a proxy you control                        | Shared limiter when a queue/cache exists; make `trustProxy` configurable |
+| No MFA                                          | A stolen password is a full session                                                                                                                                    | TOTP plus recovery codes, and an admin reset path                        |
+| Automation is in-process                        | `MaintenanceService` (DEC-031) sweeps retention, exports, sessions, reset tokens and pairing codes. With several replicas every replica sweeps — idempotent, redundant | Move behind a single elector before horizontal scaling (DEC-029)         |
+| No dependency vulnerability scan in CI          | `npm audit` reports 9 advisories (1 critical via `shell-quote`; `zod` and `image-size` high) but CI does not fail on them                                              | Audit job once the upgrades land; `zod` needs a v3 → v4 migration        |
+| Signed installers not built                     | Desktop/mobile distribution is manual (§7)                                                                                                                             | Release workflow per platform (DEC-022)                                  |
+| No browser or device e2e                        | Integration tests cover the API, nothing covers a real click path                                                                                                      | Playwright (desktop), Detox or Maestro (mobile)                          |
+
+Struck off this list in the October 2026 hardening pass: the access log (structured `onResponse`
+line), the security headers (`nosniff`, `DENY`, `no-referrer`, CSP, permissions policy, COOP/CORP,
+HSTS in production) and scheduled retention. `AUDIT-2026-10.md` records the reasoning and what is
+still open.
 
 ## 12. Go-live checklist (first production release)
 
@@ -221,6 +225,15 @@ none of it is a bug the code hides.
 - [ ] CI green; staging smoke test passed.
 - [ ] `SECURITY.md` §13 checklist complete.
 - [ ] Monitoring and alerts verified by triggering a test alert.
-- [ ] Privacy policy, terms and app-store disclosures published.
+- [ ] Privacy policy, terms and app-store disclosures published. Every `[PLACEHOLDER]` in `legal/`
+      replaced (`git grep -n "\[" legal/`), counsel's review recorded, and `npm run test:legal` green.
+- [ ] `LEGAL_DIR` points at a directory that actually ships with the deployment — `/legal` returns 404
+      for everything otherwise.
+- [ ] The controller registration required by Uganda's Data Protection and Privacy Act 2019 filed, and
+      the registration number put into `legal/PRIVACY.md`.
+- [ ] A named person owns the `[PRIVACY EMAIL]` mailbox and the 72-hour breach-notification duty.
+- [ ] Because this build sends no email, an operator procedure exists for delivering password-reset
+      links (`POST /auth/password/forgot` returns `resetUrl` outside production only — DEC-030).
+- [ ] Retention defaults checked against the customers' sector rules; `MAINTENANCE_ENABLED` left on.
 - [ ] Support contact and incident process agreed.
 - [ ] `PRD.json`, `CHANGELOG.md` and `AGENT_STATE.md` updated with the release.

@@ -7,6 +7,8 @@ import { corsOrigins } from '../config';
 import type { Services } from '../services/container';
 import { createGuards } from './guards';
 import { registerAuthRoutes } from './routes/auth-routes';
+import { registerPrivacyRoutes } from './routes/privacy-routes';
+import { registerLegalRoutes } from './routes/legal-routes';
 import { registerPairingRoutes } from './routes/pairing-routes';
 import { registerDocumentRoutes } from './routes/document-routes';
 import { registerReviewRoutes } from './routes/review-routes';
@@ -59,6 +61,44 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
     const incoming = request.headers['x-request-id'];
     const id = typeof incoming === 'string' && incoming.length <= 128 ? incoming : request.id;
     reply.header('x-request-id', id);
+    (request as { startedAt?: number }).startedAt = Date.now();
+  });
+
+  /**
+   * Security headers (SECURITY.md §7).
+   *
+   * The API answers JSON and, for the legal documents, plain text — nothing here needs to load a
+   * script, a style or a frame. So the policy is the strictest that still serves those responses.
+   * HSTS is only sent when TLS terminates in front of us (`NODE_ENV=production`), because sending it
+   * from a plain-HTTP development server would poison `localhost` for the browser.
+   */
+  app.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('x-frame-options', 'DENY');
+    reply.header('referrer-policy', 'no-referrer');
+    reply.header('cross-origin-opener-policy', 'same-origin');
+    reply.header('cross-origin-resource-policy', 'same-origin');
+    reply.header('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    reply.header('content-security-policy', "default-src 'none'; frame-ancestors 'none'");
+    if (services.config.NODE_ENV === 'production') {
+      reply.header('strict-transport-security', 'max-age=31536000; includeSubDomains');
+    }
+    return payload;
+  });
+
+  /**
+   * Access log. One line per request, no query string and no body: paths carry resource ids, and
+   * document content must never reach a log (SECURITY.md §3).
+   */
+  app.addHook('onResponse', async (request, reply) => {
+    const startedAt = (request as { startedAt?: number }).startedAt;
+    services.logger.info('http request', {
+      method: request.method,
+      path: request.url.split('?')[0],
+      status: reply.statusCode,
+      durationMs: startedAt ? Date.now() - startedAt : undefined,
+      requestId: request.id,
+    });
   });
 
   app.get('/api/v1/health', async (_request, reply) => {
@@ -175,6 +215,8 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
   await app.register(
     async (scope) => {
       registerAuthRoutes(scope, services, guards);
+      registerPrivacyRoutes(scope, services, guards);
+      registerLegalRoutes(scope, services);
       registerPairingRoutes(scope, services, guards);
       registerDocumentRoutes(scope, services, guards);
       registerReviewRoutes(scope, services, guards);

@@ -14,6 +14,7 @@ import { ConnectorsPage } from './pages/ConnectorsPage';
 import { TemplatesPage } from './pages/TemplatesPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { AccountPage } from './pages/AccountPage';
 import { MarketplacePage } from './marketplace/MarketplacePage';
 import { WorkflowsPage } from './workflows/WorkflowsPage';
 import { Badge } from './components/ui';
@@ -41,6 +42,7 @@ export type Route =
   | { name: 'marketplace' }
   | { name: 'workflows' }
   | { name: 'settings' }
+  | { name: 'account' }
   | { name: 'accept-invite'; token: string };
 
 export function parseRoute(hash: string): Route {
@@ -74,6 +76,8 @@ export function parseRoute(hash: string): Route {
       return { name: 'workflows' };
     case 'settings':
       return { name: 'settings' };
+    case 'account':
+      return { name: 'account' };
     default:
       return { name: 'dashboard' };
   }
@@ -108,7 +112,8 @@ const NAV: Array<{
     | 'nav.devices'
     | 'nav.marketplace'
     | 'nav.workflows'
-    | 'nav.settings';
+    | 'nav.settings'
+    | 'nav.account';
   sectionKey?: 'nav.configure';
 }> = [
   { route: { name: 'dashboard' }, labelKey: 'nav.overview' },
@@ -123,6 +128,7 @@ const NAV: Array<{
   { route: { name: 'marketplace' }, labelKey: 'nav.marketplace', sectionKey: 'nav.configure' },
   { route: { name: 'workflows' }, labelKey: 'nav.workflows', sectionKey: 'nav.configure' },
   { route: { name: 'settings' }, labelKey: 'nav.settings' },
+  { route: { name: 'account' }, labelKey: 'nav.account' },
 ];
 
 function createClient(onSessionExpired: () => void): ApiClient {
@@ -351,6 +357,9 @@ function AppShell({
               localeOptions={LOCALE_OPTIONS}
               onLocaleChange={onLocaleChange}
             />
+          )}
+          {route.name === 'account' && (
+            <AccountPage client={client} onSessionEnded={() => setUser(null)} />
           )}
         </div>
       </div>

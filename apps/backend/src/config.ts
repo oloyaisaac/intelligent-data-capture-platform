@@ -30,6 +30,8 @@ const ConfigSchema = z.object({
   ACCESS_TOKEN_TTL_SECONDS: IntFromString(900, 60, 86_400),
   REFRESH_TOKEN_TTL_SECONDS: IntFromString(30 * 24 * 60 * 60, 60, 365 * 24 * 60 * 60),
   PAIRING_TOKEN_TTL_SECONDS: IntFromString(120, 30, 600),
+  /** DEC-030: how long a password-reset link stays usable. */
+  PASSWORD_RESET_TTL_SECONDS: IntFromString(60 * 60, 300, 24 * 60 * 60),
 
   STORAGE_DRIVER: z.enum(['filesystem', 's3']).default('filesystem'),
   STORAGE_PATH: z.string().default('./local-storage/documents'),
@@ -50,12 +52,17 @@ const ConfigSchema = z.object({
   RATE_LIMIT_UPLOAD_PER_MIN: IntFromString(60, 1, 100_000),
 
   APP_ORIGIN: z.string().default('http://localhost:5173'),
+  /** Directory holding PRIVACY.md, TERMS.md, DPA.md … served by GET /api/v1/legal/:slug. */
+  LEGAL_DIR: z.string().default('./legal'),
   CORS_ORIGINS: z.string().default(''),
   EXPORTS_TTL_SECONDS: IntFromString(7 * 24 * 60 * 60, 60),
   /** TEAM-001: how long an invitation link stays usable. */
   INVITATION_TTL_SECONDS: IntFromString(7 * 24 * 60 * 60, 300, 30 * 24 * 60 * 60),
   WORKER_ENABLED: booleanish.default(true),
   WORKER_POLL_INTERVAL_MS: IntFromString(500, 50, 60_000),
+  /** Daily housekeeping: retention, expired exports, dead sessions (DEC-031). */
+  MAINTENANCE_ENABLED: booleanish.default(true),
+  MAINTENANCE_INTERVAL_MS: IntFromString(24 * 60 * 60 * 1000, 60_000),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

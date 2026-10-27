@@ -22,10 +22,13 @@ async function main(): Promise<void> {
   logger.info('api listening', { port: config.PORT, env: config.NODE_ENV, db: config.DB_DRIVER });
 
   if (config.WORKER_ENABLED) await services.worker.start();
+  // DEC-031: retention, expired exports and dead sessions need a clock, not a good intention.
+  services.maintenance.start();
 
   const shutdown = async (signal: string) => {
     logger.info('shutting down', { signal });
     try {
+      services.maintenance.stop();
       await services.worker.stop();
       await app.close();
       await db.close();

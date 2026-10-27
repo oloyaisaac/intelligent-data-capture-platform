@@ -29,10 +29,11 @@
     "test:prd": "node scripts/validate-prd.mjs",
     "db:migrate": "npm run db:migrate --workspace @idcp/backend",
     "db:seed": "npm run db:seed --workspace @idcp/backend",
-    "verify": "npm run typecheck && npm run lint && npm run test:prd && npm run test:api && npm run test:packaging && npm test",
+    "verify": "npm run typecheck && npm run lint && npm run test:prd && npm run test:api && npm run test:packaging && npm run test:legal && npm test",
     "test:api": "node scripts/validate-openapi.mjs && node scripts/generate-udm-schema.mjs --check",
     "schema:udm": "node scripts/generate-udm-schema.mjs",
-    "test:packaging": "node scripts/validate-packaging.mjs"
+    "test:packaging": "node scripts/validate-packaging.mjs",
+    "test:legal": "node scripts/validate-legal.mjs"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

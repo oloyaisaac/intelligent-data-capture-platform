@@ -104,11 +104,13 @@ two lists diverge or if the example does not start the server when copied verbat
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime       | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                                                                |
 | Database      | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                                                             |
-| Auth          | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`                                                 |
+| Auth          | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`, `PASSWORD_RESET_TTL_SECONDS`                   |
 | Storage       | `STORAGE_DRIVER`, `STORAGE_PATH`                                                                                                                                             |
 | AI            | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`, `AI_REVIEW_CONFIDENCE_THRESHOLD` |
 | Limits        | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_AUTH_PER_15_MIN`, `RATE_LIMIT_UPLOAD_PER_MIN`                                                           |
 | Exports, jobs | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                                                           |
+| Housekeeping  | `MAINTENANCE_ENABLED`, `MAINTENANCE_INTERVAL_MS` (DEC-031)                                                                                                                   |
+| Legal         | `LEGAL_DIR` (where `legal/*.md` is read from; default `./legal`)                                                                                                             |
 | Client builds | `IDCP_API_URL` (mobile), `IDCP_API_PROXY`, `IDCP_DEV_SERVER`, `IDCP_AUTO_UPDATE` (desktop)                                                                                   |
 
 Rules:
@@ -119,6 +121,13 @@ Rules:
   enforces it.
 - Invalid configuration fails fast at startup with an actionable message (`BACK-001`); for example
   `STORAGE_DRIVER=s3` is refused until the object-store adapter exists.
+
+`MAINTENANCE_INTERVAL_MS` (default 24 hours, minimum 60 s) is how often the in-process sweep runs —
+first 10 s after boot, then on that interval; set
+`MAINTENANCE_ENABLED=false` to turn it off (a test run or a read-only replica). Nothing is emailed by
+this build, so `POST /auth/password/forgot` returns the reset link in its response **outside
+production only** — in production the operator delivers it, and `PASSWORD_RESET_TTL_SECONDS`
+(default 1 hour) is how long the link lives.
 
 Invitation links are built from `APP_ORIGIN` (`<APP_ORIGIN>/#/accept-invite?token=…`), so set it to
 the URL people actually open, not the API's own address. `INVITATION_TTL_SECONDS` (default 7 days)

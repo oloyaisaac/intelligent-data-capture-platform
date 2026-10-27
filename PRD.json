@@ -940,11 +940,13 @@
       ],
       "verification": {
         "evidence": [
+          "apps/backend/src/services/maintenance-service.ts",
           "apps/backend/src/services/document-service.ts",
-          "apps/backend/src/http/routes/organisation-routes.ts"
+          "apps/backend/src/http/routes/organisation-routes.ts",
+          "apps/backend/test/maintenance.test.ts"
         ],
         "notVerified": [
-          "Nothing schedules the purge. `POST /api/v1/retention/purge` enqueues it and the worker executes it, but an installation nobody touches never purges, so retention only happens if an operator or an external cron calls the endpoint (DEPLOYMENT.md §11)."
+          "The scheduler is in-process, and every replica runs it (DEC-031). With one process that is exactly right; with several it is redundant rather than wrong, but it has to move behind a single elector before horizontal scaling (DEC-029)."
         ]
       }
     },
