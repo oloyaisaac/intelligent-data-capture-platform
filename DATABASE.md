@@ -527,7 +527,14 @@ The UDM record is persisted twice, deliberately:
 
 Invariant: the projection must always be derivable from `udm`. If they disagree, `udm` wins.
 
-Example UDM shape (illustrative, see `packages/shared` for the enforced schema):
+The schema itself is published: **`docs/udm-1.0.schema.json`** is a JSON Schema (2020-12) generated
+from the Zod definition in `packages/shared`, so anything that can validate JSON — an integrator, a
+connector test, an editor — can check a record without running TypeScript. It is regenerated with
+`npm run schema:udm` and CI fails if the committed file is stale (`npm run test:api`). `udmVersion`
+is `1.0`; a breaking change bumps the major and keeps the old schema file alongside the new one.
+
+Example UDM shape (illustrative — the enforced definition is the Zod schema, and the published file
+above is its JSON Schema projection):
 
 ```json
 {

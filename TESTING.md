@@ -70,6 +70,26 @@ Notes for anyone extending the suite:
 - The MySQL connector is validated (config, identifiers) but not executed: there is no MySQL server
   in this environment. Do not describe it as tested end to end until one exists.
 
+## 3.1 Acceptance evidence — and its limits
+
+`PRD.json` is the plan of record and every story is marked `done`, but not every acceptance
+criterion can be demonstrated by a test in this repository. Rather than leave that implied, the
+stories where a criterion is _asserted_ rather than _demonstrated_ carry a `verification` block, and
+`npm run test:prd` fails if such a block is empty. Eleven stories have one today:
+
+| Kind of criterion                     | Stories                                                                                                 | What is actually true                                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Performance target, not measured      | `PAIR-002` (5 s), `AI-001` (10 s/page), `EXPORT-001` (1,000 records / 30 s), `DASH-001` (90 days / 2 s) | Correctness is tested; no benchmark, load test or reference machine exists. The numbers are design targets.        |
+| Needs a build or a device             | `DESK-001`, `MOB-001`                                                                                   | The renderer and mobile modules are tested in Jest; no signed installer and no simulator/device run happens in CI. |
+| Needs an external service             | `CON-002` (Google Sheets), `AI-002` (labelled benchmark)                                                | No OAuth flow or token refresh exists, and there is no labelled corpus, so neither has been exercised.             |
+| Behaviour that depends on an operator | `SEC-001`                                                                                               | The purge works when triggered; nothing schedules it (`DEPLOYMENT.md` §11).                                        |
+| Migrations                            | `DB-001`                                                                                                | Forward-only: there is no down migration, so rollback is a restore.                                                |
+| No target locale ships                | `I18N-001`                                                                                              | RTL is proven by the direction helper and logical properties, not by an RTL catalogue.                             |
+
+Two rules follow. **Do not remove a `verification` block without making the claim true** — the block
+is how a reader knows what `done` means here. And **do not read `done` as "measured"**: if a story
+carries a performance target and no `verification` block, treat that as a bug in this document.
+
 ## 4. Manual test cases
 
 ### TC-01 — Device pairing (happy path) · `PAIR-001`, `PAIR-002`

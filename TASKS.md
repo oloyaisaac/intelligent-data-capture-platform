@@ -45,6 +45,15 @@ new features — `.env.example` was unusable, `DATABASE.md` claimed the schema w
 - [x] **VOICE-001** — offline capture guidance, consented spoken commands, per-run confirmations.
 - [x] **I18N-001** — one complete `en/sw/fr` catalogue, locale-aware formatting, logical-property RTL.
 
+## Now (product)
+
+Two acceptance criteria are unmet, both recorded as `verification` blocks in `PRD.json`:
+
+- [ ] **CON-002 OAuth**: consent flow + encrypted refresh token + refresh before a Sheets run. Until
+      then a Sheets destination works for about an hour per pasted token.
+- [ ] **SEC-001 schedule**: a daily tick that enqueues the retention purge (and deletes expired
+      exports), so retention does not depend on someone calling the endpoint.
+
 ## Now (operations)
 
 Deployment work, not product stories. The full table with consequences is `DEPLOYMENT.md` §11.

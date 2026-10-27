@@ -78,6 +78,27 @@ if (Number.isNaN(lastUpdated.getTime())) {
   fail('lastUpdated is in the future.');
 }
 
+// --- Schema reference ------------------------------------------------------
+
+if (prd.$schema && !/^https?:\/\//.test(prd.$schema)) {
+  const schemaPath = join(repoRoot, prd.$schema);
+  if (!existsSync(schemaPath)) {
+    fail(`$schema points at "${prd.$schema}", which does not exist in the repository.`);
+  } else {
+    try {
+      const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
+      if (!schema.$id && !schema.$schema) {
+        fail(`$schema "${prd.$schema}" is JSON but not a JSON Schema (no $id or $schema).`);
+      }
+      if (schema.title === undefined && schema.type === undefined) {
+        fail(`$schema "${prd.$schema}" describes nothing (no title, no type).`);
+      }
+    } catch (error) {
+      fail(`$schema "${prd.$schema}" is not valid JSON: ${error.message}`);
+    }
+  }
+}
+
 // --- Epics -----------------------------------------------------------------
 
 const epicIds = new Set();
@@ -186,6 +207,46 @@ for (const [index, story] of stories.entries()) {
     }
   }
 
+  // A `verification` block records what a reader should not assume about a done story. It is not
+  // optional decoration: an empty one is worse than none, so it is checked.
+  if (story.verification !== undefined) {
+    const block = story.verification;
+    if (typeof block !== 'object' || block === null || Array.isArray(block)) {
+      fail(`${where}: verification must be an object.`);
+    } else {
+      for (const key of Object.keys(block)) {
+        if (!['notVerified', 'evidence'].includes(key)) {
+          fail(`${where}: verification has an unknown key "${key}".`);
+        }
+      }
+      if (!Array.isArray(block.notVerified) || block.notVerified.length === 0) {
+        fail(`${where}: verification.notVerified must list at least one caveat.`);
+      } else {
+        block.notVerified.forEach((entry, entryIndex) => {
+          if (typeof entry !== 'string' || entry.trim().length < 10) {
+            fail(`${where}: verification.notVerified[${entryIndex}] is not a sentence.`);
+          }
+        });
+      }
+      if (block.evidence !== undefined) {
+        if (!Array.isArray(block.evidence) || block.evidence.length === 0) {
+          fail(`${where}: verification.evidence must be a non-empty array when present.`);
+        } else {
+          for (const path of block.evidence) {
+            if (typeof path !== 'string' || path.trim().length === 0) {
+              fail(`${where}: verification.evidence has an empty entry.`);
+              continue;
+            }
+            const target = join(repoRoot, path.split('#')[0]);
+            if (!existsSync(target)) {
+              warn(`${where}: verification.evidence "${path}" does not exist.`);
+            }
+          }
+        }
+      }
+    }
+  }
+
   // A story cannot be done while a prerequisite is untouched. A prerequisite that is still
   // in progress is a warning: the parts this story needs may already be in place.
   if (story.status === 'done') {
@@ -246,6 +307,10 @@ console.log(
   `  stories: ${stories.length} — done ${done}, in progress ${inProgress}, pending ${pending}`,
 );
 console.log(`  open questions: ${(prd.openQuestions ?? []).length}`);
+const withCaveats = stories.filter((story) => story.verification !== undefined).length;
+if (withCaveats > 0) {
+  console.log(`  done stories with recorded caveats: ${withCaveats}`);
+}
 
 for (const warning of warnings) console.warn(`  warning: ${warning}`);
 

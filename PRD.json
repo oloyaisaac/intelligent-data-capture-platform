@@ -17,8 +17,8 @@
   ],
   "platforms": ["Android", "iOS", "Windows", "macOS", "Linux", "Backend API"],
   "currentState": {
-    "phase": "Phase 3 — platform breadth",
-    "summary": "M1 and M2 are complete; the Phase 3 tail is largely done too — CRM/ERP/accounting connectors, a signed connector marketplace with permission disclosure and rollback, and automatic page detection on mobile. Remaining: workflow automation (AGENT-001), voice assistance (VOICE-001) and the desktop translation sweep (I18N-001).",
+    "phase": "Phase 3 — platform breadth (complete)",
+    "summary": "All 45 stories are implemented and tested: the API, desktop and mobile clients, the connector SDK, and the Phase 3 tail (CRM/ERP/accounting connectors, signed connector marketplace, workflows, voice assistance, full en/sw/fr localisation). What remains is release work rather than product work — signed installers, live-database connector runs, a scheduler, backups and delivery plumbing — listed in AGENT_STATE.md and DEPLOYMENT.md §11. Where an acceptance criterion is asserted rather than demonstrated (performance targets, a labelled classification benchmark), the story carries a `verification` block saying so.",
     "codeStatus": "beta"
   },
   "statusLegend": {
@@ -45,13 +45,13 @@
       "id": "M2",
       "name": "Connector platform",
       "goal": "Google Sheets, SQL databases, templates, learning from corrections, duplicate detection, team features.",
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M3",
       "name": "Enterprise",
       "goal": "CRM/ERP/accounting connectors, public API, connector marketplace, AI business agents, analytics and audit controls.",
-      "status": "pending"
+      "status": "done"
     }
   ],
   "definitionOfDone": [
@@ -284,7 +284,13 @@
         "apps/backend/src/db/database.ts",
         "apps/backend/src/db/sqlite.ts",
         "apps/backend/src/db/postgres.ts"
-      ]
+      ],
+      "verification": {
+        "evidence": ["apps/backend/src/db/migrations.ts", "apps/backend/test/batches.test.ts"],
+        "notVerified": [
+          "Migrations are forward-only by design: there is no down migration and no `db:rollback`, so the \"forward and back cleanly\" criterion only holds forward (DATABASE.md §7). Recovery from a bad migration is a restore, not a rollback."
+        ]
+      }
     },
     {
       "id": "AUTH-001",
@@ -357,7 +363,16 @@
         "On successful pairing the desktop shows the connected device name and platform."
       ],
       "dependsOn": ["PAIR-001"],
-      "artifacts": ["apps/mobile/src/screens/PairingScreen.tsx", "packages/shared/src/contracts.ts"]
+      "artifacts": [
+        "apps/mobile/src/screens/PairingScreen.tsx",
+        "packages/shared/src/contracts.ts"
+      ],
+      "verification": {
+        "evidence": ["apps/mobile/src/pairing", "apps/backend/test/pairing.test.ts"],
+        "notVerified": [
+          "The under-5-seconds pairing target is not measured on a device or a real network. The token lifetime, single-use behaviour and failure paths are tested."
+        ]
+      }
     },
     {
       "id": "PAIR-003",
@@ -412,7 +427,13 @@
         "App renders a friendly state when the backend is unreachable."
       ],
       "dependsOn": ["FOUND-003"],
-      "artifacts": ["apps/mobile/src/App.tsx", "apps/mobile/src/screens/CaptureScreen.tsx"]
+      "artifacts": ["apps/mobile/src/App.tsx", "apps/mobile/src/screens/CaptureScreen.tsx"],
+      "verification": {
+        "evidence": ["apps/mobile/src/App.tsx", "apps/mobile/test/mobile.test.ts"],
+        "notVerified": [
+          "The app is not built or launched on an Android or iOS simulator in CI. The pure modules and screens are tested in Jest; a native build is a manual step."
+        ]
+      }
     },
     {
       "id": "MOB-002",
@@ -489,7 +510,16 @@
         "Average invoice-sized page processes in under 10 seconds in the reference environment."
       ],
       "dependsOn": ["DOC-001"],
-      "artifacts": ["apps/backend/src/ai/pipeline.ts", "apps/backend/src/ai/providers/tesseract.ts"]
+      "artifacts": [
+        "apps/backend/src/ai/pipeline.ts",
+        "apps/backend/src/ai/providers/tesseract.ts"
+      ],
+      "verification": {
+        "evidence": ["apps/backend/src/services/worker.ts", "apps/backend/test/ai.test.ts"],
+        "notVerified": [
+          "The 10-second-per-page target is not measured. The suite runs a fake OCR provider, and no timing exists for a real Tesseract run on a reference machine."
+        ]
+      }
     },
     {
       "id": "AI-002",
@@ -505,7 +535,13 @@
         "Classification accuracy meets the agreed benchmark on the labelled test set."
       ],
       "dependsOn": ["AI-001"],
-      "artifacts": ["apps/backend/src/ai/classify.ts"]
+      "artifacts": ["apps/backend/src/ai/classify.ts"],
+      "verification": {
+        "evidence": ["apps/backend/src/ai/extract.ts", "apps/backend/test/ai.test.ts"],
+        "notVerified": [
+          "There is no labelled test set and no agreed benchmark in the repository, so classification accuracy has not been measured. What is tested is the behaviour around uncertainty: a 0–1 confidence is returned and low confidence is routed to human review."
+        ]
+      }
     },
     {
       "id": "AI-003",
@@ -618,7 +654,16 @@
         "Empty exports produce a valid file with headers only."
       ],
       "dependsOn": ["REV-001"],
-      "artifacts": ["apps/backend/src/services/export-service.ts"]
+      "artifacts": ["apps/backend/src/services/export-service.ts"],
+      "verification": {
+        "evidence": [
+          "apps/backend/src/services/export-service.ts",
+          "apps/backend/test/export.test.ts"
+        ],
+        "notVerified": [
+          "The 1,000-record / 30-second target is not measured; correctness, table structure and the empty-export case are tested."
+        ]
+      }
     },
     {
       "id": "EXPORT-002",
@@ -658,7 +703,17 @@
         "apps/desktop/electron-builder.json",
         "apps/desktop/tsconfig.electron.json",
         "scripts/validate-packaging.mjs"
-      ]
+      ],
+      "verification": {
+        "evidence": [
+          "apps/desktop/src/main/electron-main.ts",
+          "apps/desktop/test/shell.test.ts",
+          "scripts/validate-packaging.mjs"
+        ],
+        "notVerified": [
+          "Packaged builds are not produced here: the shell, IPC allow-list and keychain storage are tested against a stand-in Electron and the packaging configuration is validated statically (DEC-022). \"Launches on all three platforms\" is a release-checklist item."
+        ]
+      }
     },
     {
       "id": "DESK-002",
@@ -711,7 +766,13 @@
         "Revoked access surfaces a clear re-authentication prompt."
       ],
       "dependsOn": ["CON-001", "MAP-001"],
-      "artifacts": ["packages/connectors/src/google-sheets-connector.ts"]
+      "artifacts": ["packages/connectors/src/google-sheets-connector.ts"],
+      "verification": {
+        "evidence": ["packages/connectors/src/google-sheets-connector.ts"],
+        "notVerified": [
+          "There is no OAuth flow and no token refresh: the connector is handed an `accessToken` from the connector's encrypted credentials, and nothing obtains or renews one, so an unattended Sheets destination stops working when that token expires (Google access tokens last about an hour). It has also never run against a live spreadsheet."
+        ]
+      }
     },
     {
       "id": "CON-003",
@@ -876,7 +937,16 @@
       "artifacts": [
         "apps/backend/src/services/document-service.ts",
         "apps/backend/src/services/worker.ts"
-      ]
+      ],
+      "verification": {
+        "evidence": [
+          "apps/backend/src/services/document-service.ts",
+          "apps/backend/src/http/routes/organisation-routes.ts"
+        ],
+        "notVerified": [
+          "Nothing schedules the purge. `POST /api/v1/retention/purge` enqueues it and the worker executes it, but an installation nobody touches never purges, so retention only happens if an operator or an external cron calls the endpoint (DEPLOYMENT.md §11)."
+        ]
+      }
     },
     {
       "id": "DEVAPI-001",
@@ -983,7 +1053,17 @@
         "apps/desktop/src/lib/charts.ts",
         "apps/backend/src/services/organisation-service.ts",
         "apps/backend/src/http/routes/organisation-routes.ts"
-      ]
+      ],
+      "verification": {
+        "evidence": [
+          "apps/backend/src/services/organisation-service.ts",
+          "apps/desktop/src/pages/DashboardPage.tsx",
+          "apps/backend/test/dashboard.test.ts"
+        ],
+        "notVerified": [
+          "The 2-second target for 90 days is asserted by design (a bounded window and an indexed query), not by a load test or a real dataset."
+        ]
+      }
     },
     {
       "id": "I18N-001",
@@ -1005,7 +1085,17 @@
         "apps/desktop/src/lib/locale.tsx",
         "apps/desktop/src/styles.css",
         "apps/mobile/src/ui/locale.ts"
-      ]
+      ],
+      "verification": {
+        "evidence": [
+          "packages/shared/src/i18n.ts",
+          "apps/desktop/src/lib/locale.tsx",
+          "packages/shared/test/shared.test.ts"
+        ],
+        "notVerified": [
+          "No right-to-left locale ships, so RTL is verified by the direction helper, the logical-property test and catalogue completeness rather than by rendering a real RTL catalogue and checking for clipped controls."
+        ]
+      }
     },
     {
       "id": "VOICE-001",
