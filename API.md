@@ -82,6 +82,7 @@ each one by name; the database is the only external dependency of the shipped ru
 | GET    | `/auth/sessions`        | Live sessions for the caller                                  |
 | DELETE | `/auth/sessions/{id}`   | Revoke one of the caller's own sessions                       |
 | POST   | `/auth/logout-all`      | Sign out everywhere                                           |
+| POST   | `/auth/terms/accept`    | Accept the current legal pack (DEC-032)                       |
 | GET    | `/auth/me`              | Current user, roles and organisation                          |
 
 `POST /auth/login`
@@ -110,6 +111,12 @@ token is neither returned nor logged, and the operator delivers the link out of 
 
 **Changing a password** revokes the other sessions; send your own `refreshToken` to keep the current
 one alive. `POST /auth/logout-all` revokes everything, including the caller — that is the point of it.
+
+**Terms acceptance (DEC-032).** `POST /auth/register` requires `acceptTerms: true`; the server records
+the timestamp and `LEGAL_VERSION` (from `@idcp/shared`), not the client. `GET /auth/me` returns
+`terms: { acceptedAt, version, current }`, and `POST /auth/terms/accept` writes the record for an
+account created before the pack existed or whose pack has been revised. `current: false` is a prompt,
+never a lockout.
 
 **Sessions** are listed newest first with `createdAt`, `expiresAt`, `userAgent` and `current`. Auth
 tokens are stateless, so a revoked session stops refreshing immediately while its access token
@@ -319,28 +326,29 @@ explains its outcome — including the runs that skipped.
 
 ## 8. Organisation, users and audit
 
-| Method | Path                         | Purpose                                                      |
-| ------ | ---------------------------- | ------------------------------------------------------------ |
-| GET    | `/organisation`              | Current organisation and settings                            |
-| PATCH  | `/organisation`              | Update name, retention, AI provider (owner/admin)            |
-| GET    | `/users`                     | Members and roles                                            |
-| POST   | `/users/invite`              | Invite member; returns a single-use link (no email delivery) |
-| PATCH  | `/users/:id/role`            | Change role                                                  |
-| DELETE | `/users/:id`                 | Remove member                                                |
-| GET    | `/audit-logs`                | Filter by actor, action, target, date range (admin)          |
-| GET    | `/stats`                     | Counts for the dashboard                                     |
-| POST   | `/retention/purge`           | Purge expired documents now (admin)                          |
-| GET    | `/documents/{id}/duplicates` | Preview duplicate matches against a destination (`DUP-001`)  |
-| POST   | `/documents/{id}/send`       | Send with the mapping profile's duplicate policy (`DUP-001`) |
-| GET    | `/templates`                 | Document templates, optionally by document type              |
-| POST   | `/templates`                 | Create a template (from scratch or a processed document)     |
-| GET    | `/templates/:id`             | Template with its version history                            |
-| PATCH  | `/templates/:id`             | Update a template; a field-list change creates a version     |
-| DELETE | `/templates/:id`             | Disable a template (history is kept)                         |
-| GET    | `/api-keys`                  | API keys (secrets are never returned)                        |
-| POST   | `/api-keys`                  | Create a key — the secret is returned in this response only  |
-| DELETE | `/api-keys/:id`              | Revoke a key                                                 |
-| GET    | `/events`                    | Server-sent events for the desktop (see §9)                  |
+| Method | Path                         | Purpose                                                         |
+| ------ | ---------------------------- | --------------------------------------------------------------- |
+| GET    | `/organisation`              | Current organisation and settings                               |
+| PATCH  | `/organisation`              | Update name, retention, AI provider (owner/admin)               |
+| GET    | `/users`                     | Members and roles                                               |
+| POST   | `/users/invite`              | Invite member; returns a single-use link (no email delivery)    |
+| PATCH  | `/users/:id/role`            | Change role                                                     |
+| DELETE | `/users/:id`                 | Remove member                                                   |
+| GET    | `/audit-logs`                | Filter by actor, action, target, date range (admin)             |
+| GET    | `/audit-logs.csv`            | The same rows as a CSV attachment; the export is itself audited |
+| GET    | `/stats`                     | Counts for the dashboard                                        |
+| POST   | `/retention/purge`           | Purge expired documents now (admin)                             |
+| GET    | `/documents/{id}/duplicates` | Preview duplicate matches against a destination (`DUP-001`)     |
+| POST   | `/documents/{id}/send`       | Send with the mapping profile's duplicate policy (`DUP-001`)    |
+| GET    | `/templates`                 | Document templates, optionally by document type                 |
+| POST   | `/templates`                 | Create a template (from scratch or a processed document)        |
+| GET    | `/templates/:id`             | Template with its version history                               |
+| PATCH  | `/templates/:id`             | Update a template; a field-list change creates a version        |
+| DELETE | `/templates/:id`             | Disable a template (history is kept)                            |
+| GET    | `/api-keys`                  | API keys (secrets are never returned)                           |
+| POST   | `/api-keys`                  | Create a key — the secret is returned in this response only     |
+| DELETE | `/api-keys/:id`              | Revoke a key                                                    |
+| GET    | `/events`                    | Server-sent events for the desktop (see §9)                     |
 
 ### 8b. Projects and invitations (TEAM-001)
 

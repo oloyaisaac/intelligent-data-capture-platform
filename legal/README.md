@@ -28,6 +28,12 @@ they are relied on commercially.
 | `[GOVERNING LAW]`    | governing law (suggested: Uganda)                    |
 | `[EFFECTIVE DATE]`   | date the documents go live                           |
 
+**Versions.** `LEGAL_VERSION` in `packages/shared/src/constants.ts` is the version stamped against
+every acceptance record (DEC-032). Bump it in the same commit as any material change to `TERMS.md`,
+`PRIVACY.md` or `DPA.md`: accounts then show as "not current" in the app and are asked to accept the
+new pack. A cosmetic edit (a typo, a link) does not need a bump; a change to what is collected, why,
+for how long, or who receives it does.
+
 `npm run test:legal` fails if a document is missing, if a placeholder is missing from a document that
 should carry it, if `PRIVACY.md` and `apps/backend/src/config.ts` disagree about how long an export is
 kept, or if `DPA.md` names a provider the sub-processor list does not — so the pack cannot silently

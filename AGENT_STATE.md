@@ -14,7 +14,7 @@
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
 `npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
-legal pack contract, 376 tests in 26 suites).
+legal pack contract, 389 tests in 28 suites).
 
 The last round was a hardening pass, prompted by "would a customer actually be able to use this?" It
 was feature-complete but not deployable as a business: no privacy policy or terms, no password
@@ -47,8 +47,8 @@ used to strand its document in `processing` forever, because nothing ever moved 
 | --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Shared contracts, UDM, money/dates/CSV/dedupe/i18n/review rules | `packages/shared`                      | 49 tests. `mergeRecord` reports every value it refuses to overwrite. Node-only helpers live at `@idcp/shared/ids`.                                          |
 | Connector SDK + CSV, SQLite, PostgreSQL, MySQL, Google Sheets   | `packages/connectors`                  | 29 tests. `update()` is implemented for SQLite/PostgreSQL/MySQL (transactional, identifier-validated).                                                      |
-| Backend API (Fastify 5)                                         | `apps/backend`                         | 195 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
-| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 60 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
+| Backend API (Fastify 5)                                         | `apps/backend`                         | 204 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
+| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 64 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
 | Mobile (React Native 0.86)                                      | `apps/mobile`                          | 43 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                                                |
 | CI, PRD + API contracts, generators                             | `.github/workflows/ci.yml`, `scripts/` | `validate-prd.mjs`, `validate-openapi.mjs`, `generate-udm-schema.mjs`, `validate-packaging.mjs`, plus `config.test.ts` guarding `.env.example`.             |
 

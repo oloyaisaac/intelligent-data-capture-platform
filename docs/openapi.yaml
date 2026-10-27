@@ -75,6 +75,18 @@ components:
         role: { type: string, enum: [viewer, operator, reviewer, admin, owner] }
         organisationId: { type: string }
         organisationName: { type: string }
+        terms:
+          type: object
+          description: >-
+            Present on `GET /auth/me`. The acceptance record, so a contract can be proved and a
+            revised pack can be re-presented (DEC-032).
+          required: [acceptedAt, version, current]
+          properties:
+            acceptedAt: { type: string, format: date-time, nullable: true }
+            version: { type: string, nullable: true }
+            current:
+              type: boolean
+              description: False when nothing was accepted, or when the pack has been revised since.
     TokenPair:
       type: object
       required: [accessToken, expiresIn, refreshToken, user]
@@ -460,12 +472,18 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, password, displayName, organisationName]
+              required: [email, password, displayName, organisationName, acceptTerms]
               properties:
                 email: { type: string, format: email }
                 password: { type: string, minLength: 12, maxLength: 256 }
                 displayName: { type: string, maxLength: 120 }
                 organisationName: { type: string, maxLength: 120 }
+                acceptTerms:
+                  type: boolean
+                  const: true
+                  description: >-
+                    The sign-up checkbox. Must be `true`; the version that was accepted is recorded
+                    server-side, not sent by the client (DEC-032).
       responses:
         '201':
           description: Created
@@ -552,6 +570,27 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
+        '401': { description: Not signed in }
+  /auth/terms/accept:
+    post:
+      tags: [Auth]
+      summary: Accept the current legal pack
+      description: >-
+        For accounts created before the pack existed, or whose pack has since been revised.
+        Re-accepting the same version is allowed and refreshes the record (DEC-032).
+      operationId: acceptTerms
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [acceptedAt, version, current]
+                properties:
+                  acceptedAt: { type: string, format: date-time }
+                  version: { type: string }
+                  current: { type: boolean, const: true }
         '401': { description: Not signed in }
   /pairing/sessions:
     post:
@@ -1365,12 +1404,32 @@ paths:
       operationId: listAuditLogs
       parameters:
         - { name: action, in: query, schema: { type: string } }
-        - { name: actor, in: query, schema: { type: string } }
+        - { name: actorId, in: query, schema: { type: string } }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
         - { name: limit, in: query, schema: { type: integer } }
       responses:
         '200': { description: Audit records }
+  /audit-logs.csv:
+    get:
+      tags: [Organisation]
+      summary: The same audit trail as a CSV file
+      description: >-
+        Admin only, like the JSON endpoint. Up to 5,000 rows, formula-neutralised for spreadsheets,
+        and the act of taking the file is itself recorded as `audit.exported`.
+      operationId: exportAuditLogs
+      parameters:
+        - { name: action, in: query, schema: { type: string } }
+        - { name: actorId, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: CSV attachment (`audit-log-YYYY-MM-DD.csv`)
+          content:
+            text/csv:
+              schema: { type: string }
+        '403': { description: Below admin }
   /stats:
     get:
       tags: [Organisation]

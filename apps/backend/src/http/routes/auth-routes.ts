@@ -91,6 +91,16 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services, gua
     return services.auth.me(actor);
   });
 
+  /** DEC-032: accounts older than the legal pack, or whose pack was revised, accept it here. */
+  app.post('/auth/terms/accept', async (request) => {
+    const actor = await guards.authenticate(request);
+    return services.auth.acceptTerms(actor, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+      ipHash: request.clientIpHash,
+    });
+  });
+
   // --- Password reset (DEC-030) -------------------------------------------
 
   /**

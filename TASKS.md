@@ -53,6 +53,12 @@ new features — `.env.example` was unusable, `DATABASE.md` claimed the schema w
 - [x] **Legal pack** — privacy policy, terms, DPA, sub-processor list and security summary under
       `legal/`, published at `GET /legal/{slug}` and checked by `npm run test:legal`.
 - [x] **Web hardening** — security headers on every response and a structured access log.
+- [x] **Terms acceptance** — the sign-up checkbox is enforced at the API boundary, the version that
+      was accepted is stored and shown, and a revised pack re-prompts (`DEC-032`).
+- [x] **Audit log export** — `GET /audit-logs.csv` for a customer's auditor.
+- [x] **`TRUST_PROXY`** — proxy trust is configurable, so per-IP limits cannot be spoofed when the API
+      is exposed directly (`DEC-033`).
+- [x] **Audit filter bug** — the actor filter was silently ignored; client, route and OpenAPI now agree.
 
 ## Now (product)
 
@@ -72,8 +78,6 @@ Deployment work, not product stories. The full table with consequences is `DEPLO
 - [x] Scheduled retention purge, expired-export deletion and session sweep (`MaintenanceService`).
 - [ ] `/metrics` (queue depth, job outcomes, latency) — the access log now exists, the metrics do not.
 - [x] Security headers.
-- [ ] A configurable `trustProxy`: `trustProxy` is currently always on, which is right behind the
-      documented reverse proxy and wrong if the API is exposed directly.
 - [ ] Dependency audit gate in CI — needs the `zod` v3 → v4 migration first (8 advisories, 1 critical).
 
 ## Later (Phase 3)

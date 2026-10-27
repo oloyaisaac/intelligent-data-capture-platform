@@ -1,4 +1,4 @@
-import { AppError, escapeCsvField, roleAtLeast, type Role } from '@idcp/shared';
+import { AppError, escapeCsvField, roleAtLeast, toCsv, type Role } from '@idcp/shared';
 import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import {
@@ -130,7 +130,7 @@ export class OrganisationService {
 
   async auditLogs(
     actor: AuthenticatedActor,
-    filters: { action?: string; actorId?: string; from?: string; to?: string },
+    filters: { action?: string; actorId?: string; from?: string; to?: string; limit?: number },
   ) {
     if (!roleAtLeast(actor.role, 'admin')) {
       throw new AppError('ROLE_REQUIRED', 'Only admins can read the audit log.');
@@ -146,6 +146,40 @@ export class OrganisationService {
       metadata: JSON.parse(row.metadata) as Record<string, unknown>,
       createdAt: row.created_at,
     }));
+  }
+
+  /**
+   * The audit trail as CSV, for the reviewer who asks "can I have it as a file?".
+   *
+   * Same rows, same filters, same permission as the JSON endpoint — the point is that a customer's
+   * auditor can take it away, not that there is a second source of truth. Reading the whole trail is
+   * itself a privileged act, so it is audited.
+   */
+  async auditLogsCsv(
+    actor: AuthenticatedActor,
+    filters: { action?: string; actorId?: string; from?: string; to?: string },
+  ): Promise<string> {
+    const entries = await this.auditLogs(actor, { ...filters, limit: 5_000 });
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: 'user',
+      actorId: actor.userId,
+      action: 'audit.exported',
+      metadata: { rows: entries.length, filters },
+    });
+    return toCsv(
+      ['created_at', 'action', 'actor_type', 'actor_id', 'target_type', 'target_id', 'metadata'],
+      entries.map((entry) => [
+        entry.createdAt,
+        entry.action,
+        entry.actorType,
+        entry.actorId ?? '',
+        entry.targetType ?? '',
+        entry.targetId ?? '',
+        JSON.stringify(entry.metadata),
+      ]),
+      { bom: true },
+    );
   }
 
   /** Lightweight operational summary for the dashboard and for health checks. */

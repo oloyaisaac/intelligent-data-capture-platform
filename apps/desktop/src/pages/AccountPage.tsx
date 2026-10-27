@@ -24,6 +24,10 @@ export function AccountPage({
   const t = useTranslator();
   const { locale } = useLocale();
   const sessions = useAsync(() => client.sessions(), []);
+  // The acceptance record lives on the account, so it arrives with `/auth/me` (DEC-032).
+  const me = useAsync(() => client.me(), []);
+  const [termsNotice, setTermsNotice] = useState<string | null>(null);
+  const [termsError, setTermsError] = useState<string | null>(null);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -107,6 +111,18 @@ export function AccountPage({
       await client.logoutAll();
     } finally {
       onSessionEnded();
+    }
+  };
+
+  const acceptTerms = async () => {
+    setTermsError(null);
+    setTermsNotice(null);
+    try {
+      await client.acceptTerms();
+      setTermsNotice(t('account.termsAcceptedNow'));
+      await me.reload();
+    } catch (caught) {
+      setTermsError(caught instanceof ApiError ? caught.message : t('login.networkError'));
     }
   };
 
@@ -247,6 +263,39 @@ export function AccountPage({
             </button>
           </div>
         </form>
+      </Card>
+
+      <Card title={t('account.termsTitle')}>
+        <ErrorBanner message={termsError} />
+        {termsNotice && (
+          <div className="muted" role="status">
+            {termsNotice}
+          </div>
+        )}
+        {me.data?.terms && (
+          <>
+            <p className="muted" style={{ marginTop: 0 }}>
+              {me.data.terms.acceptedAt
+                ? t('account.termsAccepted', {
+                    version: me.data.terms.version ?? '—',
+                    date: formatDateTime(me.data.terms.acceptedAt, locale),
+                  })
+                : t('account.termsMissing')}
+            </p>
+            {!me.data.terms.current && (
+              <>
+                {me.data.terms.acceptedAt && (
+                  <p className="muted">
+                    {t('account.termsOutdated', { version: me.data.terms.version ?? '—' })}
+                  </p>
+                )}
+                <button className="button" type="button" onClick={acceptTerms}>
+                  {t('account.acceptTerms')}
+                </button>
+              </>
+            )}
+          </>
+        )}
       </Card>
 
       <Card title={t('account.legalTitle')}>

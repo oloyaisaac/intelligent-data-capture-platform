@@ -196,22 +196,22 @@ no longer exist.
 Ordered by what would hurt first. Everything here is deliberate and listed in `AGENT_STATE.md`;
 none of it is a bug the code hides.
 
-| Gap                                             | Consequence today                                                                                                                                                      | Fix                                                                      |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| No `Dockerfile`, image build, deploy job or IaC | Releases are manual on one host (§3)                                                                                                                                   | Add an image build + publish step, then the pipeline above               |
-| No backup or restore script                     | Losing the host loses the database **and** the documents; the operator must schedule `VACUUM INTO` themselves (§5)                                                     | Ship `npm run db:backup` + a restore test                                |
-| No metrics endpoint or alerting                 | Only logs and the health check; "queue depth" and "p95 latency" are not measured                                                                                       | `/metrics` for queue depth, job outcomes, extraction latency             |
-| Rate limiting is in-process memory              | Resets on restart and does not cover a second instance; `trustProxy` is on, so `X-Forwarded-For` is only trustworthy behind a proxy you control                        | Shared limiter when a queue/cache exists; make `trustProxy` configurable |
-| No MFA                                          | A stolen password is a full session                                                                                                                                    | TOTP plus recovery codes, and an admin reset path                        |
-| Automation is in-process                        | `MaintenanceService` (DEC-031) sweeps retention, exports, sessions, reset tokens and pairing codes. With several replicas every replica sweeps — idempotent, redundant | Move behind a single elector before horizontal scaling (DEC-029)         |
-| No dependency vulnerability scan in CI          | `npm audit` reports 9 advisories (1 critical via `shell-quote`; `zod` and `image-size` high) but CI does not fail on them                                              | Audit job once the upgrades land; `zod` needs a v3 → v4 migration        |
-| Signed installers not built                     | Desktop/mobile distribution is manual (§7)                                                                                                                             | Release workflow per platform (DEC-022)                                  |
-| No browser or device e2e                        | Integration tests cover the API, nothing covers a real click path                                                                                                      | Playwright (desktop), Detox or Maestro (mobile)                          |
+| Gap                                             | Consequence today                                                                                                                                                        | Fix                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| No `Dockerfile`, image build, deploy job or IaC | Releases are manual on one host (§3)                                                                                                                                     | Add an image build + publish step, then the pipeline above        |
+| No backup or restore script                     | Losing the host loses the database **and** the documents; the operator must schedule `VACUUM INTO` themselves (§5)                                                       | Ship `npm run db:backup` + a restore test                         |
+| No metrics endpoint or alerting                 | Only logs and the health check; "queue depth" and "p95 latency" are not measured                                                                                         | `/metrics` for queue depth, job outcomes, extraction latency      |
+| Rate limiting is in-process memory              | Resets on restart and does not cover a second instance; `TRUST_PROXY` is right behind the documented proxy, and must be `false` if you expose the API directly (DEC-033) | Shared limiter when a queue/cache exists                          |
+| No MFA                                          | A stolen password is a full session                                                                                                                                      | TOTP plus recovery codes, and an admin reset path                 |
+| Automation is in-process                        | `MaintenanceService` (DEC-031) sweeps retention, exports, sessions, reset tokens and pairing codes. With several replicas every replica sweeps — idempotent, redundant   | Move behind a single elector before horizontal scaling (DEC-029)  |
+| No dependency vulnerability scan in CI          | `npm audit` reports 9 advisories (1 critical via `shell-quote`; `zod` and `image-size` high) but CI does not fail on them                                                | Audit job once the upgrades land; `zod` needs a v3 → v4 migration |
+| Signed installers not built                     | Desktop/mobile distribution is manual (§7)                                                                                                                               | Release workflow per platform (DEC-022)                           |
+| No browser or device e2e                        | Integration tests cover the API, nothing covers a real click path                                                                                                        | Playwright (desktop), Detox or Maestro (mobile)                   |
 
 Struck off this list in the October 2026 hardening pass: the access log (structured `onResponse`
 line), the security headers (`nosniff`, `DENY`, `no-referrer`, CSP, permissions policy, COOP/CORP,
-HSTS in production) and scheduled retention. `AUDIT-2026-10.md` records the reasoning and what is
-still open.
+HSTS in production), scheduled retention, and an always-on `trustProxy`. `AUDIT-2026-10.md` records
+the reasoning and what is still open.
 
 ## 12. Go-live checklist (first production release)
 

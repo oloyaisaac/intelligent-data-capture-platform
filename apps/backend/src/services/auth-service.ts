@@ -7,6 +7,8 @@ import {
   type RegisterRequest,
   type Role,
   type Session as SessionDto,
+  LEGAL_VERSION,
+  type TermsAcceptance,
   type TokenPair,
   type UserSummary,
 } from '@idcp/shared';
@@ -154,6 +156,10 @@ export class AuthService {
         email: input.email,
         passwordHash,
         displayName: input.displayName,
+        // The checkbox is validated at the edge (`acceptTerms: true`); the record is written here,
+        // server-side, so it cannot be forged or skipped by another client (DEC-032).
+        termsAcceptedAt: nowIso(),
+        termsVersion: LEGAL_VERSION,
       });
       const membership = await memberships.create({
         organisationId: organisation.id,
@@ -168,6 +174,7 @@ export class AuthService {
         action: 'auth.register',
         targetType: 'user',
         targetId: user.id,
+        metadata: { termsVersion: LEGAL_VERSION },
       });
 
       return this.issueTokens(user, membership, context);
@@ -414,7 +421,35 @@ export class AuthService {
       role: membership.role,
       organisationId: organisation.id,
       organisationName: organisation.name,
+      terms: describeTerms(user.terms_accepted_at, user.terms_version),
     };
+  }
+
+  /**
+   * Accepts the current legal pack (DEC-032).
+   *
+   * Accounts created before the terms existed, and accounts whose pack has since been revised, land
+   * here. Re-accepting the same version is allowed: it is a confirmation, not a new fact, so the
+   * timestamp is refreshed and the audit entry repeated.
+   */
+  async acceptTerms(
+    actor: AuthenticatedActor,
+    context: RequestContext = {},
+  ): Promise<TermsAcceptance> {
+    const user = await this.users.findById(actor.userId);
+    if (!user || user.disabled_at) throw new AppError('UNAUTHENTICATED', 'Account not found.');
+    const acceptedAt = await this.users.recordTermsAcceptance(user.id, LEGAL_VERSION);
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: 'user',
+      actorId: user.id,
+      action: 'legal.terms_accepted',
+      targetType: 'user',
+      targetId: user.id,
+      ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+      metadata: { version: LEGAL_VERSION },
+    });
+    return { acceptedAt, version: LEGAL_VERSION, current: true };
   }
 
   /** TEAM-001: invite by email with an expiring, single-use token (no email delivery configured). */
@@ -566,5 +601,19 @@ function toInvitation(row: InvitationRow): Invitation {
     expiresAt: row.expires_at,
     usedAt: row.used_at,
     createdAt: row.created_at,
+  };
+}
+
+/**
+ * Describes the acceptance record against the pack that ships today (DEC-032).
+ *
+ * `current` is what the UI acts on: false means either "never accepted" (an account older than the
+ * terms) or "accepted an earlier version", and in both cases the person is asked again.
+ */
+function describeTerms(acceptedAt: string | null, version: string | null): TermsAcceptance {
+  return {
+    acceptedAt,
+    version,
+    current: acceptedAt !== null && version === LEGAL_VERSION,
   };
 }

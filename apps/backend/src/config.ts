@@ -63,6 +63,14 @@ const ConfigSchema = z.object({
   /** Daily housekeeping: retention, expired exports, dead sessions (DEC-031). */
   MAINTENANCE_ENABLED: booleanish.default(true),
   MAINTENANCE_INTERVAL_MS: IntFromString(24 * 60 * 60 * 1000, 60_000),
+  /**
+   * Whether `X-Forwarded-For` may set the client IP (DEC-033).
+   *
+   * True is right behind the documented reverse proxy, which overwrites the header. It is wrong when
+   * the API is reachable directly: a client could then forge the header and walk past per-IP rate
+   * limits. Set `TRUST_PROXY=false` in that case.
+   */
+  TRUST_PROXY: booleanish.default(true),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

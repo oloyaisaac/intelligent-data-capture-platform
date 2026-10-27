@@ -23,6 +23,9 @@ export interface UserRow {
   email_verified_at: string | null;
   last_login_at: string | null;
   disabled_at: string | null;
+  /** When this account accepted the legal pack, and which version of it (DEC-032). */
+  terms_accepted_at: string | null;
+  terms_version: string | null;
   created_at: string;
   updated_at: string;
 }

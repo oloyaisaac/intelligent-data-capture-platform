@@ -66,6 +66,14 @@ describe('.env.example matches the configuration the server reads (BACK-001)', (
     ).toThrow(/AI_CLOUD_ENDPOINT|MICROS/);
   });
 
+  it('lets a deployment turn off proxy trust (DEC-033)', () => {
+    // Behind the documented reverse proxy, `X-Forwarded-For` is authoritative and the default is right.
+    expect(loadConfig({}).TRUST_PROXY).toBe(true);
+    // Exposed directly, the header is attacker-controlled: leave it out of the rate-limit key.
+    expect(loadConfig({ TRUST_PROXY: 'false' }).TRUST_PROXY).toBe(false);
+    expect(parseEnvFile(example).TRUST_PROXY).toBe('true');
+  });
+
   it('keeps the storage adapter honest instead of advertising an unimplemented one', () => {
     expect(parseEnvFile(example).STORAGE_DRIVER).toBe('filesystem');
     expect(example).not.toMatch(/^STORAGE_DRIVER=minio/m);

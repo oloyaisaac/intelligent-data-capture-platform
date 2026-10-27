@@ -8,6 +8,23 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 
 ### Added
 
+- **Terms acceptance is provable** — registration requires `acceptTerms: true`, the server records the
+  timestamp and `LEGAL_VERSION`, `GET /auth/me` reports whether the record is current, and
+  `POST /auth/terms/accept` covers accounts older than the pack (`DEC-032`). Sign-up shows the
+  checkbox with links to both documents; **Account → Terms and privacy** shows what was accepted.
+- **Audit log export** — `GET /audit-logs.csv` gives an admin the same rows as a downloadable,
+  formula-neutralised CSV, and taking the file is itself audited (`audit.exported`).
+- **`TRUST_PROXY`** — proxy trust is configuration rather than a constant, so an API exposed directly
+  can refuse attacker-supplied `X-Forwarded-For` (`DEC-033`).
+
+### Fixed
+
+- **The audit-log actor filter did nothing** — the client sent `actor`, the route read `actorId`, and
+  the mismatch meant a filtered search returned every row. Both sides and the OpenAPI document now
+  say `actorId`.
+- **`AUDIT_ACTIONS` had drifted** from what the code records (17 entries missing); it now matches, so
+  the constant can be trusted as the catalogue of audit events.
+
 - **Account recovery and session control** — forgot/reset/change password over single-use hashed
   tokens that never reveal whether an account exists, a session list with per-session revoke, and
   "sign out everywhere" (`DEC-030`; `POST /auth/password/*`, `GET /auth/sessions`,

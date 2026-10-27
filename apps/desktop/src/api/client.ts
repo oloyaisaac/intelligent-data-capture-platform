@@ -35,6 +35,7 @@ import type {
   StatsResponse,
   Template,
   TemplateDetail,
+  TermsAcceptance,
   TokenPair,
   UpdateProjectRequest,
   UpdateTemplateRequest,
@@ -286,6 +287,8 @@ export class ApiClient {
     password: string;
     displayName: string;
     organisationName: string;
+    /** The sign-up checkbox; the API rejects a registration without it (DEC-032). */
+    acceptTerms: true;
   }): Promise<UserSummary> {
     const pair = await this.request<TokenPair>('/auth/register', {
       method: 'POST',
@@ -312,6 +315,23 @@ export class ApiClient {
 
   me(): Promise<UserSummary> {
     return this.request<UserSummary>('/auth/me');
+  }
+
+  /** Accept the legal pack that ships today; returns the record that was written (DEC-032). */
+  acceptTerms(): Promise<TermsAcceptance> {
+    return this.request<TermsAcceptance>('/auth/terms/accept', { method: 'POST', body: {} });
+  }
+
+  /** The audit trail as CSV. `download()` keeps the filename the server chose. */
+  auditLogCsv(filters: { action?: string; actorId?: string } = {}): Promise<{
+    blob: Blob;
+    filename: string;
+  }> {
+    const query = new URLSearchParams();
+    if (filters.action) query.set('action', filters.action);
+    if (filters.actorId) query.set('actorId', filters.actorId);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.download(`/audit-logs.csv${suffix}`);
   }
 
   // --- Account recovery, sessions and privacy ------------------------------
@@ -661,7 +681,7 @@ export class ApiClient {
   }
 
   auditLogs(
-    query: { actor?: string; action?: string; from?: string; to?: string; limit?: number } = {},
+    query: { actorId?: string; action?: string; from?: string; to?: string; limit?: number } = {},
   ): Promise<{
     items: Array<{
       id: string;

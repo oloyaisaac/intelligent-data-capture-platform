@@ -478,6 +478,15 @@ export const MIGRATIONS: Migration[] = [
       'CREATE INDEX idx_password_resets_expiry ON password_resets(used_at, expires_at)',
     ],
   },
+  {
+    // DEC-032: prove that a contract exists. Two nullable columns, because every account created
+    // before this migration accepted nothing and must be asked to.
+    id: '009_terms_acceptance',
+    sql: [
+      'ALTER TABLE users ADD COLUMN terms_accepted_at TEXT',
+      'ALTER TABLE users ADD COLUMN terms_version TEXT',
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {

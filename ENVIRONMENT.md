@@ -107,7 +107,7 @@ two lists diverge or if the example does not start the server when copied verbat
 | Auth          | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`, `PASSWORD_RESET_TTL_SECONDS`                   |
 | Storage       | `STORAGE_DRIVER`, `STORAGE_PATH`                                                                                                                                             |
 | AI            | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`, `AI_REVIEW_CONFIDENCE_THRESHOLD` |
-| Limits        | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_AUTH_PER_15_MIN`, `RATE_LIMIT_UPLOAD_PER_MIN`                                                           |
+| Limits        | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_AUTH_PER_15_MIN`, `RATE_LIMIT_UPLOAD_PER_MIN`, `TRUST_PROXY` (DEC-033)                                  |
 | Exports, jobs | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                                                           |
 | Housekeeping  | `MAINTENANCE_ENABLED`, `MAINTENANCE_INTERVAL_MS` (DEC-031)                                                                                                                   |
 | Legal         | `LEGAL_DIR` (where `legal/*.md` is read from; default `./legal`)                                                                                                             |
@@ -121,6 +121,10 @@ Rules:
   enforces it.
 - Invalid configuration fails fast at startup with an actionable message (`BACK-001`); for example
   `STORAGE_DRIVER=s3` is refused until the object-store adapter exists.
+
+`TRUST_PROXY` (default `true`) decides whether `X-Forwarded-For` sets the client IP. Keep it true
+behind the reverse proxy in `DEPLOYMENT.md`, which overwrites the header; set it to `false` if the API
+is reachable directly, or a client can forge the header and dodge per-IP rate limits (DEC-033).
 
 `MAINTENANCE_INTERVAL_MS` (default 24 hours, minimum 60 s) is how often the in-process sweep runs —
 first 10 s after boot, then on that interval; set

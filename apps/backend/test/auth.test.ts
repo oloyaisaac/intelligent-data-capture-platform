@@ -18,6 +18,7 @@ describe('authentication', () => {
         password: 'a-very-good-password',
         displayName: 'Owner One',
         organisationName: 'Acme Trading Ltd',
+        acceptTerms: true,
       },
     });
 
@@ -53,6 +54,7 @@ describe('authentication', () => {
         password: 'password1234',
         displayName: 'Weak',
         organisationName: 'Weak Ltd',
+        acceptTerms: true,
       },
     });
     expect(response.statusCode).toBe(400);
@@ -144,6 +146,7 @@ describe('authentication', () => {
         password: 'another-good-password',
         displayName: 'Dupe',
         organisationName: 'Dupe Ltd',
+        acceptTerms: true,
       },
     });
     expect(response.statusCode).toBe(409);

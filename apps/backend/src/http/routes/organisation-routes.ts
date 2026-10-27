@@ -88,6 +88,25 @@ export function registerOrganisationRoutes(
     };
   });
 
+  /** The same log as a file, for a customer's auditor (AUDIT-2026-10 §3). */
+  app.get('/audit-logs.csv', async (request, reply) => {
+    const actor = await guards.authenticate(request);
+    const query = request.query as Record<string, string | undefined>;
+    const csv = await services.organisation.auditLogsCsv(actor, {
+      action: query.action,
+      actorId: query.actorId,
+      from: query.from,
+      to: query.to,
+    });
+    reply.header('content-type', 'text/csv; charset=utf-8');
+    reply.header(
+      'content-disposition',
+      `attachment; filename="audit-log-${new Date().toISOString().slice(0, 10)}.csv"`,
+    );
+    reply.header('cache-control', 'private, no-store');
+    return reply.send(csv);
+  });
+
   app.get('/stats', async (request) => {
     const actor = await guards.authenticate(request);
     const query = request.query as Record<string, string | undefined>;

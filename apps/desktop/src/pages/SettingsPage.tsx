@@ -45,6 +45,7 @@ export function SettingsPage({
   const [keyDialog, setKeyDialog] = useState(false);
   const [filters, setFilters] = useState({ action: '', actor: '', from: '', to: '' });
   const [trainingNote, setTrainingNote] = useState<string | null>(null);
+  const [auditNote, setAuditNote] = useState<string | null>(null);
 
   const isAdmin = role === 'admin' || role === 'owner';
 
@@ -520,7 +521,7 @@ export function SettingsPage({
             onClick={async () => {
               const result = await client.auditLogs({
                 action: filters.action || undefined,
-                actor: filters.actor || undefined,
+                actorId: filters.actor || undefined,
                 from: filters.from
                   ? new Date(`${filters.from}T00:00:00.000Z`).toISOString()
                   : undefined,
@@ -532,7 +533,39 @@ export function SettingsPage({
           >
             {t('settings.search')}
           </button>
+          {/* The auditor's version of the button above: the same rows, as a file (DEC-032 note). */}
+          <button
+            className="button secondary"
+            type="button"
+            onClick={async () => {
+              setAuditNote(null);
+              try {
+                const { blob, filename } = await client.auditLogCsv({
+                  action: filters.action || undefined,
+                  actorId: filters.actor || undefined,
+                });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                link.click();
+                URL.revokeObjectURL(url);
+                setAuditNote(t('settings.auditExported'));
+              } catch (caught) {
+                setAuditNote(
+                  caught instanceof Error ? caught.message : t('settings.auditExportFailed'),
+                );
+              }
+            }}
+          >
+            {t('settings.exportAudit')}
+          </button>
         </div>
+        {auditNote && (
+          <div className="muted" role="status">
+            {auditNote}
+          </div>
+        )}
 
         {(audit.data?.items.length ?? 0) === 0 ? (
           <EmptyState title={t('settings.noMatchingRecords')} />

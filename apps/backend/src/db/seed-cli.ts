@@ -32,6 +32,8 @@ async function main(): Promise<void> {
     password,
     displayName: 'Demo Owner',
     organisationName: 'Demo Trading Ltd',
+    // The demo account is a developer convenience, not a customer: it accepts the shipped pack.
+    acceptTerms: true,
   });
 
   await services.connectors.create(

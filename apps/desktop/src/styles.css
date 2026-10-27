@@ -270,6 +270,22 @@ h3 {
   font-size: 12px;
 }
 
+/* An inline text button for links inside a sentence — the legal pack on the sign-up form. */
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 .input,
 .select,
 .textarea {

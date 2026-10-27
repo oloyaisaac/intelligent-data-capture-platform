@@ -28,12 +28,30 @@ export const PaginationSchema = z.object({
   cursor: z.string().max(200).optional(),
 });
 
+/**
+ * Acceptance of the terms at sign-up.
+ *
+ * `z.literal(true)` rather than a boolean: a client cannot create an account by omitting the field or
+ * sending `false`, and the record of *what* was accepted is written server-side (DEC-032).
+ */
+export const TermsAcceptanceSchema = z
+  .object({
+    acceptedAt: z.string().nullable(),
+    version: z.string().nullable(),
+    /** False when the pack has been revised since this account accepted it. */
+    current: z.boolean(),
+  })
+  .strict();
+export type TermsAcceptance = z.infer<typeof TermsAcceptanceSchema>;
+
 export const RegisterRequestSchema = z
   .object({
     email: EmailSchema,
     password: PasswordSchema,
     displayName: z.string().trim().min(1).max(120),
     organisationName: z.string().trim().min(2).max(120),
+    /** The sign-up form's "I accept the Terms and the Privacy Policy" checkbox. */
+    acceptTerms: z.literal(true),
   })
   .strict();
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
@@ -57,6 +75,8 @@ export const UserSummarySchema = z.object({
   role: z.enum(ROLES),
   organisationId: z.string(),
   organisationName: z.string(),
+  /** Only `GET /auth/me` fills this in; a token pair does not need it. */
+  terms: TermsAcceptanceSchema.optional(),
 });
 export type UserSummary = z.infer<typeof UserSummarySchema>;
 
