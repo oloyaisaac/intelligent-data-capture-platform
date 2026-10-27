@@ -80,6 +80,12 @@ def render_blocks(lines: list[str], id_prefix: str = "") -> str:
             i += 1
             continue
 
+        # horizontal rule
+        if re.match(r"^(\s*([-*_])\s*){3,}$", stripped):
+            out.append("<hr />")
+            i += 1
+            continue
+
         # sub-heading (### and deeper)
         mh = re.match(r"^(#{3,6})\s+(.*)$", stripped)
         if mh:
