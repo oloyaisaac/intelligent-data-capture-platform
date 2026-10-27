@@ -8,7 +8,7 @@ IDCP is an AI-powered bridge between physical documents and digital business sys
 > The repository contains the backend API (Fastify 5 over SQLite/PostgreSQL), the desktop renderer
 > (React 19 + Vite with an Electron shell), the mobile app (React Native), the connector SDK and the
 > test suite behind them: `npm run verify` typechecks, lints, checks the PRD/OpenAPI/packaging
-> contracts and runs 346 tests in 22 suites. What is deliberately not here yet — signed installers,
+> contracts and runs 376 tests in 26 suites. What is deliberately not here yet — signed installers,
 > live-database connector runs and the Socket.IO transport — is listed in
 > [`AGENT_STATE.md`](AGENT_STATE.md).
 
@@ -45,7 +45,9 @@ Read the full vision and scope in [`uploads/PRD.md`](uploads/PRD.md) and [`REQUI
 
 ### Available today
 
-Nothing functional yet — this is where the first working features will appear as they ship.
+Everything in the phases below is built and covered by the test suite. The honest exceptions are
+listed in [`AGENT_STATE.md`](AGENT_STATE.md): no signed installers, no live-database connector runs
+(adapters are tested against recorded responses), and Socket.IO is replaced by SSE.
 
 ### Phase 1 — MVP
 
@@ -110,9 +112,19 @@ Versions actually installed in this checkout: Node `22.22.3`, npm `10.9.8`, git 
 
 ```
 intelligent-data-capture-platform/
+├── apps/
+│   ├── backend/          # Fastify API, worker, migrations, tests
+│   ├── desktop/          # Electron shell + React renderer
+│   └── mobile/           # React Native capture app
+├── packages/
+│   ├── shared/           # Universal Data Model, Zod contracts, i18n (en/sw/fr)
+│   └── connectors/       # Connector SDK + first-party connectors
+├── legal/                # Privacy policy, terms, DPA, sub-processors, security summary
+├── scripts/              # PRD / OpenAPI / packaging / legal validators
+├── docs/                 # openapi.yaml and the JSON schemas
+├── uploads/              # Original product & requirements documents
 ├── PRD.json              # Master plan: epics, stories, statuses, acceptance criteria
 ├── REQUIREMENTS.md       # What the project needs (business → technical)
-├── README.md             # You are here
 ├── AI.md                 # Behaviour rules for AI coding agents
 ├── AGENT_STATE.md        # Handover: where the last agent stopped
 ├── TASKS.md              # Short-term work queue
@@ -128,24 +140,7 @@ intelligent-data-capture-platform/
 ├── CONTRIBUTING.md       # How to contribute
 ├── LICENSE               # Legal terms
 ├── .env.example          # Required configuration (no real secrets)
-├── .gitignore
-├── uploads/              # Original product & requirements documents
-│   ├── PRD.md
-│   └── requirements-1.md
-├── package.json          # Current React Native dependency manifest
-└── node_modules/         # Not committed
-```
-
-Target layout once scaffolding (`FOUND-003`) lands:
-
-```
-apps/
-  mobile/      # React Native (Android + iOS)
-  desktop/     # Electron desktop client
-  backend/     # API + workers
-packages/
-  shared/      # Universal Data Model, types, validation, i18n
-  connectors/  # Connector SDK + first-party connectors
+└── package.json          # Workspaces, scripts, Jest projects
 ```
 
 ## Getting started
@@ -192,7 +187,7 @@ npm run verify         # typecheck + lint + PRD/OpenAPI/packaging contracts + al
 npm test               # Jest projects: shared, connectors, backend, desktop, mobile
 ```
 
-`npm run verify` is the same command CI runs; it currently passes with 346 tests in 22 suites.
+`npm run verify` is the same command CI runs; it currently passes with 376 tests in 26 suites.
 
 ### Basic usage
 
@@ -205,23 +200,25 @@ npm test               # Jest projects: shared, connectors, backend, desktop, mo
 
 ## Documentation index
 
-| File                                 | What it answers                                      |
-| ------------------------------------ | ---------------------------------------------------- |
-| [`PRD.json`](PRD.json)               | What must be built, story by story, and what is done |
-| [`REQUIREMENTS.md`](REQUIREMENTS.md) | What the project needs                               |
-| [`AI.md`](AI.md)                     | How AI agents must behave while building it          |
-| [`AGENT_STATE.md`](AGENT_STATE.md)   | Where the last agent stopped                         |
-| [`TASKS.md`](TASKS.md)               | What is being worked on now                          |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the system is put together                       |
-| [`DATABASE.md`](DATABASE.md)         | What data is stored and how                          |
-| [`API.md`](API.md)                   | How components talk to each other                    |
-| [`TESTING.md`](TESTING.md)           | How to verify behaviour                              |
-| [`SECURITY.md`](SECURITY.md)         | How data is protected                                |
-| [`DEPLOYMENT.md`](DEPLOYMENT.md)     | How to put it online                                 |
-| [`ENVIRONMENT.md`](ENVIRONMENT.md)   | How to set up a dev machine                          |
-| [`DECISIONS.md`](DECISIONS.md)       | Why architecture choices were made                   |
-| [`CHANGELOG.md`](CHANGELOG.md)       | What changed and when                                |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute code                               |
+| File                                   | What it answers                                         |
+| -------------------------------------- | ------------------------------------------------------- |
+| [`PRD.json`](PRD.json)                 | What must be built, story by story, and what is done    |
+| [`REQUIREMENTS.md`](REQUIREMENTS.md)   | What the project needs                                  |
+| [`AI.md`](AI.md)                       | How AI agents must behave while building it             |
+| [`AGENT_STATE.md`](AGENT_STATE.md)     | Where the last agent stopped                            |
+| [`TASKS.md`](TASKS.md)                 | What is being worked on now                             |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md)   | How the system is put together                          |
+| [`DATABASE.md`](DATABASE.md)           | What data is stored and how                             |
+| [`API.md`](API.md)                     | How components talk to each other                       |
+| [`TESTING.md`](TESTING.md)             | How to verify behaviour                                 |
+| [`SECURITY.md`](SECURITY.md)           | How data is protected                                   |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md)       | How to put it online                                    |
+| [`ENVIRONMENT.md`](ENVIRONMENT.md)     | How to set up a dev machine                             |
+| [`DECISIONS.md`](DECISIONS.md)         | Why architecture choices were made                      |
+| [`CHANGELOG.md`](CHANGELOG.md)         | What changed and when                                   |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md)   | How to contribute code                                  |
+| [`legal/`](legal/README.md)            | Privacy policy, terms, DPA and the sub-processor list   |
+| [`AUDIT-2026-10.md`](AUDIT-2026-10.md) | The October 2026 hardening audit and what is still open |
 
 ## Roadmap
 

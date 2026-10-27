@@ -44,15 +44,22 @@ new features — `.env.example` was unusable, `DATABASE.md` claimed the schema w
 - [x] **AGENT-001** — workflow rules with a run log; destructive actions wait for per-run approval.
 - [x] **VOICE-001** — offline capture guidance, consented spoken commands, per-run confirmations.
 - [x] **I18N-001** — one complete `en/sw/fr` catalogue, locale-aware formatting, logical-property RTL.
+- [x] **SEC-001** — retention now runs by itself: `MaintenanceService` sweeps documents past
+      `retention_days`, expired exports, sessions, reset tokens and pairing codes on an interval
+      (`DEC-031`, `test/maintenance.test.ts`).
+- [x] **Password recovery and session control** — forgot/reset/change password, list and revoke
+      sessions, sign out everywhere (`DEC-030`, `test/auth-recovery.test.ts`).
+- [x] **Data-subject rights** — `GET /me/export` and `POST /me/erase`, wired to the desktop Account page.
+- [x] **Legal pack** — privacy policy, terms, DPA, sub-processor list and security summary under
+      `legal/`, published at `GET /legal/{slug}` and checked by `npm run test:legal`.
+- [x] **Web hardening** — security headers on every response and a structured access log.
 
 ## Now (product)
 
-Two acceptance criteria are unmet, both recorded as `verification` blocks in `PRD.json`:
+One acceptance criterion is unmet, recorded as a `verification` block in `PRD.json`:
 
 - [ ] **CON-002 OAuth**: consent flow + encrypted refresh token + refresh before a Sheets run. Until
       then a Sheets destination works for about an hour per pasted token.
-- [ ] **SEC-001 schedule**: a daily tick that enqueues the retention purge (and deletes expired
-      exports), so retention does not depend on someone calling the endpoint.
 
 ## Now (operations)
 
@@ -62,9 +69,11 @@ Deployment work, not product stories. The full table with consequences is `DEPLO
       `processing` forever (`test/worker-recovery.test.ts`).
 - [ ] Container image (`Dockerfile`) + publish step, so the documented pipeline can run.
 - [ ] `npm run db:backup` (`VACUUM INTO`) and a rehearsed restore for SQLite.
-- [ ] Scheduled retention purge, expired-export deletion and session sweep (today all manual).
-- [ ] `/metrics` (queue depth, job outcomes, latency) and an access log.
-- [ ] Security headers and a configurable `trustProxy`.
+- [x] Scheduled retention purge, expired-export deletion and session sweep (`MaintenanceService`).
+- [ ] `/metrics` (queue depth, job outcomes, latency) — the access log now exists, the metrics do not.
+- [x] Security headers.
+- [ ] A configurable `trustProxy`: `trustProxy` is currently always on, which is right behind the
+      documented reverse proxy and wrong if the API is exposed directly.
 - [ ] Dependency audit gate in CI — needs the `zod` v3 → v4 migration first (8 advisories, 1 critical).
 
 ## Later (Phase 3)

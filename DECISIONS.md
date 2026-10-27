@@ -583,6 +583,61 @@ what actually runs today.
 
 ---
 
+## DEC-030 — Password reset is a single-use hashed token, and the API never confirms an account exists
+
+**Date:** 2026-10-27 · **Status:** Accepted
+
+**Decision:** `POST /auth/password/forgot` always answers `202 {"accepted": true}`. When the address
+belongs to a live account the server writes a random 32-byte token, stores only its SHA-256 hash in
+`password_resets` with a one-hour expiry, and — because no mail transport exists — returns `resetUrl`
+in the response **only outside production**. `POST /auth/password/reset` consumes the token (single
+use), enforces the same password policy as registration, and revokes every session for the account.
+
+**Reason:** Password recovery is the one flow that turns an enumeration hole into a customer-facing
+incident: a distinguishable response ("no such account") is a free account-existence oracle. Storing
+only a hash means a leaked database backup does not hand over reset links. Revoking sessions on reset
+is the only honest interpretation of "I think someone else has my password".
+
+**Alternatives considered:** Emailing a plaintext temporary password (a password in an inbox forever,
+and it cannot be rate limited by expiry); a token stored in plaintext (a backup leak becomes account
+takeover); a signed stateless token (cannot be revoked or marked single-use without the same table);
+returning `resetUrl` in production too (that is account takeover by API call, so `NODE_ENV` gates it).
+
+**Consequences:** The production operator has to deliver the link out of band until `EMAIL_PROVIDER`
+exists — the limitation is stated in `legal/PRIVACY.md`, `ENVIRONMENT.md` and the API reference rather
+than hidden. The generic 202 means a support agent cannot tell a customer whether the address is
+registered from this endpoint, which is intended. `apps/backend/test/auth-recovery.test.ts` asserts the
+indistinguishable response, the single use and the session revocation.
+
+---
+
+## DEC-031 — Retention and housekeeping run in-process, on an interval, and are safe to run twice
+
+**Date:** 2026-10-27 · **Status:** Accepted
+
+**Decision:** A `MaintenanceService` scheduled inside the API process sweeps expired sessions, expired
+password resets, expired pairing codes, expired export files and documents past their organisation's
+retention window; it runs every `MAINTENANCE_INTERVAL_MS` (default 24 hours, first run 10 s after boot), only when
+`MAINTENANCE_ENABLED` is not `false`, and it is exposed as methods so the tests and an operator can
+invoke each step directly. Every step is idempotent and bounded (a limit per run, oldest first).
+
+**Reason:** The privacy policy now states retention periods, so something has to enforce them —
+a policy with no scheduler is a promise waiting to be broken by the first audit. An in-process timer
+avoids adding cron, a supervisor, or a second deployment artefact to a single-process product, and it
+inherits the process's configuration and logging for free.
+
+**Alternatives considered:** `setInterval` firing at import time (untestable, starts during a test run);
+a cron entry in the deployment guide (one more thing that silently is not installed); a Postgres
+`pg_cron` job (excludes the default SQLite deployment); doing it lazily on read (only cleans what
+somebody happens to look at).
+
+**Consequences:** With more than one replica every replica sweeps; the steps are idempotent so this is
+wasteful rather than wrong, and it is another entry in the list of things that must change before
+horizontal scaling (`DEC-029`). The defaults are mirrored in `legal/PRIVACY.md` and asserted by
+`npm run test:legal`, so changing a retention default without changing the policy fails CI.
+
+---
+
 ## Template for new decisions
 
 Copy this block, replace `DEC-0NN` with the next free number, and keep the list in numeric order.

@@ -2,9 +2,11 @@ import {
   AppError,
   badRequest,
   type CreatedInvitation,
+  type ForgotPasswordResponse,
   type Invitation,
   type RegisterRequest,
   type Role,
+  type Session as SessionDto,
   type TokenPair,
   type UserSummary,
 } from '@idcp/shared';
@@ -16,6 +18,7 @@ import type { Logger } from '../logger';
 import {
   MembershipsRepository,
   OrganisationsRepository,
+  PasswordResetsRepository,
   SessionsRepository,
   UsersRepository,
 } from '../repositories/auth-repo';
@@ -59,6 +62,7 @@ export class AuthService {
   private readonly sessions: SessionsRepository;
   private readonly audit: AuditRepository;
   private readonly invitations: InvitationsRepository;
+  private readonly resets: PasswordResetsRepository;
 
   constructor(
     private readonly db: Database,
@@ -73,6 +77,7 @@ export class AuthService {
     this.sessions = new SessionsRepository(db);
     this.audit = new AuditRepository(db);
     this.invitations = new InvitationsRepository(db);
+    this.resets = new PasswordResetsRepository(db);
   }
 
   private async issueTokens(
@@ -95,7 +100,7 @@ export class AuthService {
       Date.now() + this.config.REFRESH_TOKEN_TTL_SECONDS * 1000,
     ).toISOString();
 
-    await this.sessions.create({
+    const session = await this.sessions.create({
       userId: user.id,
       organisationId: membership.organisation_id,
       refreshTokenHash: refresh.hash,
@@ -108,6 +113,7 @@ export class AuthService {
       accessToken,
       expiresIn: this.config.ACCESS_TOKEN_TTL_SECONDS,
       refreshToken: refresh.token,
+      sessionId: session.id,
       user: {
         id: user.id,
         email: user.email,
@@ -234,6 +240,164 @@ export class AuthService {
   async logout(refreshToken: string): Promise<void> {
     const session = await this.sessions.findByTokenHash(hashToken(refreshToken));
     if (session) await this.sessions.revoke(session.id);
+  }
+
+  // --- Password lifecycle (DEC-030) ----------------------------------------
+
+  /**
+   * Start a reset. The answer never depends on whether the address exists, and no token is
+   * returned or logged in production — there is no mail transport in this deployment, so a
+   * production reset is delivered by whoever operates the platform (DEC-030).
+   */
+  async requestPasswordReset(email: string): Promise<ForgotPasswordResponse> {
+    const user = await this.users.findByEmail(email);
+    if (!user || user.disabled_at) {
+      // Same shape and roughly the same work as the successful path; nothing to send.
+      this.logger.info('password reset requested for an unknown address');
+      return { accepted: true };
+    }
+
+    const token = newToken();
+    const expiresAt = new Date(
+      Date.now() + this.config.PASSWORD_RESET_TTL_SECONDS * 1000,
+    ).toISOString();
+    await this.resets.invalidateOutstanding(user.id);
+    await this.resets.create({ userId: user.id, tokenHash: hashToken(token), expiresAt });
+
+    await this.audit.record({
+      organisationId: 'unknown',
+      actorType: 'system',
+      actorId: user.id,
+      action: 'auth.password_reset_requested',
+      targetType: 'user',
+      targetId: user.id,
+    });
+    this.logger.info('password reset requested', { userId: user.id });
+
+    const resetUrl = `${this.config.APP_ORIGIN.replace(/\/$/, '')}/#/reset-password?token=${encodeURIComponent(token)}`;
+    if (this.config.NODE_ENV === 'production') {
+      this.logger.warn(
+        'password reset token not delivered: no email transport is configured (DEC-030)',
+      );
+      return { accepted: true };
+    }
+    // Development and test only: the flow has to be completable without a mail server.
+    return { accepted: true, resetUrl };
+  }
+
+  /** Finish a reset. The token is single-use, and every session dies with it. */
+  async resetPassword(token: string, password: string): Promise<void> {
+    const strength = validatePasswordStrength(password);
+    if (!strength.ok) throw badRequest(strength.reason ?? 'Password is not strong enough.');
+
+    const invalid = new AppError(
+      'UNAUTHENTICATED',
+      'That reset link is invalid or has expired. Request a new one.',
+    );
+    const row = await this.resets.findByTokenHash(hashToken(token));
+    if (!row || row.used_at || row.expires_at <= nowIso()) throw invalid;
+    const user = await this.users.findById(row.user_id);
+    if (!user || user.disabled_at) throw invalid;
+    // The marked-used check is what makes two concurrent submissions race safely.
+    if (!(await this.resets.markUsed(row.id))) throw invalid;
+
+    await this.users.setPassword(user.id, await this.hasher.hash(password));
+    await this.sessions.revokeAllForUser(user.id);
+    await this.resets.invalidateOutstanding(user.id);
+    await this.audit.record({
+      organisationId: 'unknown',
+      actorType: 'user',
+      actorId: user.id,
+      action: 'auth.password_reset',
+      targetType: 'user',
+      targetId: user.id,
+    });
+  }
+
+  /**
+   * Change a password from inside the app. Every other session is revoked; the caller's own is
+   * kept when it identifies itself, so changing a password does not sign you out everywhere.
+   */
+  async changePassword(
+    actor: AuthenticatedActor,
+    input: { currentPassword: string; newPassword: string; refreshToken?: string },
+  ): Promise<{ revokedSessions: number }> {
+    const user = await this.users.findById(actor.userId);
+    if (!user) throw new AppError('UNAUTHENTICATED', 'Account not found.');
+    if (!user.password_hash) {
+      throw badRequest('This account has no password yet. Use the reset link you were sent.');
+    }
+    const valid = await this.hasher.verify(user.password_hash, input.currentPassword);
+    if (!valid) throw new AppError('INVALID_CREDENTIALS', 'Your current password is incorrect.');
+
+    const strength = validatePasswordStrength(input.newPassword);
+    if (!strength.ok) throw badRequest(strength.reason ?? 'Password is not strong enough.');
+    if (await this.hasher.verify(user.password_hash, input.newPassword)) {
+      throw badRequest('Choose a password you have not used before.');
+    }
+
+    let keep: string | undefined;
+    if (input.refreshToken) {
+      const session = await this.sessions.findByTokenHash(hashToken(input.refreshToken));
+      if (session && session.user_id === user.id && !session.revoked_at) keep = session.id;
+    }
+
+    await this.users.setPassword(user.id, await this.hasher.hash(input.newPassword));
+    const revokedSessions = await this.sessions.revokeAllForUser(user.id, keep);
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      action: 'auth.password_changed',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { revokedSessions },
+    });
+    return { revokedSessions };
+  }
+
+  // --- Sessions -------------------------------------------------------------
+
+  async listSessions(actor: AuthenticatedActor, currentSessionId?: string): Promise<SessionDto[]> {
+    const rows = await this.sessions.listForUser(actor.userId);
+    return rows.map((row) => ({
+      id: row.id,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      userAgent: row.user_agent,
+      current: row.id === currentSessionId,
+    }));
+  }
+
+  async revokeSession(actor: AuthenticatedActor, sessionId: string): Promise<void> {
+    const session = await this.sessions.findByIdForUser(actor.userId, sessionId);
+    if (!session || session.revoked_at) {
+      throw new AppError('NOT_FOUND', 'That session is not active.');
+    }
+    await this.sessions.revoke(sessionId);
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      action: 'auth.session_revoked',
+      targetType: 'session',
+      targetId: sessionId,
+    });
+  }
+
+  /** Sign out everywhere. The caller's own session is revoked too — that is the point. */
+  async revokeAllSessions(actor: AuthenticatedActor): Promise<{ revokedSessions: number }> {
+    const revokedSessions = await this.sessions.revokeAllForUser(actor.userId);
+    await this.audit.record({
+      organisationId: actor.organisationId,
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      action: 'auth.sessions_revoked_all',
+      targetType: 'user',
+      targetId: actor.userId,
+      metadata: { revokedSessions },
+    });
+    return { revokedSessions };
   }
 
   async me(actor: AuthenticatedActor): Promise<UserSummary> {

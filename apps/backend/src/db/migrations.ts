@@ -461,6 +461,23 @@ export const MIGRATIONS: Migration[] = [
       'CREATE INDEX idx_workflow_runs_status ON workflow_runs(status, created_at DESC)',
     ],
   },
+  {
+    // DEC-030: password reset is a single-use, hashed, expiring token — the same shape as an
+    // invitation, but scoped to one person and revoking every session when it is used.
+    id: '008_password_resets',
+    sql: [
+      `CREATE TABLE password_resets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        used_at TEXT,
+        created_at TEXT NOT NULL
+      )`,
+      'CREATE INDEX idx_password_resets_user ON password_resets(user_id, created_at DESC)',
+      'CREATE INDEX idx_password_resets_expiry ON password_resets(used_at, expires_at)',
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {

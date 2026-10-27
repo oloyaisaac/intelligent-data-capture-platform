@@ -64,9 +64,120 @@ export const TokenPairSchema = z.object({
   accessToken: z.string(),
   expiresIn: z.number().int().positive(),
   refreshToken: z.string(),
+  /** Identifies the server-side session this token pair belongs to (session list, revocation). */
+  sessionId: z.string(),
   user: UserSummarySchema,
 });
 export type TokenPair = z.infer<typeof TokenPairSchema>;
+
+// --- Account recovery and session control ----------------------------------
+
+/** POST /auth/password/forgot — always answers the same way, whatever the address. */
+export const ForgotPasswordRequestSchema = z.object({ email: EmailSchema }).strict();
+export type ForgotPasswordRequest = z.infer<typeof ForgotPasswordRequestSchema>;
+
+export const ForgotPasswordResponseSchema = z.object({
+  /** True when a reset link would have been sent. Never says whether the account exists. */
+  accepted: z.literal(true),
+  /**
+   * Only present outside production, where there is no mail transport: it lets a developer finish
+   * the flow locally. A production response never contains a token (DEC-030).
+   */
+  resetUrl: z.string().url().optional(),
+});
+export type ForgotPasswordResponse = z.infer<typeof ForgotPasswordResponseSchema>;
+
+export const ResetPasswordRequestSchema = z
+  .object({
+    token: z.string().min(20).max(500),
+    password: PasswordSchema,
+  })
+  .strict();
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
+
+/** POST /auth/password/change — the current refresh token is kept alive, every other one is not. */
+export const ChangePasswordRequestSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(LIMITS.maxPasswordLength),
+    newPassword: PasswordSchema,
+    /** Optional: the caller's own session, so it is not signed out by its own password change. */
+    refreshToken: z.string().min(20).max(500).optional(),
+  })
+  .strict();
+export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
+
+export const SessionSchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  userAgent: z.string().nullable(),
+  current: z.boolean(),
+});
+export type Session = z.infer<typeof SessionSchema>;
+
+export const SessionListSchema = z.object({ items: z.array(SessionSchema) });
+export type SessionList = z.infer<typeof SessionListSchema>;
+
+// --- Privacy (data-subject rights) ----------------------------------------
+
+/** GET /me/export — everything the platform holds about the person who asked. */
+export const DataExportSchema = z.object({
+  generatedAt: z.string(),
+  formatVersion: z.literal(1),
+  account: z.object({
+    id: z.string(),
+    email: z.string(),
+    displayName: z.string(),
+    locale: z.string(),
+    createdAt: z.string(),
+    lastLoginAt: z.string().nullable(),
+  }),
+  organisations: z.array(
+    z.object({ id: z.string(), name: z.string(), role: z.string(), joinedAt: z.string() }),
+  ),
+  documents: z.array(
+    z.object({
+      id: z.string(),
+      documentType: z.string(),
+      mimeType: z.string(),
+      status: z.string(),
+      createdAt: z.string(),
+    }),
+  ),
+  reviews: z.array(
+    z.object({
+      id: z.string(),
+      documentId: z.string(),
+      status: z.string(),
+      createdAt: z.string(),
+    }),
+  ),
+  auditEntries: z.array(
+    z.object({
+      action: z.string(),
+      targetType: z.string().nullable(),
+      createdAt: z.string(),
+    }),
+  ),
+  notes: z.array(z.string()),
+});
+export type DataExport = z.infer<typeof DataExportSchema>;
+
+/** POST /me/erase — anonymise the account; organisation records are kept and explained. */
+export const EraseAccountRequestSchema = z
+  .object({
+    password: z.string().min(1).max(LIMITS.maxPasswordLength),
+    confirm: z.literal('DELETE'),
+  })
+  .strict();
+export type EraseAccountRequest = z.infer<typeof EraseAccountRequestSchema>;
+
+export const EraseAccountResponseSchema = z.object({
+  erased: z.literal(true),
+  anonymisedAt: z.string(),
+  retainedRecords: z.string(),
+});
+export type EraseAccountResponse = z.infer<typeof EraseAccountResponseSchema>;
 
 /** POST /pairing/sessions — created by the desktop app. */
 export const CreatePairingSessionResponseSchema = z.object({

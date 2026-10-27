@@ -2,7 +2,7 @@
 
 How we prove the platform works. A story is not `done` until the relevant checks here pass.
 
-> **Status:** the suite exists and is what CI runs (`npm run verify`): 346 tests in 22 suites across
+> **Status:** the suite exists and is what CI runs (`npm run verify`): 376 tests in 26 suites across
 > five Jest projects. This document states how it is organised, what each layer is for, and which
 > gaps are deliberate (no browser or device automation yet).
 
@@ -39,7 +39,8 @@ npm run test:coverage
 npm run typecheck         # tsc --noEmit in every workspace
 npm run lint              # eslint, zero warnings allowed
 npm run format:check
-npm run verify            # typecheck + lint + PRD + API + tests
+npm run test:legal        # legal pack: files, placeholders, retention figures, sub-processors
+npm run verify            # typecheck + lint + PRD + API + packaging + legal + tests
 ```
 
 There is no Docker dependency: the backend suite runs SQLite in memory, storage in memory, and a
@@ -48,14 +49,14 @@ and browser harness.
 
 ### Current coverage
 
-| Workspace             | Suite                                                                                                                                                                                        | Tests   |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `packages/shared`     | `test/shared.test.ts`                                                                                                                                                                        | 49      |
-| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                                                    | 29      |
-| `apps/backend`        | `test/*.test.ts` (auth, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, security, config, worker recovery) | 170     |
-| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                                                     | 55      |
-| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                                           | 43      |
-| **Total**             | 22 suites                                                                                                                                                                                    | **346** |
+| Workspace             | Suite                                                                                                                                                                                                                                                        | Tests   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `packages/shared`     | `test/shared.test.ts`                                                                                                                                                                                                                                        | 49      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                                                                                                                    | 29      |
+| `apps/backend`        | `test/*.test.ts` (auth, password recovery, sessions, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, privacy, maintenance, web surface, security, config, worker recovery) | 195     |
+| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                                                                                                                     | 60      |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                                                                                                           | 43      |
+| **Total**             | 26 suites                                                                                                                                                                                                                                                    | **376** |
 
 Notes for anyone extending the suite:
 

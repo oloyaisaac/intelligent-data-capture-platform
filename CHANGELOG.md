@@ -8,6 +8,26 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 
 ### Added
 
+- **Account recovery and session control** — forgot/reset/change password over single-use hashed
+  tokens that never reveal whether an account exists, a session list with per-session revoke, and
+  "sign out everywhere" (`DEC-030`; `POST /auth/password/*`, `GET /auth/sessions`,
+  `DELETE /auth/sessions/{id}`, `POST /auth/logout-all`). The desktop gains a **Forgot password**
+  flow and an **Account** page.
+- **Data-subject rights** — `GET /me/export` (a complete JSON attachment) and `POST /me/erase`
+  (password + typed confirmation; anonymises the account, revokes sessions, deletes unreviewed
+  drafts and files, audits the erasure).
+- **Legal pack** — `legal/` holds the privacy policy, terms of service, data processing agreement,
+  sub-processor list and a security overview, written from what the code does, published publicly at
+  `GET /legal` and `GET /legal/{slug}`, and checked by `npm run test:legal` (placeholders, retention
+  figures and sub-processor agreement).
+- **Scheduled housekeeping** — `MaintenanceService` (`DEC-031`) sweeps documents past
+  `retention_days`, expired exports, dead sessions, spent reset tokens and expired pairing codes.
+  Closes the last operational half of `SEC-001`.
+- **Response hardening** — baseline security headers on every response, HSTS in production only, and a
+  structured access log (`test/web-surface.test.ts`).
+- **`AUDIT-2026-10.md`** — the hardening audit: what was broken, what changed, and the residual risks
+  with an owner for each.
+
 - **Monorepo and tooling** — npm workspaces (`apps/*`, `packages/*`), a strict TypeScript baseline
   with path aliases, Jest projects for every workspace, ESLint 9 (flat config) and Prettier
   (`FOUND-003`, `FOUND-004`).

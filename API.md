@@ -78,6 +78,10 @@ each one by name; the database is the only external dependency of the shipped ru
 | POST   | `/auth/logout`          | Revoke the presented refresh token                            |
 | POST   | `/auth/password/forgot` | Send reset link (always 202, never reveals account existence) |
 | POST   | `/auth/password/reset`  | Consume single-use reset token                                |
+| POST   | `/auth/password/change` | Change the password of the signed-in user                     |
+| GET    | `/auth/sessions`        | Live sessions for the caller                                  |
+| DELETE | `/auth/sessions/{id}`   | Revoke one of the caller's own sessions                       |
+| POST   | `/auth/logout-all`      | Sign out everywhere                                           |
 | GET    | `/auth/me`              | Current user, roles and organisation                          |
 
 `POST /auth/login`
@@ -92,7 +96,24 @@ each one by name; the database is the only external dependency of the shipped ru
 }
 ```
 
-Rules: access tokens ≤ 15 minutes; refresh tokens rotate on every use and are single-use; login is rate limited per IP and per account.
+Every token pair also carries `sessionId`, which identifies the server-side session: it is what
+`GET /auth/sessions?current=<id>` uses to mark "this device", and it survives refresh rotation.
+
+Rules: access tokens ≤ 15 minutes; refresh tokens rotate on every use and are single-use; login is
+rate limited per IP and per account.
+
+**Password recovery (DEC-030).** `POST /auth/password/forgot` always answers `202 { "accepted": true }`
+— whether or not the address exists. This deployment sends no email, so outside production the body
+also carries `resetUrl` (token included) so the flow can be completed locally; in production the
+token is neither returned nor logged, and the operator delivers the link out of band. `POST
+/auth/password/reset` is single-use and revokes every session for the account.
+
+**Changing a password** revokes the other sessions; send your own `refreshToken` to keep the current
+one alive. `POST /auth/logout-all` revokes everything, including the caller — that is the point of it.
+
+**Sessions** are listed newest first with `createdAt`, `expiresAt`, `userAgent` and `current`. Auth
+tokens are stateless, so a revoked session stops refreshing immediately while its access token
+remains valid for up to 15 minutes; that is the documented window, not an accident.
 
 ---
 
@@ -403,7 +424,37 @@ Rules: messages are small; never send document content or personal data over soc
 
 ---
 
-## 10. Rate limits (v1 defaults)
+## 10. Privacy — my data
+
+| Method | Path         | Purpose                                                         |
+| ------ | ------------ | --------------------------------------------------------------- |
+| GET    | `/me/export` | Everything held about the caller, as a JSON attachment          |
+| POST   | `/me/erase`  | Anonymise the caller's account (password + `confirm: "DELETE"`) |
+
+`/me/export` returns the account, organisations with roles, documents uploaded by that person,
+reviews they performed and the most recent 1,000 audit entries. It never includes another
+organisation's rows, and it is not stored server-side.
+
+`/me/erase` anonymises the account (`deleted-<id>@erased.invalid`, "Erased account"), revokes every
+session and device, deletes the person's unreviewed drafts and their files, and audits
+`privacy.account_erased`. Approved records and the audit trail are kept — they belong to the
+organisation and may be subject to a retention duty — with no identifying details. It is refused with
+`409` while the person is one of several owners, because the organisation would be left without an
+accountable owner; a sole owner erases the organisation's identity with them.
+
+## 11. Legal documents
+
+| Method | Path            | Purpose                                     |
+| ------ | --------------- | ------------------------------------------- |
+| GET    | `/legal`        | List published documents (slug, title, URL) |
+| GET    | `/legal/{slug}` | Fetch one as `text/plain` (Markdown)        |
+
+Public on purpose: someone deciding whether to sign up has to be able to read the privacy policy, and
+a customer's auditor has to be able to fetch the DPA without an account. Slugs are `privacy`, `terms`,
+`dpa`, `subprocessors`, `security` and are matched against a fixed list — the filesystem path is never
+built from the request. Files live in `legal/` and are checked by `npm run test:legal`.
+
+## 12. Rate limits (v1 defaults)
 
 | Scope                          | Limit                           |
 | ------------------------------ | ------------------------------- |
@@ -418,12 +469,12 @@ Rules: messages are small; never send document content or personal data over soc
 
 ---
 
-## 11. Webhooks _(Phase 3)_
+## 13. Webhooks _(Phase 3)_
 
 Outbound webhooks for `document.approved`, `connector.run_failed` and `export.ready`, signed with HMAC-SHA256 in `X-IDCP-Signature`, retried with exponential backoff for 24 hours, with a replay window and documented payload versioning.
 
 ---
 
-## 12. Documentation duties
+## 14. Documentation duties
 
 When an endpoint or socket event changes: update this file, bump the OpenAPI document (`docs/openapi.yaml`, `DEVAPI-001`) and add a `CHANGELOG.md` note. Never change a live response shape in place inside `v1`.

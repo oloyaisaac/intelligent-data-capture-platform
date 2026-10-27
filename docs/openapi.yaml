@@ -154,6 +154,281 @@ components:
         lastUsedAt: { type: string, format: date-time, nullable: true }
         revokedAt: { type: string, format: date-time, nullable: true }
 paths:
+  /auth/password/forgot:
+    post:
+      tags: [Auth]
+      summary: Request a password-reset link
+      description: >-
+        Always answers 202 with the same body, whether or not the address exists. Outside production
+        the response also carries `resetUrl`, because this deployment has no mail transport (DEC-030).
+      operationId: forgotPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted]
+                properties:
+                  accepted: { type: boolean, const: true }
+                  resetUrl: { type: string, format: uri }
+        '429': { description: Too many requests }
+  /auth/password/reset:
+    post:
+      tags: [Auth]
+      summary: Finish a password reset with a single-use token
+      description: Revokes every session for the account when it succeeds.
+      operationId: resetPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 12 }
+      responses:
+        '204': { description: Password changed }
+        '400': { description: Password too weak }
+        '401': { description: Invalid, used or expired token }
+  /auth/password/change:
+    post:
+      tags: [Auth]
+      summary: Change the password of the signed-in user
+      description: >-
+        Other sessions are revoked. Send the caller's own `refreshToken` to keep that session alive.
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 12 }
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revokedSessions: { type: integer }
+        '400': { description: New password rejected }
+        '401': { description: Current password incorrect }
+  /auth/sessions:
+    get:
+      tags: [Auth]
+      summary: List live sessions for the signed-in user
+      operationId: listSessions
+      parameters:
+        - name: current
+          in: query
+          required: false
+          schema: { type: string }
+          description: The caller's own session id, so it can be marked as current.
+      responses:
+        '200':
+          description: Sessions, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        createdAt: { type: string, format: date-time }
+                        expiresAt: { type: string, format: date-time }
+                        userAgent: { type: string, nullable: true }
+                        current: { type: boolean }
+  /auth/sessions/{id}:
+    delete:
+      tags: [Auth]
+      summary: Revoke one of the caller's own sessions
+      operationId: revokeSession
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Revoked }
+        '404': { description: Not your session, or already revoked }
+  /auth/logout-all:
+    post:
+      tags: [Auth]
+      summary: Sign out everywhere
+      operationId: logoutAll
+      responses:
+        '200':
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revokedSessions: { type: integer }
+  /legal:
+    get:
+      tags: [Legal]
+      summary: List the published legal documents
+      operationId: listLegalDocuments
+      security: []
+      responses:
+        '200':
+          description: Documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug: { type: string }
+                        title: { type: string }
+                        url: { type: string }
+  /legal/{slug}:
+    get:
+      tags: [Legal]
+      summary: Fetch a legal document as plain text
+      operationId: getLegalDocument
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [privacy, terms, dpa, subprocessors, security]
+      responses:
+        '200':
+          description: Markdown document served as text/plain
+          content:
+            text/plain:
+              schema: { type: string }
+        '404': { description: No such document }
+  /me/export:
+    get:
+      tags: [Privacy]
+      summary: Download everything held about the signed-in person
+      description: Data-subject access and portability, as a JSON attachment.
+      operationId: exportMyData
+      responses:
+        '200':
+          description: The export
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generatedAt: { type: string, format: date-time }
+                  formatVersion: { type: integer, const: 1 }
+                  account:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      email: { type: string }
+                      displayName: { type: string }
+                      locale: { type: string }
+                      createdAt: { type: string, format: date-time }
+                      lastLoginAt: { type: string, nullable: true }
+                  organisations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        role: { type: string }
+                        joinedAt: { type: string, format: date-time }
+                  documents:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        documentType: { type: string }
+                        mimeType: { type: string }
+                        status: { type: string }
+                        createdAt: { type: string, format: date-time }
+                  reviews:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        documentId: { type: string }
+                        status: { type: string }
+                        createdAt: { type: string, format: date-time }
+                  auditEntries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        action: { type: string }
+                        targetType: { type: string, nullable: true }
+                        createdAt: { type: string, format: date-time }
+                  notes:
+                    type: array
+                    items: { type: string }
+  /me/erase:
+    post:
+      tags: [Privacy]
+      summary: Erase (anonymise) the signed-in account
+      description: >-
+        Requires the account password and the literal word DELETE. Refused with 409 while the person
+        is one of several owners; a sole owner erases the organisation's identity with them.
+      operationId: eraseAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, confirm]
+              properties:
+                password: { type: string }
+                confirm: { type: string, const: DELETE }
+      responses:
+        '200':
+          description: Erased
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  erased: { type: boolean, const: true }
+                  anonymisedAt: { type: string, format: date-time }
+                  retainedRecords: { type: string }
+        '400': { description: Confirmation missing }
+        '401': { description: Wrong password }
+        '409': { description: Still one of several owners }
+        '429': { description: Too many attempts }
   /health:
     get:
       tags: [Health]

@@ -47,9 +47,17 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 - Access tokens: JWT, ≤ 15 minutes, `HS256`/`RS256` with a per-environment key, containing only `sub`, `org`, `role`, `exp`, `iat`.
 - Refresh tokens: opaque, single-use, rotating, hashed at rest, revocable, bound to a session record.
 - Login: rate limited (5 attempts / 15 min per IP **and** per account), generic error messages, timing-safe comparison, lockout with exponential delay.
-- Password reset tokens: single-use, ≤ 30 minutes, invalidated on password change, never logged.
+- Password reset tokens: 256-bit random, stored only as a SHA-256 hash, single-use, ≤ 1 hour
+  (`PASSWORD_RESET_TTL_SECONDS`, default 3600), invalidated on use and on password change, never
+  logged. `POST /auth/password/forgot` answers `202` identically whether or not the account exists,
+  so it cannot be used to enumerate users (DEC-030).
+- A successful reset or password change revokes **every** session for the account; the desktop
+  Account page exposes the same through `GET /auth/sessions`, `DELETE /auth/sessions/{id}` and
+  `POST /auth/logout-all`.
 - Device credentials: 256-bit random, hashed at rest, stored on the device in **secure storage** (Android Keystore / iOS Keychain / OS keychain on desktop), never in plain preferences or AsyncStorage.
 - Multi-factor authentication is required for the `owner` and `admin` roles before enterprise release.
+  **It is not implemented yet** — the single largest security gap in the product, tracked in
+  `AUDIT-2026-10.md` §4.1 and `TASKS.md`.
 
 ## 5. Authorisation
 
@@ -97,7 +105,11 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 - Inventorise fields marked 🔒 in `DATABASE.md` as personal data.
 - Retention is configurable per organisation (`SEC-001`) and deletion is real (objects + rows), verified by `TC-11`.
 - No customer data is used to train models without explicit, revocable opt-in.
-- Data-subject requests (access, deletion, export) must be answerable from the audit trail and records.
+- Data-subject requests are served by the product, not by hand: `GET /me/export` returns everything held
+  about the caller as a JSON attachment, and `POST /me/erase` anonymises the account, revokes its
+  sessions and devices, deletes unreviewed drafts and their files, and audits
+  `privacy.account_erased`. Approved records and the audit trail are retained, stripped of identifying
+  details, because they belong to the organisation and may carry a retention duty.
 - Data-residency is a pending decision (`PRD.json` Q-003).
 
 ## 7. Input and upload safety
@@ -121,6 +133,21 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 ## 9. Rate limiting and abuse
 
 Limits from `API.md` §10 are enforced at the edge and in the app. Authentication, pairing, upload and export are the priority surfaces. 429 responses include `Retry-After`. Repeated abuse triggers account-level throttling and is audited.
+
+## 9.1 Response hardening
+
+Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: no-referrer`, a `default-src 'none'` Content-Security-Policy,
+`Cross-Origin-Opener-Policy`/`Cross-Origin-Resource-Policy: same-origin` and a `Permissions-Policy`
+that turns off camera, microphone and geolocation. `Strict-Transport-Security` is sent **only** when
+`NODE_ENV=production`, because HSTS over a local HTTP server poisons a developer's browser. Asserted by
+`apps/backend/test/web-surface.test.ts`.
+
+## 9.2 Access log
+
+Every request produces one structured line on response: method, path, status, duration, request id and
+the authenticated user and organisation when there is one. Bodies, query strings and headers are not
+logged, so credentials and tokens cannot leak through it.
 
 ## 10. Audit trail
 
@@ -149,3 +176,6 @@ Report privately to the project owner (see `DECISIONS.md` DEC-011) with steps to
 - [ ] Retention and deletion verified (`TC-11`).
 - [ ] Backups encrypted and a restore has been tested.
 - [ ] Privacy/security disclosures updated for app-store submission.
+- [ ] `legal/` placeholders replaced and `npm run test:legal` green (`AUDIT-2026-10.md` §2).
+- [ ] Password recovery exercised end to end, including the production path where no `resetUrl`
+      is returned and the operator delivers the link.
