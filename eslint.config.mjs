@@ -17,6 +17,8 @@ export default tseslint.config(
       '**/*.config.cjs',
       '**/*.config.mjs',
       'scripts/**',
+      // Standalone static content, not part of the product build.
+      'graphic-design-course/site/**',
     ],
   },
   js.configs.recommended,

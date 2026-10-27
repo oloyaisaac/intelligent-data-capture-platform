@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Graphic Design in 15 Days · Phone-Only Course</title>
+    <meta
+      name="description"
+      content="A 15-day graphic design course from complete beginner to portfolio-ready, designed to be studied entirely on a phone in 2.5 hour sessions."
+    />
+    <meta name="theme-color" content="#faf7f2" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="topbar">
+      <button class="icon-btn" id="menuBtn" aria-label="Open course menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 6h18M3 12h18M3 18h18" />
+        </svg>
+      </button>
+
+      <a class="brand" href="#/start">
+        <span class="brand-mark">GD</span>
+        <span class="brand-text">
+          <strong>Graphic Design in 15 Days</strong>
+          <small id="brandSub">Phone-only · beginner → advanced</small>
+        </span>
+      </a>
+
+      <div class="progress-pill" id="progressPill" title="Course progress">
+        <svg viewBox="0 0 36 36" aria-hidden="true">
+          <circle class="ring-bg" cx="18" cy="18" r="15" />
+          <circle class="ring-fg" id="ringFg" cx="18" cy="18" r="15" />
+        </svg>
+        <span id="progressText">0/15</span>
+      </div>
+    </header>
+
+    <div class="scrim" id="scrim" hidden></div>
+
+    <nav class="drawer" id="drawer" aria-label="Course contents" aria-hidden="true">
+      <div class="drawer-head">
+        <p class="eyebrow">Contents</p>
+        <button class="icon-btn" id="closeBtn" aria-label="Close menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
+      <div class="drawer-foot">
+        <button class="ghost-btn" id="resetBtn">Reset my progress</button>
+      </div>
+    </nav>
+
+    <main id="main" class="content" tabindex="-1">
+      <div id="view" class="view"></div>
+    </main>
+
+    <footer class="daynav" id="daynav" hidden>
+      <button class="nav-btn" id="prevBtn">← Previous</button>
+      <button class="done-btn" id="doneBtn">Mark day done</button>
+      <button class="nav-btn" id="nextBtn">Next →</button>
+    </footer>
+
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
