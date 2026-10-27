@@ -117,6 +117,14 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   real `ConfigSchema`: it fails if a key is documented but unread, or read but undocumented, and it
   boots a config from the file copied verbatim. `CONFIG_ENV_KEYS` is exported from
   `apps/backend/src/config.ts` as the single list of keys the server reads.
+- **PRD honesty pass** — every acceptance criterion that is asserted rather than demonstrated is now
+  recorded on the story itself: eleven stories carry a `verification` block naming the criterion and
+  why it is not proven (unmeasured performance targets, native builds, an external service, an
+  operator-run purge, forward-only migrations, no RTL locale). `npm run test:prd` rejects an empty or
+  misshapen block, so the record cannot rot into decoration. `TESTING.md` §3.1 summarises it.
+- **`docs/prd.schema.json`** — the file `PRD.json`'s `$schema` has always pointed at, so editors and
+  validators can resolve it. `scripts/validate-prd.mjs` now fails if `$schema` points at a missing or
+  invalid file.
 - **Stale job recovery** — the worker re-queues jobs a crashed or redeployed process left in
   `running` (anything claimed more than 30 s before boot), so an interrupted extraction retries
   instead of leaving its document in `processing` forever (`test/worker-recovery.test.ts`).
@@ -137,6 +145,11 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   SQLite locally, PostgreSQL in production) and DEC-029 (the shipped runtime is one process: SQLite,
   a filesystem and an in-process worker polling the `jobs` table). DEC-006 is marked superseded by
   DEC-016, and the `DEC-0NN` template moved to the end of the file so it stops taking DEC-013's slot.
+- **`PRD.json` caught up with the code**: `currentState` no longer claims workflow automation, voice
+  and localisation are still to come (all three shipped), and milestones M2 and M3 are `done` with
+  their stories instead of `in_progress`/`pending`.
+- **`DATABASE.md` publishes the UDM schema**: §4 names `docs/udm-1.0.schema.json`, how it is generated
+  (`npm run schema:udm`) and how CI detects staleness — the criterion UDM-001 asked for.
 - **`DEPLOYMENT.md` says what is true**: the pipeline diagram no longer implies an image build that
   does not exist, backups describe `VACUUM INTO` for SQLite instead of promising point-in-time
   recovery, monitoring separates what the app emits (JSON logs, `/api/v1/health`, request ids,

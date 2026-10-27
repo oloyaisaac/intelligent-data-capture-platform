@@ -24,6 +24,15 @@ run and corrected. `apps/backend/test/config.test.ts` now fails if `.env.example
 **All 45 stories are `done`.** The product described by `PRD.json` is built; the remaining work is the
 deliberate release-side gaps listed below.
 
+"Done" does not mean "measured". Eleven stories carry a `verification` block in `PRD.json` naming the
+acceptance criterion that is asserted rather than demonstrated — unmeasured performance targets, no
+native build, no live Google Sheets run, no labelled classification benchmark, an operator-run
+retention purge, forward-only migrations, no RTL locale. `npm run test:prd` fails if a block is empty,
+and `TESTING.md` §3.1 explains what each kind means. Check that block before repeating a claim from
+the PRD. **The one real functional hole it records is `CON-002`**: there is no OAuth flow and no token
+refresh, so a Google Sheets destination needs a bearer token pasted in and stops working when it
+expires.
+
 The most recent code change is operational: a job left `running` by a crashed or redeployed process
 used to strand its document in `processing` forever, because nothing ever moved a claimed job out of
 `running`. The worker now re-queues anything claimed more than 30 s before it started
@@ -94,6 +103,25 @@ Health check: `GET /api/v1/health` (there is no bare `/health`).
     button-only; the consent gate, phrase book and guidance logic are pure and tested (DEC-027).
 12. **Open decisions**: AI provider/budget (Q-001), licensing (Q-002), hosting region (Q-003),
     standalone desktop mode (Q-004).
+
+## Product gaps (unmet acceptance criteria)
+
+Two acceptance criteria describe behaviour that does not exist, as opposed to behaviour that is
+simply unverified. Both are recorded on the story as a `verification` block:
+
+1. **`CON-002` — automatic OAuth token refresh for Google Sheets.** The connector is handed an
+   `accessToken` from the encrypted credential blob; nothing obtains or renews one. A Sheets
+   destination therefore works for about an hour after somebody pastes a token. Fixing it means an
+   OAuth consent flow (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are not in the schema), encrypted
+   refresh-token storage on the connector row, and a refresh call before each run.
+2. **`SEC-001` — a scheduled retention purge.** The job and the worker exist; the trigger does not.
+   Until a scheduler lands, retention only happens when an admin calls
+   `POST /api/v1/retention/purge` or an external cron does. This is the cheapest of the two to fix
+   and the one with the largest operational consequence (documents are kept past their retention
+   period, which is a compliance problem rather than an inconvenience).
+
+`AI-002`'s "agreed benchmark on the labelled test set" has no test set and no benchmark anywhere in
+the repository; treat that criterion as not measurable until a corpus is added.
 
 ## Operations gaps (deployment, not product)
 

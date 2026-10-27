@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oloyaisaac/intelligent-data-capture-platform/docs/prd.schema.json",
+  "title": "IDCP Product Requirements Document",
+  "description": "Shape of PRD.json. Enforced by scripts/validate-prd.mjs, which is stricter about cross-references (unique ids, dependency status, artifact existence) than a schema can express.",
+  "type": "object",
+  "required": [
+    "$schema",
+    "project",
+    "slug",
+    "version",
+    "lastUpdated",
+    "statusLegend",
+    "milestones",
+    "epics",
+    "stories",
+    "openQuestions"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL of this schema. A relative path must exist in the repository."
+    },
+    "project": { "type": "string", "minLength": 1 },
+    "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "lastUpdated": { "type": "string", "format": "date" },
+    "owner": { "type": "string" },
+    "sourceDocuments": { "type": "array", "items": { "type": "string" } },
+    "vision": { "type": "string" },
+    "problem": { "type": "string" },
+    "targetUsers": { "type": "array", "items": { "type": "string" } },
+    "platforms": { "type": "array", "items": { "type": "string" } },
+    "currentState": {
+      "type": "object",
+      "required": ["phase", "summary"],
+      "additionalProperties": true,
+      "properties": {
+        "phase": { "type": "string" },
+        "summary": { "type": "string" },
+        "codeStatus": { "type": "string" }
+      }
+    },
+    "statusLegend": {
+      "type": "object",
+      "description": "Closed set: every story and milestone status must be one of these keys.",
+      "required": ["done", "in_progress", "pending"],
+      "additionalProperties": { "type": "string" }
+    },
+    "definitionOfDone": { "type": "array", "items": { "type": "string" } },
+    "milestones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "goal", "status"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string", "pattern": "^M\\d+$" },
+          "name": { "type": "string" },
+          "goal": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    "epics": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "description", "phase"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string", "pattern": "^EP-[A-Z0-9]+$" },
+          "title": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "phase": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "stories": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "epic",
+          "title",
+          "status",
+          "phase",
+          "priority",
+          "description",
+          "acceptanceCriteria",
+          "dependsOn",
+          "artifacts"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*-\\d{3}$" },
+          "epic": { "type": "string" },
+          "title": { "type": "string", "minLength": 1 },
+          "status": { "type": "string" },
+          "phase": { "type": "integer", "minimum": 1 },
+          "priority": { "enum": ["must", "should", "could", "wont"] },
+          "description": { "type": "string", "minLength": 1 },
+          "acceptanceCriteria": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 10 }
+          },
+          "dependsOn": { "type": "array", "items": { "type": "string" } },
+          "artifacts": {
+            "type": "array",
+            "description": "Repository paths; a trailing * is matched by its parent directory.",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "verification": {
+            "type": "object",
+            "description": "Only present where the acceptance criteria are not fully demonstrated. `status: done` means the behaviour is built and tested; this block records the part a reader should not assume.",
+            "required": ["notVerified"],
+            "additionalProperties": false,
+            "properties": {
+              "notVerified": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 10 }
+              },
+              "evidence": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "openQuestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "question", "owner"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string", "pattern": "^Q-\\d{3}$" },
+          "question": { "type": "string", "minLength": 1 },
+          "blocks": { "type": "array", "items": { "type": "string" } },
+          "owner": { "type": "string" }
+        }
+      }
+    }
+  }
+}
