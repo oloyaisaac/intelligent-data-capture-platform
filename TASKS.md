@@ -3,7 +3,7 @@
 Short-term work queue. `PRD.json` is the complete project; this file is what we are doing **now**.
 Story IDs refer to `PRD.json`. Keep this list short and honest.
 
-**Last updated:** 2026-10-26
+**Last updated:** 2026-10-27
 
 ---
 
@@ -59,6 +59,10 @@ new features — `.env.example` was unusable, `DATABASE.md` claimed the schema w
 - [x] **`TRUST_PROXY`** — proxy trust is configurable, so per-IP limits cannot be spoofed when the API
       is exposed directly (`DEC-033`).
 - [x] **Audit filter bug** — the actor filter was silently ignored; client, route and OpenAPI now agree.
+- [x] **Multi-factor authentication** — TOTP enrolment with a five-minute login challenge, ten
+      single-use recovery codes stored as hashes, password-plus-code disable, and an Account-page
+      section to enrol, regenerate and switch it off (`DEC-034`, `test/totp.test.ts`,
+      `test/mfa.test.ts`). Desktop sign-in and the mobile app both handle the challenge.
 
 ## Now (product)
 
@@ -66,6 +70,8 @@ One acceptance criterion is unmet, recorded as a `verification` block in `PRD.js
 
 - [ ] **CON-002 OAuth**: consent flow + encrypted refresh token + refresh before a Sheets run. Until
       then a Sheets destination works for about an hour per pasted token.
+- [ ] **MFA policy**: let an organisation require a second factor for a role (and for the owner),
+      and show who has it on. Today enrolment is self-service only (`DEC-034`).
 
 ## Now (operations)
 
@@ -78,7 +84,12 @@ Deployment work, not product stories. The full table with consequences is `DEPLO
 - [x] Scheduled retention purge, expired-export deletion and session sweep (`MaintenanceService`).
 - [ ] `/metrics` (queue depth, job outcomes, latency) — the access log now exists, the metrics do not.
 - [x] Security headers.
-- [ ] Dependency audit gate in CI — needs the `zod` v3 → v4 migration first (8 advisories, 1 critical).
+- [ ] Dependency audit gate in CI — needs the `zod` v3 → v4 migration first (9 advisories, 1 critical).
+
+## Later (security)
+
+- [ ] WebAuthn/passkeys as a second factor, so a phished code is not enough. The enrolment shape
+      (start → confirm → encrypted secret) already fits (`DEC-034`).
 
 ## Later (Phase 3)
 

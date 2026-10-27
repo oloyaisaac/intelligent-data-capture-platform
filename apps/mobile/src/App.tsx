@@ -102,6 +102,10 @@ export function App(): React.JSX.Element {
             await client.login({ email, password });
             setSession('signed_in');
           }}
+          onCompleteMfa={async (code) => {
+            await client.completeMfa(code);
+            setSession('signed_in');
+          }}
         />
       </SafeAreaView>
     );

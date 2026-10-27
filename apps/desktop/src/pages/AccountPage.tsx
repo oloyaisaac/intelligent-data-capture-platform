@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Session } from '@idcp/shared';
+import type { MfaStatus, Session } from '@idcp/shared';
 import { ApiError, type ApiClient } from '../api/client';
 import { Card, ErrorBanner, Field, useAsync } from '../components/ui';
 import { formatDateTime } from '../lib/format';
@@ -40,6 +40,83 @@ export function AccountPage({
   const [confirmText, setConfirmText] = useState('');
   const [erasePassword, setErasePassword] = useState('');
   const [erasing, setErasing] = useState(false);
+
+  const mfa = useAsync<MfaStatus>(() => client.mfaStatus(), []);
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [mfaError, setMfaError] = useState<string | null>(null);
+  const [mfaNotice, setMfaNotice] = useState<string | null>(null);
+  const [enrolPassword, setEnrolPassword] = useState('');
+  const [pendingSecret, setPendingSecret] = useState<{
+    secret: string;
+    otpauthUri: string;
+  } | null>(null);
+  const [enrolCode, setEnrolCode] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [disablePassword, setDisablePassword] = useState('');
+  const [disableCode, setDisableCode] = useState('');
+
+  /**
+   * One wrapper for the four MFA actions: each already has a busy flag, an error and a notice, and
+   * repeating that bookkeeping four times is how screens drift apart.
+   */
+  const runMfa = async (action: () => Promise<void>) => {
+    if (mfaBusy) return;
+    setMfaBusy(true);
+    setMfaError(null);
+    setMfaNotice(null);
+    try {
+      await action();
+    } catch (caught) {
+      setMfaError(caught instanceof ApiError ? caught.message : t('login.networkError'));
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const startEnrolment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await runMfa(async () => {
+      const started = await client.startMfaEnrolment(enrolPassword);
+      setPendingSecret({ secret: started.secret, otpauthUri: started.otpauthUri });
+      setRecoveryCodes(null);
+      setEnrolPassword('');
+    });
+  };
+
+  const confirmEnrolment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await runMfa(async () => {
+      const result = await client.confirmMfaEnrolment(enrolCode.trim());
+      setRecoveryCodes(result.recoveryCodes);
+      setPendingSecret(null);
+      setEnrolCode('');
+      setMfaNotice(t('account.mfaOn'));
+      await mfa.reload();
+    });
+  };
+
+  const disableMfa = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await runMfa(async () => {
+      await client.disableMfa(disablePassword, disableCode.trim());
+      setDisablePassword('');
+      setDisableCode('');
+      setRecoveryCodes(null);
+      setMfaNotice(t('account.mfaOff'));
+      await mfa.reload();
+    });
+  };
+
+  const regenerateCodes = async () => {
+    const code = window.prompt(t('account.mfaCodePrompt')) ?? '';
+    if (!code.trim()) return;
+    await runMfa(async () => {
+      const result = await client.regenerateRecoveryCodes(code.trim());
+      setRecoveryCodes(result.recoveryCodes);
+      setMfaNotice(t('account.recoveryRegenerated'));
+      await mfa.reload();
+    });
+  };
 
   const changePassword = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -174,6 +251,115 @@ export function AccountPage({
         </form>
       </Card>
 
+      <Card title={t('account.mfaTitle')}>
+        <p className="muted" style={{ marginTop: 0 }}>
+          {mfa.data?.enabled ? t('account.mfaEnabledHint') : t('account.mfaDisabledHint')}
+        </p>
+        <ErrorBanner message={mfaError} />
+        {mfaNotice && (
+          <div className="muted" role="status">
+            {mfaNotice}
+          </div>
+        )}
+
+        {mfa.data?.enabled ? (
+          <div className="stack" style={{ maxWidth: 480 }}>
+            <p className="muted" style={{ margin: 0 }}>
+              {t('account.mfaSince', {
+                date: mfa.data.enabledAt ? formatDateTime(mfa.data.enabledAt, locale) : '—',
+              })}
+            </p>
+            <p className="muted" style={{ margin: 0 }}>
+              {t('account.recoveryRemaining', { count: mfa.data.recoveryCodesRemaining })}
+            </p>
+            <div>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={regenerateCodes}
+                disabled={mfaBusy}
+              >
+                {t('account.regenerateCodes')}
+              </button>
+            </div>
+            <form className="stack" onSubmit={disableMfa}>
+              <Field label={t('auth.password')}>
+                <input
+                  className="input"
+                  type="password"
+                  value={disablePassword}
+                  onChange={(event) => setDisablePassword(event.target.value)}
+                  required
+                />
+              </Field>
+              <Field label={t('account.code')} hint={t('account.codeHint')}>
+                <input
+                  className="input"
+                  value={disableCode}
+                  onChange={(event) => setDisableCode(event.target.value)}
+                  required
+                />
+              </Field>
+              <button className="button danger" type="submit" disabled={mfaBusy}>
+                {t('account.disableMfa')}
+              </button>
+            </form>
+          </div>
+        ) : pendingSecret ? (
+          <form className="stack" onSubmit={confirmEnrolment} style={{ maxWidth: 560 }}>
+            <p className="muted" style={{ margin: 0 }}>
+              {t('account.mfaScanHint')}
+            </p>
+            <code className="mono" data-testid="mfa-secret" style={{ wordBreak: 'break-all' }}>
+              {pendingSecret.secret}
+            </code>
+            <p className="dim" style={{ margin: 0, wordBreak: 'break-all' }}>
+              {pendingSecret.otpauthUri}
+            </p>
+            <Field label={t('account.code')} hint={t('account.codeHint')}>
+              <input
+                className="input"
+                value={enrolCode}
+                onChange={(event) => setEnrolCode(event.target.value)}
+                required
+              />
+            </Field>
+            <button className="button" type="submit" disabled={mfaBusy}>
+              {t('account.turnOnMfa')}
+            </button>
+          </form>
+        ) : (
+          <form className="stack" onSubmit={startEnrolment} style={{ maxWidth: 420 }}>
+            <Field label={t('auth.password')} hint={t('account.mfaPasswordHint')}>
+              <input
+                className="input"
+                type="password"
+                value={enrolPassword}
+                onChange={(event) => setEnrolPassword(event.target.value)}
+                required
+              />
+            </Field>
+            <button className="button" type="submit" disabled={mfaBusy}>
+              {t('account.setUpMfa')}
+            </button>
+          </form>
+        )}
+
+        {recoveryCodes && (
+          <div className="stack" style={{ marginTop: 16 }} data-testid="recovery-codes">
+            <strong>{t('account.recoveryCodesTitle')}</strong>
+            <p className="muted" style={{ margin: 0 }}>
+              {t('account.recoveryCodesHint')}
+            </p>
+            <div className="mono">
+              {recoveryCodes.map((code) => (
+                <div key={code}>{code}</div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
       <Card title={t('account.sessionsTitle')}>
         <p className="muted" style={{ marginTop: 0 }}>
           {t('account.sessionsHint')}
@@ -244,7 +430,7 @@ export function AccountPage({
               onChange={(event) => setConfirmText(event.target.value)}
             />
           </Field>
-          <Field label={t('auth.password')}>
+          <Field label={t('account.erasePassword')}>
             <input
               className="input"
               type="password"

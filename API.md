@@ -70,20 +70,26 @@ each one by name; the database is the only external dependency of the shipped ru
 
 ## 3. Authentication
 
-| Method | Path                    | Purpose                                                       |
-| ------ | ----------------------- | ------------------------------------------------------------- |
-| POST   | `/auth/register`        | Create account + organisation (owner role)                    |
-| POST   | `/auth/login`           | Email + password → access + refresh token                     |
-| POST   | `/auth/refresh`         | Rotate refresh token, issue new access token                  |
-| POST   | `/auth/logout`          | Revoke the presented refresh token                            |
-| POST   | `/auth/password/forgot` | Send reset link (always 202, never reveals account existence) |
-| POST   | `/auth/password/reset`  | Consume single-use reset token                                |
-| POST   | `/auth/password/change` | Change the password of the signed-in user                     |
-| GET    | `/auth/sessions`        | Live sessions for the caller                                  |
-| DELETE | `/auth/sessions/{id}`   | Revoke one of the caller's own sessions                       |
-| POST   | `/auth/logout-all`      | Sign out everywhere                                           |
-| POST   | `/auth/terms/accept`    | Accept the current legal pack (DEC-032)                       |
-| GET    | `/auth/me`              | Current user, roles and organisation                          |
+| Method | Path                       | Purpose                                                       |
+| ------ | -------------------------- | ------------------------------------------------------------- |
+| POST   | `/auth/register`           | Create account + organisation (owner role)                    |
+| POST   | `/auth/login`              | Email + password → access + refresh token                     |
+| POST   | `/auth/refresh`            | Rotate refresh token, issue new access token                  |
+| POST   | `/auth/logout`             | Revoke the presented refresh token                            |
+| POST   | `/auth/password/forgot`    | Send reset link (always 202, never reveals account existence) |
+| POST   | `/auth/password/reset`     | Consume single-use reset token                                |
+| POST   | `/auth/password/change`    | Change the password of the signed-in user                     |
+| GET    | `/auth/sessions`           | Live sessions for the caller                                  |
+| DELETE | `/auth/sessions/{id}`      | Revoke one of the caller's own sessions                       |
+| POST   | `/auth/logout-all`         | Sign out everywhere                                           |
+| POST   | `/auth/terms/accept`       | Accept the current legal pack (DEC-032)                       |
+| GET    | `/auth/me`                 | Current user, roles and organisation                          |
+| GET    | `/auth/mfa`                | Whether this account has a second factor (DEC-034)            |
+| POST   | `/auth/mfa/enrol`          | Start TOTP enrolment: secret + `otpauth://` URI               |
+| POST   | `/auth/mfa/enrol/confirm`  | Confirm the first code, receive recovery codes                |
+| POST   | `/auth/mfa/verify`         | Exchange a login challenge for a session                      |
+| POST   | `/auth/mfa/disable`        | Turn the second factor off (password + live code)             |
+| POST   | `/auth/mfa/recovery-codes` | Replace the recovery codes (live code required)               |
 
 `POST /auth/login`
 
@@ -96,6 +102,32 @@ each one by name; the database is the only external dependency of the shipped ru
   "refreshToken": "rt_…", "user": { "id": "uuid", "displayName": "Amina", "role": "admin", "organisationId": "uuid" }
 }
 ```
+
+**Two-factor sign-in (DEC-034).** When the account has a second factor, the same request answers
+`200` with a challenge instead of a session:
+
+```json
+// response 200 — second factor required
+{ "mfaRequired": true, "challengeToken": "eyJ…", "expiresInSeconds": 300 }
+```
+
+Discriminate on `mfaRequired`. Exchange the challenge at `POST /auth/mfa/verify` with a six-digit
+code, or with one of the ten recovery codes (each works once):
+
+```json
+// POST /auth/mfa/verify
+{ "challengeToken": "eyJ…", "code": "123456" }
+// response 200 — the usual token pair
+{ "accessToken": "eyJ…", "expiresIn: 900, "refreshToken": "rt_…", "user": { … } }
+```
+
+The challenge is a five-minute JWT (`aud: idcp-mfa`) that only this endpoint accepts; it carries no
+refresh token, so an abandoned sign-in leaves nothing behind. Enrolment is two steps — `POST
+/auth/mfa/enrol` (password in, secret + `otpauth://` URI out, nothing enabled yet) then `POST
+/auth/mfa/enrol/confirm` (first code in, `{ enabledAt, recoveryCodes }` out). The recovery codes are
+shown exactly once: only their hashes are stored, so they cannot be read back — regenerate with
+`POST /auth/mfa/recovery-codes`, which invalidates the old set. `POST /auth/mfa/disable` requires the
+password **and** a live code.
 
 Every token pair also carries `sessionId`, which identifies the server-side session: it is what
 `GET /auth/sessions?current=<id>` uses to mark "this device", and it survives refresh rotation.
@@ -464,14 +496,17 @@ built from the request. Files live in `legal/` and are checked by `npm run test:
 
 ## 12. Rate limits (v1 defaults)
 
-| Scope                          | Limit                           |
-| ------------------------------ | ------------------------------- |
-| `POST /auth/login`             | 5 / 15 min per IP + per account |
-| `POST /pairing/sessions`       | 10 / min per user               |
-| `POST /pairing/complete`       | 10 / min per IP                 |
-| `POST /documents`              | 60 / min per device             |
-| `POST /exports`                | 10 / hour per organisation      |
-| All other authenticated routes | 300 / min per user              |
+| Scope                          | Limit                                        |
+| ------------------------------ | -------------------------------------------- |
+| `POST /auth/login`             | 5 / 15 min per IP + per account              |
+| `POST /auth/mfa/enrol`         | `RATE_LIMIT_AUTH_PER_15_MIN` (5) per account |
+| `POST /auth/mfa/enrol/confirm` | same budget, per account                     |
+| `POST /auth/mfa/verify`        | same budget, per IP                          |
+| `POST /pairing/sessions`       | 10 / min per user                            |
+| `POST /pairing/complete`       | 10 / min per IP                              |
+| `POST /documents`              | 60 / min per device                          |
+| `POST /exports`                | 10 / hour per organisation                   |
+| All other authenticated routes | 300 / min per user                           |
 
 `429` responses include `Retry-After`.
 

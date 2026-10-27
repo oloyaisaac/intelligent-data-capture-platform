@@ -479,6 +479,16 @@ export const MIGRATIONS: Migration[] = [
     ],
   },
   {
+    // DEC-034: TOTP secret (encrypted at rest), when the factor was turned on, and the SHA-256
+    // hashes of the recovery codes as a JSON array. Null secret means MFA was never enrolled.
+    id: '010_mfa',
+    sql: [
+      'ALTER TABLE users ADD COLUMN mfa_secret_enc TEXT',
+      'ALTER TABLE users ADD COLUMN mfa_enabled_at TEXT',
+      'ALTER TABLE users ADD COLUMN mfa_recovery_hashes TEXT',
+    ],
+  },
+  {
     // DEC-032: prove that a contract exists. Two nullable columns, because every account created
     // before this migration accepted nothing and must be asked to.
     id: '009_terms_acceptance',

@@ -2,7 +2,7 @@
 
 How we prove the platform works. A story is not `done` until the relevant checks here pass.
 
-> **Status:** the suite exists and is what CI runs (`npm run verify`): 389 tests in 28 suites across
+> **Status:** the suite exists and is what CI runs (`npm run verify`): 406 tests in 30 suites across
 > five Jest projects. This document states how it is organised, what each layer is for, and which
 > gaps are deliberate (no browser or device automation yet).
 
@@ -49,14 +49,14 @@ and browser harness.
 
 ### Current coverage
 
-| Workspace             | Suite                                                                                                                                                                                                                                                                                        | Tests   |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `packages/shared`     | `test/shared.test.ts`                                                                                                                                                                                                                                                                        | 49      |
-| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                                                                                                                                                    | 29      |
-| `apps/backend`        | `test/*.test.ts` (auth, password recovery, sessions, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, privacy, maintenance, web surface, terms acceptance, audit export, security, config, worker recovery) | 204     |
-| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                                                                                                                                                     | 64      |
-| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                                                                                                                                           | 43      |
-| **Total**             | 28 suites                                                                                                                                                                                                                                                                                    | **389** |
+| Workspace             | Suite                                                                                                                                                                                                                                                                                                   | Tests   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `packages/shared`     | `test/shared.test.ts`                                                                                                                                                                                                                                                                                   | 49      |
+| `packages/connectors` | `test/connectors.test.ts`                                                                                                                                                                                                                                                                               | 29      |
+| `apps/backend`        | `test/*.test.ts` (auth, password recovery, sessions, MFA, TOTP, pairing, documents, batches, teams, dashboard, review, exports, connectors, AI, templates, developer API, marketplace, workflows, privacy, maintenance, web surface, terms acceptance, audit export, security, config, worker recovery) | 218     |
+| `apps/desktop`        | `test/desktop.test.tsx` + `test/shell.test.ts` (jsdom + Testing Library)                                                                                                                                                                                                                                | 65      |
+| `apps/mobile`         | `test/mobile.test.ts` (pure logic)                                                                                                                                                                                                                                                                      | 45      |
+| **Total**             | 30 suites                                                                                                                                                                                                                                                                                               | **406** |
 
 Notes for anyone extending the suite:
 
@@ -66,6 +66,11 @@ Notes for anyone extending the suite:
   belongs behind an injected port (`UploadTransport`, `TokenStore`), as the queue and client do.
 - Contract tests are the cheapest guard against drift: add a case to `test:api` rather than a
   prose note when a route or schema changes.
+- `test/totp.test.ts` runs the published RFC 4226 Appendix D and RFC 6238 Appendix B vectors, so the
+  HOTP/TOTP implementation is checked against the standard rather than against itself.
+  `test/mfa.test.ts` covers the paths that lose accounts: an abandoned enrolment grants nothing, a
+  recovery code works once, a foreign challenge token is refused, and disabling needs password _and_
+  code.
 - Batch and invitation tests assert the _failure_ path first: a rejected file inside a batch, a
   reused invitation token, an expired link. Those are the cases that silently regress.
 - The MySQL connector is validated (config, identifiers) but not executed: there is no MySQL server

@@ -111,6 +111,14 @@ components:
         pageCount: { type: integer }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    MfaChallenge:
+      type: object
+      description: Returned by `POST /auth/login` instead of a session when a second factor is due.
+      required: [mfaRequired, challengeToken, expiresInSeconds]
+      properties:
+        mfaRequired: { type: boolean, const: true }
+        challengeToken: { type: string }
+        expiresInSeconds: { type: integer, example: 300 }
     Udm:
       type: object
       description: Universal Data Model record (UDM-001). See docs/udm-1.0.schema.json.
@@ -514,12 +522,178 @@ paths:
                 password: { type: string }
       responses:
         '200':
+          description: >-
+            A session, or — when the account has a second factor — a five-minute challenge that must
+            be exchanged at `POST /auth/mfa/verify` (DEC-034). Discriminate on `mfaRequired`.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/TokenPair' }
+                  - { $ref: '#/components/schemas/MfaChallenge' }
+        '401': { description: Wrong email or password }
+        '429': { description: Too many attempts }
+  /auth/mfa:
+    get:
+      tags: [Auth]
+      summary: Whether this account has a second factor
+      operationId: getMfaStatus
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, enabledAt, recoveryCodesRemaining]
+                properties:
+                  enabled: { type: boolean }
+                  enabledAt: { type: string, format: date-time, nullable: true }
+                  recoveryCodesRemaining: { type: integer, minimum: 0 }
+        '401': { description: Not signed in }
+  /auth/mfa/enrol:
+    post:
+      tags: [Auth]
+      summary: Start enrolling a TOTP authenticator
+      description: >-
+        Confirms the password and returns a secret plus an `otpauth://` URI. Nothing is switched on
+        until the first code is confirmed, so an abandoned enrolment cannot lock anyone out.
+      operationId: startMfaEnrolment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string }
+      responses:
+        '200':
+          description: Secret to add to the authenticator app
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secret, otpauthUri, issuer, account]
+                properties:
+                  secret: { type: string }
+                  otpauthUri: { type: string }
+                  issuer: { type: string }
+                  account: { type: string }
+        '400': { description: Password missing }
+        '401': { description: Password incorrect }
+        '409': { description: A second factor is already enabled }
+        '429': { description: Too many enrolments }
+  /auth/mfa/enrol/confirm:
+    post:
+      tags: [Auth]
+      summary: Confirm enrolment with the first code
+      description: Returns the recovery codes exactly once; they are stored only as hashes.
+      operationId: confirmMfaEnrolment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: '^\d{6}$' }
+      responses:
+        '200':
+          description: Enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabledAt, recoveryCodes]
+                properties:
+                  enabledAt: { type: string, format: date-time }
+                  recoveryCodes:
+                    type: array
+                    items: { type: string }
+        '400': { description: Malformed code }
+        '401': { description: Not signed in }
+        '422': { description: Code did not match }
+        '429': { description: Too many attempts }
+  /auth/mfa/verify:
+    post:
+      tags: [Auth]
+      summary: Exchange a login challenge for a session
+      description: >-
+        Accepts a six-digit code, or one of the recovery codes (which is consumed). Failure counts
+        are limited per client address, because the caller is not signed in yet.
+      operationId: verifyMfaLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challengeToken, code]
+              properties:
+                challengeToken: { type: string }
+                code: { type: string, minLength: 6, maxLength: 40 }
+      responses:
+        '200':
           description: Session created
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenPair' }
-        '401': { description: Wrong email or password }
+        '401': { description: Challenge or code invalid, expired or already used }
         '429': { description: Too many attempts }
+  /auth/mfa/disable:
+    post:
+      tags: [Auth]
+      summary: Turn the second factor off
+      description: Requires the password and a live code, so a stolen session alone cannot do it.
+      operationId: disableMfa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, code]
+              properties:
+                password: { type: string }
+                code: { type: string, minLength: 6, maxLength: 40 }
+      responses:
+        '204': { description: Disabled }
+        '401': { description: Password or code incorrect }
+        '422': { description: Code did not match }
+  /auth/mfa/recovery-codes:
+    post:
+      tags: [Auth]
+      summary: Replace the recovery codes
+      description: Invalidates every unused code and returns a fresh set, exactly once.
+      operationId: regenerateMfaRecoveryCodes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: '^\d{6}$' }
+      responses:
+        '200':
+          description: New codes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recoveryCodes]
+                properties:
+                  recoveryCodes:
+                    type: array
+                    items: { type: string }
+        '401': { description: Not signed in or code incorrect }
+        '409': { description: A second factor is not enabled }
+        '422': { description: Code did not match }
   /auth/refresh:
     post:
       tags: [Auth]

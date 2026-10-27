@@ -8,6 +8,16 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
 
 ### Added
 
+- **Multi-factor authentication (TOTP)** — every account can enrol an authenticator app
+  (`DEC-034`). `POST /auth/login` now answers with a five-minute challenge instead of a session when
+  a second factor is on; `POST /auth/mfa/verify` exchanges it, accepting a six-digit code or one of
+  ten single-use recovery codes (stored only as SHA-256 hashes, shown once, consumed on use). The
+  secret is encrypted at rest with AES-256-GCM and never returned after enrolment. `POST
+/auth/mfa/disable` needs the password **and** a live code. The desktop Account page gains an
+  enrolment flow with the `otpauth://` URI and recovery codes, and both the desktop sign-in and the
+  mobile app handle the challenge. Enabling, disabling, regenerating codes and using a recovery code
+  are all audited (`auth.mfa_*`).
+
 - **Terms acceptance is provable** — registration requires `acceptTerms: true`, the server records the
   timestamp and `LEGAL_VERSION`, `GET /auth/me` reports whether the record is current, and
   `POST /auth/terms/accept` covers accounts older than the pack (`DEC-032`). Sign-up shows the
@@ -18,6 +28,11 @@ Dates are ISO-8601 (`YYYY-MM-DD`). Story IDs refer to `PRD.json`.
   can refuse attacker-supplied `X-Forwarded-For` (`DEC-033`).
 
 ### Fixed
+
+- **An oversized upload could be stored** — the multipart limit normally throws, but a stream that
+  ended on a chunk boundary came back silently truncated and the route never looked. The upload route
+  now checks the truncation flag and the byte count, so the limit is deterministic instead of
+  dependent on how the bytes arrived.
 
 - **The audit-log actor filter did nothing** — the client sent `actor`, the route read `actorId`, and
   the mismatch meant a filtered search returned every row. Both sides and the OpenAPI document now

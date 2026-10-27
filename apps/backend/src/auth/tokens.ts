@@ -19,6 +19,9 @@ export interface AccessTokenClaims {
 export interface TokenService {
   signAccessToken(claims: AccessTokenClaims): string;
   verifyAccessToken(token: string): AccessTokenClaims | null;
+  /** Five-minute, single-purpose token proving the password step succeeded (DEC-034). */
+  signMfaChallenge(userId: string): string;
+  verifyMfaChallenge(token: string): { userId: string } | null;
   createRefreshToken(): { token: string; hash: string };
   createDeviceCredential(): { token: string; hash: string };
 }
@@ -52,6 +55,31 @@ export function createTokenService(options: {
         const role = payload.role;
         if (typeof org !== 'string' || typeof role !== 'string') return null;
         return { sub: payload.sub, org, role: role as Role };
+      } catch {
+        return null;
+      }
+    },
+
+    signMfaChallenge(userId) {
+      return jwt.sign({ scope: 'mfa' }, secret, {
+        subject: userId,
+        expiresIn: 300,
+        algorithm: 'HS256',
+        issuer: 'idcp',
+        audience: 'idcp-mfa',
+      });
+    },
+
+    verifyMfaChallenge(token) {
+      try {
+        const payload = jwt.verify(token, secret, {
+          algorithms: ['HS256'],
+          issuer: 'idcp',
+          audience: 'idcp-mfa',
+        });
+        if (typeof payload === 'string' || !payload.sub) return null;
+        if (payload.scope !== 'mfa') return null;
+        return { userId: payload.sub };
       } catch {
         return null;
       }

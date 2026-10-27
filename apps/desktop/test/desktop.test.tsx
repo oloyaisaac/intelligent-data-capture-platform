@@ -1322,6 +1322,23 @@ describe('account page: password, sessions and privacy', () => {
         version: '2026-10',
         current: true,
       })),
+      mfaStatus: jest.fn(async () => ({
+        enabled: false,
+        enabledAt: null,
+        recoveryCodesRemaining: 0,
+      })),
+      startMfaEnrolment: jest.fn(async () => ({
+        secret: 'JBSWY3DPEHPK3PXP',
+        otpauthUri: 'otpauth://totp/IDCP:owner@example.com?secret=JBSWY3DPEHPK3PXP',
+        issuer: 'IDCP',
+        account: 'owner@example.com',
+      })),
+      confirmMfaEnrolment: jest.fn(async () => ({
+        enabledAt: '2026-10-27T10:00:00.000Z',
+        recoveryCodes: ['AAAA-BBBB', 'CCCC-DDDD'],
+      })),
+      disableMfa: jest.fn(async () => undefined),
+      regenerateRecoveryCodes: jest.fn(async () => ({ recoveryCodes: ['EEEE-FFFF'] })),
       changePassword: jest.fn(async () => ({ revokedSessions: 2 })),
       revokeSession: jest.fn(async () => undefined),
       logoutAll: jest.fn(async () => ({ revokedSessions: 2 })),
@@ -1441,6 +1458,30 @@ describe('account page: password, sessions and privacy', () => {
     expect((await screen.findByRole('status')).textContent).toContain('current terms are accepted');
   });
 
+  it('enrols a second factor and shows the recovery codes once (DEC-034)', async () => {
+    const client = accountClient();
+    render(<AccountPage client={client} onSessionEnded={() => undefined} />);
+    await screen.findAllByTestId('session-row');
+
+    fireEvent.change(screen.getByLabelText(/^Password/), {
+      target: { value: 'secret passphrase' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Set up two-factor authentication' }));
+
+    // The secret is shown for the authenticator app, never again after this.
+    expect((await screen.findByTestId('mfa-secret')).textContent).toBe('JBSWY3DPEHPK3PXP');
+    fireEvent.change(screen.getByLabelText(/Authentication code/), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on' }));
+
+    await waitFor(() => expect(client.confirmMfaEnrolment).toHaveBeenCalledWith('123456'));
+    const codes = await screen.findByTestId('recovery-codes');
+    expect(codes.textContent).toContain('AAAA-BBBB');
+    expect(codes.textContent).toContain('CCCC-DDDD');
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'Two-factor authentication is on',
+    );
+  });
+
   it('will not erase until DELETE is typed, then ends the session', async () => {
     const client = accountClient();
     const onSessionEnded = jest.fn();
@@ -1451,7 +1492,7 @@ describe('account page: password, sessions and privacy', () => {
     fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), {
       target: { value: 'delete' },
     });
-    fireEvent.change(screen.getByLabelText(/^Password/), {
+    fireEvent.change(screen.getByLabelText('Your password'), {
       target: { value: 'secret passphrase' },
     });
     expect(button.disabled).toBe(true);

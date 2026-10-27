@@ -7,7 +7,7 @@ import {
   type UploadTransport,
 } from '../src/state/uploadQueue';
 import { PersistedQueueStorage } from '../src/state/queueStorage';
-import { ApiClient, ApiError, assertSecureEndpoint } from '../src/api/client';
+import { ApiClient, ApiError, MfaRequiredError, assertSecureEndpoint } from '../src/api/client';
 import { MemorySecureStore } from '../src/auth/memoryStore';
 import {
   chooseJpegQuality,
@@ -373,6 +373,73 @@ describe('API client', () => {
       status: 400,
       message: 'Email or password is incorrect.',
     });
+  });
+
+  it('finishes sign-in with a code when the account has a second factor (DEC-034)', async () => {
+    const store = new MemorySecureStore();
+    const calls: { url: string; body: unknown }[] = [];
+    let step = 0;
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null });
+      step += 1;
+      if (step === 1) {
+        // The password alone buys a five-minute challenge, not a session.
+        return new Response(
+          JSON.stringify({
+            mfaRequired: true,
+            challengeToken: 'challenge-token',
+            expiresInSeconds: 300,
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          accessToken: 'access-2',
+          refreshToken: 'refresh-2',
+          expiresInSeconds: 900,
+          user: { id: 'u1', email: 'a@b.com', role: 'owner', organisationId: 'o1' },
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const client = new ApiClient({ baseUrl: 'https://idcp.example.com', store, fetchImpl });
+
+    await expect(
+      client.login({ email: 'a@b.com', password: 'secret passphrase' }),
+    ).rejects.toBeInstanceOf(MfaRequiredError);
+    // Nothing was stored — a password on its own must not look like a session.
+    expect(await store.getRefreshToken()).toBeNull();
+
+    const tokens = await client.completeMfa('123456');
+
+    expect(tokens.accessToken).toBe('access-2');
+    expect(calls[1]).toEqual({
+      // The mobile base URL already carries the API prefix, unlike the desktop's relative one.
+      url: 'https://idcp.example.com/auth/mfa/verify',
+      body: { challengeToken: 'challenge-token', code: '123456' },
+    });
+    expect(await store.getRefreshToken()).toBe('refresh-2');
+  });
+
+  it('refuses to verify without a challenge, and drops the challenge on logout', async () => {
+    const store = new MemorySecureStore();
+    const fetchImpl = (async (url: string) => {
+      if (String(url).endsWith('/auth/logout')) return new Response(null, { status: 204 });
+      return new Response(
+        JSON.stringify({ mfaRequired: true, challengeToken: 'c1', expiresInSeconds: 300 }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const client = new ApiClient({ baseUrl: 'https://idcp.example.com', store, fetchImpl });
+
+    await expect(client.completeMfa('123456')).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+
+    await client.login({ email: 'a@b.com', password: 'secret passphrase' }).catch(() => undefined);
+    await client.logout();
+    await expect(client.completeMfa('123456')).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
   });
 });
 

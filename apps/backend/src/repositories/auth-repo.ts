@@ -102,6 +102,9 @@ export class UsersRepository {
       disabled_at: null,
       terms_accepted_at: input.termsAcceptedAt ?? null,
       terms_version: input.termsVersion ?? null,
+      mfa_secret_enc: null,
+      mfa_enabled_at: null,
+      mfa_recovery_hashes: null,
       created_at: nowIso(),
       updated_at: nowIso(),
     };
@@ -142,6 +145,42 @@ export class UsersRepository {
   async setPassword(id: string, passwordHash: string): Promise<void> {
     await this.db.execute('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [
       passwordHash,
+      nowIso(),
+      id,
+    ]);
+  }
+
+  // --- Multi-factor authentication (DEC-034) -------------------------------
+
+  async setMfaSecret(id: string, encryptedSecret: string): Promise<void> {
+    await this.db.execute('UPDATE users SET mfa_secret_enc = ?, updated_at = ? WHERE id = ?', [
+      encryptedSecret,
+      nowIso(),
+      id,
+    ]);
+  }
+
+  async enableMfa(id: string, recoveryHashes: string[]): Promise<string> {
+    const enabledAt = nowIso();
+    await this.db.execute(
+      'UPDATE users SET mfa_enabled_at = ?, mfa_recovery_hashes = ?, updated_at = ? WHERE id = ?',
+      [enabledAt, JSON.stringify(recoveryHashes), enabledAt, id],
+    );
+    return enabledAt;
+  }
+
+  /** Clears the factor completely: no secret, no codes, no enabled timestamp. */
+  async disableMfa(id: string): Promise<void> {
+    await this.db.execute(
+      `UPDATE users SET mfa_secret_enc = NULL, mfa_enabled_at = NULL, mfa_recovery_hashes = NULL,
+        updated_at = ? WHERE id = ?`,
+      [nowIso(), id],
+    );
+  }
+
+  async setRecoveryHashes(id: string, recoveryHashes: string[]): Promise<void> {
+    await this.db.execute('UPDATE users SET mfa_recovery_hashes = ?, updated_at = ? WHERE id = ?', [
+      JSON.stringify(recoveryHashes),
       nowIso(),
       id,
     ]);

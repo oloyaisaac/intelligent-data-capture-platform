@@ -6,23 +6,27 @@
 ---
 
 **Last updated:** 2026-10-27
-**Updated by:** Arena agent session (hardening pass: legal pack, account recovery, privacy rights, scheduled housekeeping)
-**Branch:** `arena/19ee7491-intelligent-data-capture-platf`
+**Updated by:** Arena agent session (hardening pass II: multi-factor authentication)
+**Branch:** `arena/714e772e-intelligent-data-capture-platf`
 **Phase:** M1 and M2 complete; Phase 3 in progress
 
 ## Current task
 
 The product now runs end to end: backend + desktop renderer + mobile modules + connector SDK.
 `npm run verify` is green (typecheck, lint, PRD contract, OpenAPI + UDM schema + packaging contracts,
-legal pack contract, 389 tests in 28 suites).
+legal pack contract, 406 tests in 30 suites).
 
-The last round was a hardening pass, prompted by "would a customer actually be able to use this?" It
-was feature-complete but not deployable as a business: no privacy policy or terms, no password
-recovery, no way to sign out of a lost device, no data-subject export or erasure, and nothing that
-enforced the retention periods `SECURITY.md` promised. All of that now exists — `legal/`,
-`DEC-030` (password reset), `DEC-031` (maintenance scheduler), `GET /me/export`, `POST /me/erase`,
-security headers and an access log — and `AUDIT-2026-10.md` records what was found, what changed and
-the residual risk with an owner for each item. Read that file before promising anything to a buyer.
+The last two rounds were hardening passes, prompted by "would a customer actually be able to use
+this?" The product was feature-complete but not deployable as a business: no privacy policy or terms,
+no password recovery, no way to sign out of a lost device, no data-subject export or erasure, and
+nothing that enforced the retention periods `SECURITY.md` promised. That pass added `legal/`,
+`DEC-030` (password reset), `DEC-031` (maintenance scheduler), `DEC-032` (provable terms acceptance),
+`DEC-033` (`TRUST_PROXY`), `GET /me/export`, `POST /me/erase`, security headers and an access log.
+The second pass closed the last security-review blocker — passwords were the only factor — with TOTP
+multi-factor authentication (`DEC-034`): enrolment, a five-minute login challenge, ten single-use
+recovery codes stored as hashes, password-plus-code disable, and an Account-page section to manage
+it. `AUDIT-2026-10.md` records what was found, what changed and the residual risk with an owner for
+each item. Read that file before promising anything to a buyer.
 
 **All 45 stories are `done`.** The product described by `PRD.json` is built; the remaining work is the
 deliberate release-side gaps listed below.
@@ -47,9 +51,9 @@ used to strand its document in `processing` forever, because nothing ever moved 
 | --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Shared contracts, UDM, money/dates/CSV/dedupe/i18n/review rules | `packages/shared`                      | 49 tests. `mergeRecord` reports every value it refuses to overwrite. Node-only helpers live at `@idcp/shared/ids`.                                          |
 | Connector SDK + CSV, SQLite, PostgreSQL, MySQL, Google Sheets   | `packages/connectors`                  | 29 tests. `update()` is implemented for SQLite/PostgreSQL/MySQL (transactional, identifier-validated).                                                      |
-| Backend API (Fastify 5)                                         | `apps/backend`                         | 204 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
-| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 64 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
-| Mobile (React Native 0.86)                                      | `apps/mobile`                          | 43 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                                                |
+| Backend API (Fastify 5)                                         | `apps/backend`                         | 218 tests. Duplicate preview, policy-aware send, correction stats and opt-in export, batches, projects, invitations, marketplace, workflows.                |
+| Desktop renderer (React 19 + Vite 6)                            | `apps/desktop`                         | 65 tests. Duplicate preview card, bulk approve, device filter, live list, correction settings, Marketplace, Workflows, Electron shell + packaging contract. |
+| Mobile (React Native 0.86)                                      | `apps/mobile`                          | 45 tests. Pairing scanner, capture, offline queue, review, keychain storage.                                                                                |
 | CI, PRD + API contracts, generators                             | `.github/workflows/ci.yml`, `scripts/` | `validate-prd.mjs`, `validate-openapi.mjs`, `generate-udm-schema.mjs`, `validate-packaging.mjs`, plus `config.test.ts` guarding `.env.example`.             |
 
 ## How to run it
@@ -87,7 +91,7 @@ Health check: `GET /api/v1/health` (there is no bare `/health`).
 5. **Analytics** is now a 14-day (up to 90) SVG chart plus CSV export (`DASH-001` done). There are no
    saved/custom dashboards, and the 2-second target is asserted by design (bounded window, indexed
    query), not by a load test.
-6. **Localisation is complete** (I18N-001, DEC-028): 577 keys, 100% coverage in `en`, `sw` and `fr`,
+6. **Localisation is complete** (I18N-001, DEC-028): 647 keys, 100% coverage in `en`, `sw` and `fr`,
    `Intl` formatting, and a direction-aware layout. No RTL language ships yet, so RTL is verified by
    the direction helper and the logical-property test rather than by a real RTL catalogue.
 7. **Three destinations are not exercised against live servers**: MySQL, Postgres and Google Sheets
@@ -109,19 +113,14 @@ Health check: `GET /api/v1/health` (there is no bare `/health`).
 
 ## Product gaps (unmet acceptance criteria)
 
-Two acceptance criteria describe behaviour that does not exist, as opposed to behaviour that is
-simply unverified. Both are recorded on the story as a `verification` block:
+One acceptance criterion describes behaviour that does not exist, as opposed to behaviour that is
+simply unverified. It is recorded on the story as a `verification` block:
 
 1. **`CON-002` — automatic OAuth token refresh for Google Sheets.** The connector is handed an
    `accessToken` from the encrypted credential blob; nothing obtains or renews one. A Sheets
    destination therefore works for about an hour after somebody pastes a token. Fixing it means an
    OAuth consent flow (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are not in the schema), encrypted
    refresh-token storage on the connector row, and a refresh call before each run.
-2. **`SEC-001` — a scheduled retention purge.** The job and the worker exist; the trigger does not.
-   Until a scheduler lands, retention only happens when an admin calls
-   `POST /api/v1/retention/purge` or an external cron does. This is the cheapest of the two to fix
-   and the one with the largest operational consequence (documents are kept past their retention
-   period, which is a compliance problem rather than an inconvenience).
 
 `AI-002`'s "agreed benchmark on the labelled test set" has no test set and no benchmark anywhere in
 the repository; treat that criterion as not measurable until a corpus is added.
@@ -133,23 +132,23 @@ the repository; treat that criterion as not measurable until a corpus is added.
 1. A container image / deploy pipeline — there is no `Dockerfile` and CI stops after `verify`.
 2. A backup and restore path for SQLite (`VACUUM INTO`; there is no `db:backup` script yet) and a
    rehearsed restore. The database and `STORAGE_PATH` must be restored together.
-3. Metrics, alerting and an access log. Today: JSON logs, `GET /api/v1/health`, and the audit trail.
-4. A scheduler for retention purge, expired exports and dead sessions — all three are manual or
-   never happen, so `STORAGE_PATH` grows without bound.
-5. Security headers (no helmet) and a configurable `trustProxy`.
-6. A dependency vulnerability gate in CI: `npm audit` shows 8 advisories (1 critical, transitive
+3. Metrics and alerting. The access log now exists (structured `onResponse` line per request);
+   what is missing is `/metrics` and anything that wakes a person.
+4. A dependency vulnerability gate in CI: `npm audit` shows 9 advisories (1 critical, transitive
    `shell-quote`; `zod` and `image-size` high). `zod` needs a v3 → v4 migration before the gate can
    be green.
 
 ## Next actions, in order
 
 1. Release plumbing: `Dockerfile`, image publish, `npm run db:backup`, then the go-live checklist.
-2. Release checklist: sign and smoke-test installers on Windows/macOS/Linux (DEC-022).
-3. Exercise the MySQL, Postgres and Google Sheets connectors against live servers, and run the
+2. **MFA policy** — let an organisation require a second factor for a role and report who has it on;
+   today enrolment is self-service (`DEC-034`). WebAuthn after that, so a phished code is not enough.
+3. Release checklist: sign and smoke-test installers on Windows/macOS/Linux (DEC-022).
+4. Exercise the MySQL, Postgres and Google Sheets connectors against live servers, and run the
    backend against PostgreSQL once (`DB_DRIVER=postgres` + `DATABASE_URL`) — the `pg` path is typechecked but never executed.
-4. Implement the `s3` storage adapter (the driver is already in the schema and fails fast).
-5. Add the Socket.IO adapter behind the existing `RealtimeHub` interface (DEC-016).
-6. Add one end-to-end test (Playwright against the renderer, Detox or Maestro for mobile); the suite
+5. Implement the `s3` storage adapter (the driver is already in the schema and fails fast).
+6. Add the Socket.IO adapter behind the existing `RealtimeHub` interface (DEC-016).
+7. Add one end-to-end test (Playwright against the renderer, Detox or Maestro for mobile); the suite
    is unit + integration only today.
 
 ## Environment facts worth knowing

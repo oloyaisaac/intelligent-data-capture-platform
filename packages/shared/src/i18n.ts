@@ -63,6 +63,10 @@ const en = {
   'action.continue': 'Continue',
   // Account recovery, session control and privacy (DEC-030).
   'login.forgotPassword': 'Forgot your password?',
+  'login.mfaTitle': 'One more step',
+  'login.mfaCode': 'Authentication code',
+  'login.mfaCodeHint': 'Six digits from your authenticator app, or a recovery code.',
+  'login.verify': 'Verify',
   'login.forgotTitle': 'Reset your password',
   'login.forgotHint':
     'Enter the email address you sign in with. If it belongs to an account, we will send a reset link.',
@@ -80,6 +84,28 @@ const en = {
   'account.newPassword': 'New password',
   'account.changePassword': 'Change password',
   'account.passwordChanged': 'Password updated. {count} other sign-in(s) were ended.',
+  'account.mfaTitle': 'Two-factor authentication',
+  'account.mfaDisabledHint':
+    'One password is one secret. Add a code from an authenticator app and a stolen password stops being enough.',
+  'account.mfaEnabledHint': 'A password alone can no longer sign in to this account.',
+  'account.mfaSince': 'On since {date}.',
+  'account.recoveryRemaining': '{count} recovery code(s) left.',
+  'account.regenerateCodes': 'New recovery codes',
+  'account.recoveryRegenerated': 'New recovery codes were created. The old ones no longer work.',
+  'account.setUpMfa': 'Set up two-factor authentication',
+  'account.mfaPasswordHint': 'Confirm your password to start. Nothing is switched on yet.',
+  'account.mfaScanHint':
+    'Add this secret to your authenticator app, then enter the 6-digit code it shows.',
+  'account.turnOnMfa': 'Turn on',
+  'account.mfaOn': 'Two-factor authentication is on. Keep the recovery codes somewhere safe.',
+  'account.mfaOff': 'Two-factor authentication is off.',
+  'account.disableMfa': 'Turn off two-factor authentication',
+  'account.mfaCodePrompt': 'Enter the current 6-digit code',
+  'account.code': 'Authentication code',
+  'account.codeHint': 'Six digits from the app, or one of your recovery codes.',
+  'account.recoveryCodesTitle': 'Recovery codes',
+  'account.recoveryCodesHint':
+    'Each one works once, and none will be shown again. Store them offline.',
   'account.sessionsTitle': 'Where you are signed in',
   'account.sessionsHint': 'Revoke anything you do not recognise.',
   'account.thisDevice': 'This device',
@@ -91,6 +117,7 @@ const en = {
   'account.downloadData': 'Download my data',
   'account.dataDownloaded': 'Your data file was downloaded.',
   'account.eraseTitle': 'Erase my account',
+  'account.erasePassword': 'Your password',
   'account.eraseHint':
     'Your account is anonymised, your sign-ins and devices are revoked, and your unreviewed drafts are deleted. Records your organisation must keep stay, without your name.',
   'account.eraseConfirm': 'Type DELETE to confirm',
@@ -709,6 +736,10 @@ const sw: Partial<Catalogue> = {
   'action.cancel': 'Ghairi',
   'action.continue': 'Endelea',
   'login.forgotPassword': 'Umesahau nenosiri lako?',
+  'login.mfaTitle': 'Hatua moja zaidi',
+  'login.mfaCode': 'Msimbo wa uthibitishaji',
+  'login.mfaCodeHint': 'Tarakimu sita kutoka programu yako ya uthibitishaji, au msimbo wa akiba.',
+  'login.verify': 'Thibitisha',
   'login.forgotTitle': 'Weka nenosiri jipya',
   'login.forgotHint':
     'Weka barua pepe unayotumia kuingia. Ikiwa ni ya akaunti, tutakutumia kiungo cha kuweka nenosiri jipya.',
@@ -726,6 +757,28 @@ const sw: Partial<Catalogue> = {
   'account.newPassword': 'Nenosiri jipya',
   'account.changePassword': 'Badilisha nenosiri',
   'account.passwordChanged': 'Nenosiri limebadilishwa. Vikao {count} vingine vimeondolewa.',
+  'account.mfaTitle': 'Uthibitishaji wa hatua mbili',
+  'account.mfaDisabledHint':
+    'Nenosiri moja ni siri moja. Ongeza msimbo kutoka kwenye programu ya uthibitishaji ili nenosiri lililoibiwa lisitoshe.',
+  'account.mfaEnabledHint': 'Nenosiri pekee haliwezi tena kuingia kwenye akaunti hii.',
+  'account.mfaSince': 'Imewaka tangu {date}.',
+  'account.recoveryRemaining': 'Misimbo {count} ya akiba imesalia.',
+  'account.regenerateCodes': 'Misimbo mipya ya akiba',
+  'account.recoveryRegenerated': 'Misimbo mipya ya akiba imeundwa. Ya zamani hayatumiki tena.',
+  'account.setUpMfa': 'Weka uthibitishaji wa hatua mbili',
+  'account.mfaPasswordHint': 'Thibitisha nenosiri lako ili kuanza. Bado hakuna kinachowashwa.',
+  'account.mfaScanHint':
+    'Ongeza siri hii kwenye programu yako ya uthibitishaji, kisha weka msimbo wa tarakimu 6 unaoonyeshwa.',
+  'account.turnOnMfa': 'Washa',
+  'account.mfaOn': 'Uthibitishaji wa hatua mbili umewaka. Hifadhi misimbo ya akiba mahali salama.',
+  'account.mfaOff': 'Uthibitishaji wa hatua mbili umezimwa.',
+  'account.disableMfa': 'Zima uthibitishaji wa hatua mbili',
+  'account.mfaCodePrompt': 'Weka msimbo wa sasa wa tarakimu 6',
+  'account.code': 'Msimbo wa uthibitishaji',
+  'account.codeHint': 'Tarakimu sita kutoka programu, au msimbo mmoja wa akiba.',
+  'account.recoveryCodesTitle': 'Misimbo ya akiba',
+  'account.recoveryCodesHint':
+    'Kila mmoja hufanya kazi mara moja, na hakuna utakaoonyeshwa tena. Hifadhi nje ya mtandao.',
   'account.sessionsTitle': 'Mahali umeingia',
   'account.sessionsHint': 'Ondoa kifaa usichokitambua.',
   'account.thisDevice': 'Kifaa hiki',
@@ -737,6 +790,7 @@ const sw: Partial<Catalogue> = {
   'account.downloadData': 'Pakua data yangu',
   'account.dataDownloaded': 'Faili ya data yako imepakuliwa.',
   'account.eraseTitle': 'Futa akaunti yangu',
+  'account.erasePassword': 'Nenosiri lako',
   'account.eraseHint':
     'Akaunti yako inafichwa jina, vikao na vifaa vinaondolewa, na rasimu zako zisizokaguliwa zinafutwa. Kumbukumbu ambazo taasisi yako inalazimika kuhifadhi zinabaki, bila jina lako.',
   'account.eraseConfirm': 'Andika DELETE kuthibitisha',
@@ -1356,6 +1410,11 @@ const fr: Partial<Catalogue> = {
   'action.cancel': 'Annuler',
   'action.continue': 'Continuer',
   'login.forgotPassword': 'Mot de passe oublié ?',
+  'login.mfaTitle': 'Une étape de plus',
+  'login.mfaCode': "Code d'authentification",
+  'login.mfaCodeHint':
+    "Six chiffres de votre application d'authentification, ou un code de secours.",
+  'login.verify': 'Vérifier',
   'login.forgotTitle': 'Réinitialiser le mot de passe',
   'login.forgotHint':
     'Saisissez l’adresse e-mail utilisée pour vous connecter. Si elle correspond à un compte, nous envoyons un lien de réinitialisation.',
@@ -1373,6 +1432,31 @@ const fr: Partial<Catalogue> = {
   'account.newPassword': 'Nouveau mot de passe',
   'account.changePassword': 'Changer le mot de passe',
   'account.passwordChanged': 'Mot de passe modifié. {count} autre(s) session(s) terminée(s).',
+  'account.mfaTitle': 'Authentification à deux facteurs',
+  'account.mfaDisabledHint':
+    "Un mot de passe, c'est un seul secret. Ajoutez un code d'une application d'authentification et un mot de passe volé ne suffit plus.",
+  'account.mfaEnabledHint': 'Un mot de passe seul ne permet plus de se connecter à ce compte.',
+  'account.mfaSince': 'Actif depuis le {date}.',
+  'account.recoveryRemaining': '{count} code(s) de secours restant(s).',
+  'account.regenerateCodes': 'Nouveaux codes de secours',
+  'account.recoveryRegenerated':
+    'De nouveaux codes de secours ont été créés. Les anciens ne fonctionnent plus.',
+  'account.setUpMfa': "Activer l'authentification à deux facteurs",
+  'account.mfaPasswordHint':
+    "Confirmez votre mot de passe pour commencer. Rien n'est encore activé.",
+  'account.mfaScanHint':
+    "Ajoutez ce secret à votre application d'authentification, puis saisissez le code à 6 chiffres affiché.",
+  'account.turnOnMfa': 'Activer',
+  'account.mfaOn':
+    "L'authentification à deux facteurs est active. Conservez les codes de secours en lieu sûr.",
+  'account.mfaOff': "L'authentification à deux facteurs est désactivée.",
+  'account.disableMfa': "Désactiver l'authentification à deux facteurs",
+  'account.mfaCodePrompt': 'Saisissez le code à 6 chiffres en cours',
+  'account.code': "Code d'authentification",
+  'account.codeHint': "Six chiffres de l'application, ou l'un de vos codes de secours.",
+  'account.recoveryCodesTitle': 'Codes de secours',
+  'account.recoveryCodesHint':
+    "Chacun ne fonctionne qu'une fois, et aucun ne sera plus affiché. Conservez-les hors ligne.",
   'account.sessionsTitle': 'Vos sessions actives',
   'account.sessionsHint': 'Révoquez ce que vous ne reconnaissez pas.',
   'account.thisDevice': 'Cet appareil',
@@ -1384,6 +1468,7 @@ const fr: Partial<Catalogue> = {
   'account.downloadData': 'Télécharger mes données',
   'account.dataDownloaded': 'Votre fichier de données a été téléchargé.',
   'account.eraseTitle': 'Effacer mon compte',
+  'account.erasePassword': 'Votre mot de passe',
   'account.eraseHint':
     'Votre compte est anonymisé, vos sessions et appareils révoqués, et vos brouillons non vérifiés supprimés. Les enregistrements que votre organisation doit conserver restent, sans votre nom.',
   'account.eraseConfirm': 'Tapez DELETE pour confirmer',

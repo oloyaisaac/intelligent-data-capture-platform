@@ -26,6 +26,11 @@ export interface UserRow {
   /** When this account accepted the legal pack, and which version of it (DEC-032). */
   terms_accepted_at: string | null;
   terms_version: string | null;
+  /** TOTP secret, AES-256-GCM encrypted; null until MFA is enrolled (DEC-034). */
+  mfa_secret_enc: string | null;
+  mfa_enabled_at: string | null;
+  /** JSON array of SHA-256 hashes of unused recovery codes. */
+  mfa_recovery_hashes: string | null;
   created_at: string;
   updated_at: string;
 }
