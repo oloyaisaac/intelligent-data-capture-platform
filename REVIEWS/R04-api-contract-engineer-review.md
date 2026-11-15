@@ -23,13 +23,13 @@ I counted routes in the server and operations in the spec, read the validator in
 
 ## 2. Files and components inspected
 
-| File | Checked |
-|---|---|
-| `docs/openapi.yaml` | paths, operations, responses, schema refs |
-| `scripts/validate-openapi.mjs` | full read — 160 lines |
-| `scripts/generate-udm-schema.mjs` | `--check` mode |
-| `apps/backend/src/http/app.ts` | route registration source the validator greps |
-| `apps/backend/src/http/routes/*.ts` | 16 files, 101 routes |
+| File                                | Checked                                       |
+| ----------------------------------- | --------------------------------------------- |
+| `docs/openapi.yaml`                 | paths, operations, responses, schema refs     |
+| `scripts/validate-openapi.mjs`      | full read — 160 lines                         |
+| `scripts/generate-udm-schema.mjs`   | `--check` mode                                |
+| `apps/backend/src/http/app.ts`      | route registration source the validator greps |
+| `apps/backend/src/http/routes/*.ts` | 16 files, 101 routes                          |
 
 ---
 
@@ -41,15 +41,15 @@ Contract completeness · operation counting · path-parameter convention · sche
 
 ## 4. Tests performed
 
-| Test | Method | Result |
-|---|---|---|
-| T1 Route vs spec count | validator output | spec **101** ops / server **102** routes — reconciled by validator |
-| T2 `npm run test:api` | executed | **PASS** |
-| T3 **Mutation: delete `/auth/login`** | seeded edit | **FAIL as designed** — "route POST /api/v1/auth/login is not documented" |
-| T4 **Mutation: corrupt a property type** | seeded edit (malformed YAML) | **FAIL at parse**, not at semantic validation — inconclusive |
-| T5 Does the validator boot the server? | read code | **NO** — greps `app.ts` with a regex |
-| T6 Does it compare response bodies? | read code | **NO** — no `fetch`, no `inject`, no schema-vs-payload check |
-| T7 `/auth/login` restored, re-run | executed | **PASS** — working tree clean |
+| Test                                     | Method                       | Result                                                                   |
+| ---------------------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
+| T1 Route vs spec count                   | validator output             | spec **101** ops / server **102** routes — reconciled by validator       |
+| T2 `npm run test:api`                    | executed                     | **PASS**                                                                 |
+| T3 **Mutation: delete `/auth/login`**    | seeded edit                  | **FAIL as designed** — "route POST /api/v1/auth/login is not documented" |
+| T4 **Mutation: corrupt a property type** | seeded edit (malformed YAML) | **FAIL at parse**, not at semantic validation — inconclusive             |
+| T5 Does the validator boot the server?   | read code                    | **NO** — greps `app.ts` with a regex                                     |
+| T6 Does it compare response bodies?      | read code                    | **NO** — no `fetch`, no `inject`, no schema-vs-payload check             |
+| T7 `/auth/login` restored, re-run        | executed                     | **PASS** — working tree clean                                            |
 
 ---
 
@@ -67,14 +67,14 @@ Contract completeness · operation counting · path-parameter convention · sche
 
 ### API-001 — The contract test cannot detect response-shape drift
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | `scripts/validate-openapi.mjs:122-155` |
-| **Evidence** | The validator discovers routes by regexing `app.ts` for `app.get/post('/api/v1/...')` (lines 122-125). It never imports the app, never binds a port, never issues a request, and never compares a response body to a schema. Lines 69-74 only check that each response **has a description** — not that its shape is correct. |
-| **Expected** | A documented field changing type is caught |
-| **Actual** | The spec and the runtime can disagree about every payload and `test:api` still passes |
-| **Verification** | Read lines 122-155; note the absence of any HTTP client |
+| Field            | Value                                                                                                                                                                                                                                                                                                                         |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **HIGH**                                                                                                                                                                                                                                                                                                                      |
+| **Affected**     | `scripts/validate-openapi.mjs:122-155`                                                                                                                                                                                                                                                                                        |
+| **Evidence**     | The validator discovers routes by regexing `app.ts` for `app.get/post('/api/v1/...')` (lines 122-125). It never imports the app, never binds a port, never issues a request, and never compares a response body to a schema. Lines 69-74 only check that each response **has a description** — not that its shape is correct. |
+| **Expected**     | A documented field changing type is caught                                                                                                                                                                                                                                                                                    |
+| **Actual**       | The spec and the runtime can disagree about every payload and `test:api` still passes                                                                                                                                                                                                                                         |
+| **Verification** | Read lines 122-155; note the absence of any HTTP client                                                                                                                                                                                                                                                                       |
 
 **Why HIGH:** the entire value of a published OpenAPI document is that clients can generate from it. Desktop and mobile clients are hand-written against these shapes. A response-shape regression would be invisible to CI and would surface as a client crash in production — the same blind spot class as R-01.
 
@@ -86,14 +86,14 @@ Contract completeness · operation counting · path-parameter convention · sche
 
 ### API-002 — The operation count differs between the spec and the server and the difference is not explained in the spec itself
 
-| Field | Value |
-|---|---|
-| **Severity** | **LOW** |
-| **Affected** | validator output: `operations: 101` vs `routes found in the server: 102` |
-| **Evidence** | The validator prints both and passes, so the delta is accepted. The extra server route is presumably `/health` handled as a special case (line 129-132). |
-| **Expected** | The delta and its reason recorded where a reader will see it |
-| **Actual** | Visible only in transient stdout; the assessment flagged "102 vs 101 reconciled with a written reason" as a Gate 1 criterion |
-| **Verification** | Run `npm run test:api`, compare the two numbers |
+| Field            | Value                                                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **LOW**                                                                                                                                                  |
+| **Affected**     | validator output: `operations: 101` vs `routes found in the server: 102`                                                                                 |
+| **Evidence**     | The validator prints both and passes, so the delta is accepted. The extra server route is presumably `/health` handled as a special case (line 129-132). |
+| **Expected**     | The delta and its reason recorded where a reader will see it                                                                                             |
+| **Actual**       | Visible only in transient stdout; the assessment flagged "102 vs 101 reconciled with a written reason" as a Gate 1 criterion                             |
+| **Verification** | Run `npm run test:api`, compare the two numbers                                                                                                          |
 
 **Recommended correction:** Print the reconciliation explicitly ("102 routes = 101 documented operations + health"), or document it in `API.md`.
 
@@ -101,14 +101,14 @@ Contract completeness · operation counting · path-parameter convention · sche
 
 ### API-003 — Authentication requirements are not enforced as a contract property
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `docs/openapi.yaml` security schemes; `scripts/validate-openapi.mjs` |
-| **Evidence** | Each operation declares `security` (verified present), but nothing asserts that the **server** actually requires the credential the spec says it does. A route documented as `bearer`-protected that forgot `guards.authenticate` would pass every existing check. |
-| **Expected** | Spec-declared auth matches server-enforced auth |
-| **Actual** | Unverified |
-| **Verification** | STATIC reasoning; would require T-API-001's harness to prove |
+| Field            | Value                                                                                                                                                                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Severity**     | **MEDIUM**                                                                                                                                                                                                                                                         |
+| **Affected**     | `docs/openapi.yaml` security schemes; `scripts/validate-openapi.mjs`                                                                                                                                                                                               |
+| **Evidence**     | Each operation declares `security` (verified present), but nothing asserts that the **server** actually requires the credential the spec says it does. A route documented as `bearer`-protected that forgot `guards.authenticate` would pass every existing check. |
+| **Expected**     | Spec-declared auth matches server-enforced auth                                                                                                                                                                                                                    |
+| **Actual**       | Unverified                                                                                                                                                                                                                                                         |
+| **Verification** | STATIC reasoning; would require T-API-001's harness to prove                                                                                                                                                                                                       |
 
 **Recommended correction:** Once the response-assertion harness exists (API-001), add a negative test per documented-protected route: call without credentials, assert 401.
 
@@ -116,25 +116,25 @@ Contract completeness · operation counting · path-parameter convention · sche
 
 ### API-004 — Error envelope is documented but not schema-validated against reality
 
-| Field | Value |
-|---|---|
-| **Severity** | **LOW** |
-| **Affected** | `openapi.yaml` error schema; `app.ts` error handler |
-| **Evidence** | The handler masks internals correctly (verified in R02), but no test asserts that a real 500 response conforms to the documented `Error` schema. |
-| **Expected** | Documented error shape == emitted error shape |
-| **Actual** | Both look right by inspection; never compared mechanically |
-| **Verification** | Would be covered by API-001's harness |
+| Field            | Value                                                                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Severity**     | **LOW**                                                                                                                                          |
+| **Affected**     | `openapi.yaml` error schema; `app.ts` error handler                                                                                              |
+| **Evidence**     | The handler masks internals correctly (verified in R02), but no test asserts that a real 500 response conforms to the documented `Error` schema. |
+| **Expected**     | Documented error shape == emitted error shape                                                                                                    |
+| **Actual**       | Both look right by inspection; never compared mechanically                                                                                       |
+| **Verification** | Would be covered by API-001's harness                                                                                                            |
 
 ---
 
 ## 7. Missing functionality
 
-| Item | Status |
-|---|---|
-| Response-shape contract test | **Not implemented** |
-| Auth-enforcement contract test | **Not implemented** |
-| Client SDK generation | **Not implemented** — clients hand-written |
-| Breaking-change detection between versions | **Not implemented** — no version diffing |
+| Item                                       | Status                                     |
+| ------------------------------------------ | ------------------------------------------ |
+| Response-shape contract test               | **Not implemented**                        |
+| Auth-enforcement contract test             | **Not implemented**                        |
+| Client SDK generation                      | **Not implemented** — clients hand-written |
+| Breaking-change detection between versions | **Not implemented** — no version diffing   |
 
 ---
 
@@ -161,23 +161,23 @@ None specific to this domain.
 
 ## EVIDENCE CLASSIFICATION
 
-| Class | Items |
-|---|---|
-| **A. Verified working** | Path/method drift detection (proven by mutation), YAML parsing, path-param convention, UDM schema check |
-| **B. Verified failing** | API-001 (shape drift undetected) |
-| **C. Not implemented** | Response contract test, auth contract test, SDK generation, breaking-change detection |
-| **D. Partially implemented** | Contract validation (structure + paths yes, payloads no) |
-| **E. Unable to verify** | Whether documented responses match actual payloads — no harness exists |
+| Class                        | Items                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **A. Verified working**      | Path/method drift detection (proven by mutation), YAML parsing, path-param convention, UDM schema check |
+| **B. Verified failing**      | API-001 (shape drift undetected)                                                                        |
+| **C. Not implemented**       | Response contract test, auth contract test, SDK generation, breaking-change detection                   |
+| **D. Partially implemented** | Contract validation (structure + paths yes, payloads no)                                                |
+| **E. Unable to verify**      | Whether documented responses match actual payloads — no harness exists                                  |
 
 ---
 
 ## ISSUE SUMMARY
 
-| ID | Severity | Title |
-|---|---|---|
-| API-001 | HIGH | Contract test cannot detect response-shape drift |
-| API-002 | LOW | 102-vs-101 delta unexplained in the document |
-| API-003 | MEDIUM | Spec-declared auth not asserted against server |
-| API-004 | LOW | Error envelope never mechanically compared |
+| ID      | Severity | Title                                            |
+| ------- | -------- | ------------------------------------------------ |
+| API-001 | HIGH     | Contract test cannot detect response-shape drift |
+| API-002 | LOW      | 102-vs-101 delta unexplained in the document     |
+| API-003 | MEDIUM   | Spec-declared auth not asserted against server   |
+| API-004 | LOW      | Error envelope never mechanically compared       |
 
 **Totals: 0 CRITICAL · 1 HIGH · 1 MEDIUM · 2 LOW**

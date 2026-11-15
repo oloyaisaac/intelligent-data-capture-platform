@@ -23,14 +23,14 @@ I read the worker state machine, the maintenance service, the logger and the job
 
 ## 2. Files and components inspected
 
-| File | Checked |
-|---|---|
-| `apps/backend/src/services/worker.ts` | 282 LOC — claim, retry, recovery |
-| `apps/backend/src/services/maintenance-service.ts` | 195 LOC — sweeps |
-| `apps/backend/src/repositories/*job*` | state transitions |
-| `apps/backend/src/logger.ts` | 74 LOC — structure, redaction |
-| `apps/backend/src/http/app.ts` | request logging hook |
-| `package.json` | absence of backup scripts |
+| File                                               | Checked                          |
+| -------------------------------------------------- | -------------------------------- |
+| `apps/backend/src/services/worker.ts`              | 282 LOC — claim, retry, recovery |
+| `apps/backend/src/services/maintenance-service.ts` | 195 LOC — sweeps                 |
+| `apps/backend/src/repositories/*job*`              | state transitions                |
+| `apps/backend/src/logger.ts`                       | 74 LOC — structure, redaction    |
+| `apps/backend/src/http/app.ts`                     | request logging hook             |
+| `package.json`                                     | absence of backup scripts        |
 
 ---
 
@@ -42,19 +42,19 @@ Job claim · extraction retry · dead-letter · startup recovery · retention sw
 
 ## 4. Tests performed
 
-| # | Test | Result |
-|---|---|---|
-| T1 | `npx jest worker-recovery maintenance` | **PASS** |
-| T2 | `/metrics` endpoint | **ABSENT** — 0 occurrences |
-| T3 | `prom-client` dependency | **ABSENT** |
-| T4 | Alerting | **ABSENT** |
-| T5 | `db:backup` script | **ABSENT** |
-| T6 | Restore rehearsal | **NEVER PERFORMED** |
-| T7 | Startup stale requeue | **PASS** — implemented and commented |
-| T8 | Mid-flight double-claim | **NOT A RISK** — see correction below |
-| T9 | Silent failure enumeration | **6 paths found** |
-| T10 | Health endpoint | **PASS** — `GET /health` |
-| T11 | Chaos / kill -9 test | **NOT RUN** |
+| #   | Test                                   | Result                                |
+| --- | -------------------------------------- | ------------------------------------- |
+| T1  | `npx jest worker-recovery maintenance` | **PASS**                              |
+| T2  | `/metrics` endpoint                    | **ABSENT** — 0 occurrences            |
+| T3  | `prom-client` dependency               | **ABSENT**                            |
+| T4  | Alerting                               | **ABSENT**                            |
+| T5  | `db:backup` script                     | **ABSENT**                            |
+| T6  | Restore rehearsal                      | **NEVER PERFORMED**                   |
+| T7  | Startup stale requeue                  | **PASS** — implemented and commented  |
+| T8  | Mid-flight double-claim                | **NOT A RISK** — see correction below |
+| T9  | Silent failure enumeration             | **6 paths found**                     |
+| T10 | Health endpoint                        | **PASS** — `GET /health`              |
+| T11 | Chaos / kill -9 test                   | **NOT RUN**                           |
 
 ---
 
@@ -73,16 +73,16 @@ Job claim · extraction retry · dead-letter · startup recovery · retention sw
 
 ### REL-001 — No metrics endpoint, so nothing can be alerted on
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | `apps/backend/src/http/app.ts`; whole deployment |
-| **Evidence** | `grep -rn '/metrics' apps/backend/src` → 0. No `prom-client`, no OpenTelemetry, no StatsD. The only observability is stdout log lines. |
-| **Expected** | Queue depth, job outcomes, request latency, connector error rate |
-| **Actual** | None machine-readable. An operator cannot answer "is the queue backing up?" without grepping logs. |
-| **Verification** | grep; dependency inventory |
+| Field            | Value                                                                                                                                  |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **HIGH**                                                                                                                               |
+| **Affected**     | `apps/backend/src/http/app.ts`; whole deployment                                                                                       |
+| **Evidence**     | `grep -rn '/metrics' apps/backend/src` → 0. No `prom-client`, no OpenTelemetry, no StatsD. The only observability is stdout log lines. |
+| **Expected**     | Queue depth, job outcomes, request latency, connector error rate                                                                       |
+| **Actual**       | None machine-readable. An operator cannot answer "is the queue backing up?" without grepping logs.                                     |
+| **Verification** | grep; dependency inventory                                                                                                             |
 
-**Why HIGH:** the job system's failure mode is *silence* — documents sit in `processing` and nothing complains. Without a queue-depth gauge there is no way to detect the most likely production incident.
+**Why HIGH:** the job system's failure mode is _silence_ — documents sit in `processing` and nothing complains. Without a queue-depth gauge there is no way to detect the most likely production incident.
 
 **Recommended correction:** Expose `/metrics` with, at minimum: `idcp_jobs_queued`, `idcp_jobs_failed_total{reason}`, `idcp_job_duration_seconds`, `idcp_connector_errors_total{type}`, `idcp_http_request_duration_seconds`.
 
@@ -92,14 +92,14 @@ Job claim · extraction retry · dead-letter · startup recovery · retention sw
 
 ### REL-002 — No alerting exists at all
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | Operations |
-| **Evidence** | No Alertmanager, no notification integration, no on-call definition. |
-| **Expected** | At least one alert that reaches a person |
-| **Actual** | None |
-| **Verification** | Repository-wide absence |
+| Field            | Value                                                                |
+| ---------------- | -------------------------------------------------------------------- |
+| **Severity**     | **HIGH**                                                             |
+| **Affected**     | Operations                                                           |
+| **Evidence**     | No Alertmanager, no notification integration, no on-call definition. |
+| **Expected**     | At least one alert that reaches a person                             |
+| **Actual**       | None                                                                 |
+| **Verification** | Repository-wide absence                                              |
 
 **Recommended correction:** Even a cron job that emails "queue depth > N for 10 minutes" is a meaningful change from zero. Cross-ref OPS-004.
 
@@ -107,14 +107,14 @@ Job claim · extraction retry · dead-letter · startup recovery · retention sw
 
 ### REL-003 — Six failure paths log a warning and continue without tracking residue
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | `maintenance-service.ts:109`, `privacy-service.ts:220`, `maintenance-service.ts:54,170`, and two others |
-| **Evidence** | Every file-deletion failure is `.catch(error => logger.warn(...))`. Examples: *"could not delete an expired export file"*, *"could not delete a draft document during erasure"*. Nothing records that a deletion did not happen; nothing retries it. |
-| **Expected** | Failures recorded and retried, or surfaced in a metric |
-| **Actual** | A log line that no one reads |
-| **Verification** | `grep -rn "catch(error" apps/backend/src/services/ \| grep -A2 warn` |
+| Field            | Value                                                                                                                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **HIGH**                                                                                                                                                                                                                                             |
+| **Affected**     | `maintenance-service.ts:109`, `privacy-service.ts:220`, `maintenance-service.ts:54,170`, and two others                                                                                                                                              |
+| **Evidence**     | Every file-deletion failure is `.catch(error => logger.warn(...))`. Examples: _"could not delete an expired export file"_, _"could not delete a draft document during erasure"_. Nothing records that a deletion did not happen; nothing retries it. |
+| **Expected**     | Failures recorded and retried, or surfaced in a metric                                                                                                                                                                                               |
+| **Actual**       | A log line that no one reads                                                                                                                                                                                                                         |
+| **Verification** | `grep -rn "catch(error" apps/backend/src/services/ \| grep -A2 warn`                                                                                                                                                                                 |
 
 **Why HIGH:** this is the mechanism by which retention and erasure promises quietly become false. It is the same root cause as PRIV-002 and DB-004 — recorded once here as the reliability pattern, and cross-referenced rather than duplicated.
 
@@ -124,14 +124,14 @@ Job claim · extraction retry · dead-letter · startup recovery · retention sw
 
 ### REL-004 — No backup or restore tooling, and no rehearsal
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | Operations |
-| **Evidence** | No `db:backup` script, no backup documentation beyond guidance in `DEPLOYMENT.md`, no restore procedure, no RTO/RPO figure. `grep -rn "backup" package.json scripts/` → nothing executable. |
-| **Expected** | A tested restore |
-| **Actual** | Untested, and untestable without a documented procedure |
-| **Verification** | Script inventory |
+| Field            | Value                                                                                                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **HIGH**                                                                                                                                                                                    |
+| **Affected**     | Operations                                                                                                                                                                                  |
+| **Evidence**     | No `db:backup` script, no backup documentation beyond guidance in `DEPLOYMENT.md`, no restore procedure, no RTO/RPO figure. `grep -rn "backup" package.json scripts/` → nothing executable. |
+| **Expected**     | A tested restore                                                                                                                                                                            |
+| **Actual**       | Untested, and untestable without a documented procedure                                                                                                                                     |
+| **Verification** | Script inventory                                                                                                                                                                            |
 
 **Why HIGH:** an untested backup is not a backup. Combined with DB-001 (PostgreSQL never run), a restore has certainly never been performed.
 
@@ -141,26 +141,26 @@ Job claim · extraction retry · dead-letter · startup recovery · retention sw
 
 ### REL-005 — Retention sweep failure is a single warning line
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `maintenance-service.ts:54-56` |
+| Field        | Value                                                                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity** | **MEDIUM**                                                                                                                                              |
+| **Affected** | `maintenance-service.ts:54-56`                                                                                                                          |
 | **Evidence** | `catch (error) { this.logger.warn('maintenance step failed', ...) }` — the sweep continues and never retries the failed step until the next 24 h cycle. |
-| **Expected** | Per-step retry with backoff, and a metric |
-| **Actual** | One warn per day |
+| **Expected** | Per-step retry with backoff, and a metric                                                                                                               |
+| **Actual**   | One warn per day                                                                                                                                        |
 
 ---
 
 ### REL-006 — Health endpoint reports liveness, not readiness
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `GET /health` |
-| **Evidence** | The endpoint returns a status without checking the database, the worker loop, or the storage backend. |
-| **Expected** | Readiness distinguishes "process up" from "can serve" |
-| **Actual** | Only the former |
-| **Verification** | Read the handler |
+| Field            | Value                                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                                                                            |
+| **Affected**     | `GET /health`                                                                                         |
+| **Evidence**     | The endpoint returns a status without checking the database, the worker loop, or the storage backend. |
+| **Expected**     | Readiness distinguishes "process up" from "can serve"                                                 |
+| **Actual**       | Only the former                                                                                       |
+| **Verification** | Read the handler                                                                                      |
 
 **Recommended correction:** Add `/ready` that attempts a trivial DB query and confirms the worker timer is active.
 
@@ -168,14 +168,14 @@ Job claim · extraction retry · dead-letter · startup recovery · retention sw
 
 ## 7. Missing functionality
 
-| Item | Status |
-|---|---|
-| `/metrics` | **Not implemented** |
-| Alerting | **Not implemented** |
-| Backup/restore tooling | **Not implemented** |
-| Deletion residue tracking | **Not implemented** |
-| Readiness probe | **Not implemented** |
-| Distributed tracing | **Not implemented** |
+| Item                          | Status              |
+| ----------------------------- | ------------------- |
+| `/metrics`                    | **Not implemented** |
+| Alerting                      | **Not implemented** |
+| Backup/restore tooling        | **Not implemented** |
+| Deletion residue tracking     | **Not implemented** |
+| Readiness probe               | **Not implemented** |
+| Distributed tracing           | **Not implemented** |
 | Chaos/failure injection tests | **Not implemented** |
 
 ---
@@ -203,13 +203,13 @@ Worker and API share one process (DEC-029), so OCR competes with request handlin
 
 ## EVIDENCE CLASSIFICATION
 
-| Class | Items |
-|---|---|
-| **A. Verified working** | Job state machine, startup recovery, structured logging, redaction, idempotent sweeps, backoff, drain cap, health endpoint |
-| **B. Verified failing** | REL-003, REL-005 |
-| **C. Not implemented** | Metrics, alerting, backup, residue tracking, readiness, tracing, chaos |
-| **D. Partially implemented** | Health (liveness only); deletion (attempted, not tracked) |
-| **E. Unable to verify** | Behaviour under kill -9, restore time, alert delivery — no orchestrator, no backups, no channel |
+| Class                        | Items                                                                                                                      |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **A. Verified working**      | Job state machine, startup recovery, structured logging, redaction, idempotent sweeps, backoff, drain cap, health endpoint |
+| **B. Verified failing**      | REL-003, REL-005                                                                                                           |
+| **C. Not implemented**       | Metrics, alerting, backup, residue tracking, readiness, tracing, chaos                                                     |
+| **D. Partially implemented** | Health (liveness only); deletion (attempted, not tracked)                                                                  |
+| **E. Unable to verify**      | Behaviour under kill -9, restore time, alert delivery — no orchestrator, no backups, no channel                            |
 
 **Correction to a prior assumption:** I had suspected `RECOVERY_GRACE_MS = 30_000` could mid-flight requeue a long OCR job and cause double processing. Reading `start()` shows `requeueStale` runs **once at startup only**, and the comment explains why that is safe on a single instance. **No double-claim risk exists in single-process operation.** It would become a risk under multi-replica deployment (which DEC-029 already forbids).
 
@@ -217,13 +217,13 @@ Worker and API share one process (DEC-029), so OCR competes with request handlin
 
 ## ISSUE SUMMARY
 
-| ID | Severity | Title |
-|---|---|---|
-| REL-001 | **HIGH** | No `/metrics`; nothing alertable |
-| REL-002 | **HIGH** | No alerting |
+| ID      | Severity | Title                                       |
+| ------- | -------- | ------------------------------------------- |
+| REL-001 | **HIGH** | No `/metrics`; nothing alertable            |
+| REL-002 | **HIGH** | No alerting                                 |
 | REL-003 | **HIGH** | 6 silent failure paths; no residue tracking |
-| REL-004 | **HIGH** | No backup/restore; never rehearsed |
-| REL-005 | MEDIUM | Retention sweep failure = one warn line |
-| REL-006 | MEDIUM | Health is liveness only |
+| REL-004 | **HIGH** | No backup/restore; never rehearsed          |
+| REL-005 | MEDIUM   | Retention sweep failure = one warn line     |
+| REL-006 | MEDIUM   | Health is liveness only                     |
 
 **Totals: 0 CRITICAL · 4 HIGH · 2 MEDIUM · 0 LOW**

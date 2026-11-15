@@ -23,14 +23,14 @@ I executed the full suite, generated coverage, read the jest configuration and h
 
 ## 2. Files and components inspected
 
-| File | Checked |
-|---|---|
-| `jest.config.cjs` | 5 projects, thresholds |
-| `apps/backend/test/helpers.ts` | 394 LOC — the harness |
-| 30 test suites | inventory, assertion style |
-| `scripts/validate-{prd,openapi,legal,packaging}.mjs` | sensitivity |
-| `PRD.json` | the 11 verification blocks |
-| `.github/workflows/ci.yml` | what CI actually runs |
+| File                                                 | Checked                    |
+| ---------------------------------------------------- | -------------------------- |
+| `jest.config.cjs`                                    | 5 projects, thresholds     |
+| `apps/backend/test/helpers.ts`                       | 394 LOC — the harness      |
+| 30 test suites                                       | inventory, assertion style |
+| `scripts/validate-{prd,openapi,legal,packaging}.mjs` | sensitivity                |
+| `PRD.json`                                           | the 11 verification blocks |
+| `.github/workflows/ci.yml`                           | what CI actually runs      |
 
 ---
 
@@ -42,19 +42,19 @@ Test pyramid · coverage thresholds · harness design · contract validators · 
 
 ## 4. Tests performed
 
-| # | Test | Result |
-|---|---|---|
-| T1 | Full suite | **PASS** — 406/406, 30 suites |
-| T2 | Coverage | stmts **74.47%**, branches **58.75%**, funcs **66.2%**, lines **76.88%** |
-| T3 | Branch threshold enforced? | **NO** — no `coverageThreshold` blocking 58.75% |
-| T4 | e2e framework installed | **NONE** — no Playwright/Cypress/Detox/Maestro |
-| T5 | Mutation tool installed | **NONE** — no Stryker |
-| T6 | **Validator sensitivity: delete a route** | **PASS** — validator failed correctly |
-| T7 | Validator sensitivity: corrupt property | Inconclusive (malformed YAML failed at parse) |
-| T8 | Validator detects response-shape drift | **NO** — never inspects payloads |
-| T9 | 11 verification blocks audited | **11/11 still unverified** |
-| T10 | Harness quality | **PASS** — ephemeral port, seeded DB |
-| T11 | Flaky tests | None observed in 3 runs |
+| #   | Test                                      | Result                                                                   |
+| --- | ----------------------------------------- | ------------------------------------------------------------------------ |
+| T1  | Full suite                                | **PASS** — 406/406, 30 suites                                            |
+| T2  | Coverage                                  | stmts **74.47%**, branches **58.75%**, funcs **66.2%**, lines **76.88%** |
+| T3  | Branch threshold enforced?                | **NO** — no `coverageThreshold` blocking 58.75%                          |
+| T4  | e2e framework installed                   | **NONE** — no Playwright/Cypress/Detox/Maestro                           |
+| T5  | Mutation tool installed                   | **NONE** — no Stryker                                                    |
+| T6  | **Validator sensitivity: delete a route** | **PASS** — validator failed correctly                                    |
+| T7  | Validator sensitivity: corrupt property   | Inconclusive (malformed YAML failed at parse)                            |
+| T8  | Validator detects response-shape drift    | **NO** — never inspects payloads                                         |
+| T9  | 11 verification blocks audited            | **11/11 still unverified**                                               |
+| T10 | Harness quality                           | **PASS** — ephemeral port, seeded DB                                     |
+| T11 | Flaky tests                               | None observed in 3 runs                                                  |
 
 ---
 
@@ -71,20 +71,21 @@ Test pyramid · coverage thresholds · harness design · contract validators · 
 
 ## 6. Identified problems
 
-### QA-001 — There is no end-to-end test, which is *why* R-01 and MOB-001 survived
+### QA-001 — There is no end-to-end test, which is _why_ R-01 and MOB-001 survived
 
-| Field | Value |
-|---|---|
-| **Severity** | **CRITICAL** |
-| **Affected** | Test architecture |
-| **Evidence** | No Playwright, Cypress, Detox, or Maestro in any `package.json`. `ls node_modules/.bin \| grep -iE "playwright\|cypress\|detox\|maestro"` → empty. No test launches a packaged build, a browser, or a device. |
-| **Expected** | At least one test that exercises the shipping configuration |
-| **Actual** | Every test runs components in isolation with injected dependencies |
-| **Verification** | Dependency inventory; absence of any e2e config |
+| Field            | Value                                                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **CRITICAL**                                                                                                                                                                                                  |
+| **Affected**     | Test architecture                                                                                                                                                                                             |
+| **Evidence**     | No Playwright, Cypress, Detox, or Maestro in any `package.json`. `ls node_modules/.bin \| grep -iE "playwright\|cypress\|detox\|maestro"` → empty. No test launches a packaged build, a browser, or a device. |
+| **Expected**     | At least one test that exercises the shipping configuration                                                                                                                                                   |
+| **Actual**       | Every test runs components in isolation with injected dependencies                                                                                                                                            |
+| **Verification** | Dependency inventory; absence of any e2e config                                                                                                                                                               |
 
 **Why CRITICAL:** the two most severe defects in this review — R-01 (desktop cannot reach its backend) and MOB-001 (no mobile app exists) — are both invisible to 406 passing tests. That is not coincidence; it is the direct consequence of testing only units. A single packaged-app sign-in test would have caught R-01 on day one. **The absence of e2e is the root cause of the entire class of defects this review found.**
 
 **Recommended correction:** Add, in priority order:
+
 1. **Desktop packaged sign-in** (Electron + `loadFile` + real backend) — catches R-01 and SEC-003.
 2. **Mobile device smoke** (build + launch + capture) — catches MOB-001.
 3. **API smoke through the real HTTP stack** — catches contract drift.
@@ -97,14 +98,14 @@ Even one would transform the safety of changes to the shipping path.
 
 ### QA-002 — Branch coverage is 58.75% with no threshold
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | `jest.config.cjs` |
-| **Evidence** | Branches 58.75%, functions 66.2%. No `coverageThreshold` in the Jest config, so coverage can fall without failing CI. |
-| **Expected** | A floor that ratchets |
-| **Actual** | Reported, not enforced |
-| **Verification** | Read `jest.config.cjs`; run `--coverage` |
+| Field            | Value                                                                                                                 |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **HIGH**                                                                                                              |
+| **Affected**     | `jest.config.cjs`                                                                                                     |
+| **Evidence**     | Branches 58.75%, functions 66.2%. No `coverageThreshold` in the Jest config, so coverage can fall without failing CI. |
+| **Expected**     | A floor that ratchets                                                                                                 |
+| **Actual**       | Reported, not enforced                                                                                                |
+| **Verification** | Read `jest.config.cjs`; run `--coverage`                                                                              |
 
 **Why HIGH:** branch coverage is the metric that matters for the defect class found here — unhandled error paths, missing guards, untaken fallbacks. 41% of branches untested in a security-sensitive application is a material gap, and nothing stops it worsening.
 
@@ -114,14 +115,14 @@ Even one would transform the safety of changes to the shipping path.
 
 ### QA-003 — Mutation score is unknown
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | Test architecture |
-| **Evidence** | No mutation testing tool. 74% statement coverage says lines executed, not that assertions would catch a change. |
-| **Expected** | Mutation score on security-critical modules |
-| **Actual** | Unknown |
-| **Verification** | No tool installed |
+| Field            | Value                                                                                                           |
+| ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **HIGH**                                                                                                        |
+| **Affected**     | Test architecture                                                                                               |
+| **Evidence**     | No mutation testing tool. 74% statement coverage says lines executed, not that assertions would catch a change. |
+| **Expected**     | Mutation score on security-critical modules                                                                     |
+| **Actual**       | Unknown                                                                                                         |
+| **Verification** | No tool installed                                                                                               |
 
 **Why HIGH:** a test that executes a line without asserting its effect provides no protection. In an auth system, a surviving mutant can be a live vulnerability. This is the single best measure of whether the 406 tests would catch a regression.
 
@@ -131,14 +132,14 @@ Even one would transform the safety of changes to the shipping path.
 
 ### QA-004 — All 11 `verification` blocks remain unverified
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | `PRD.json` |
-| **Evidence** | 11 stories carry a `verification.notVerified` array — the authors' own statement of what was never demonstrated. I checked each; **none has since been verified.** Examples: "no OAuth flow and no token refresh" (CON-002), "There is no packaged-build sign-in test" (DESK-001), "no native project" (MOB-001). |
-| **Expected** | Each block either verified with evidence, or the story moved off `done` |
-| **Actual** | All 45 stories are marked `done` while 11 carry written admissions of incompleteness |
-| **Verification** | `node -e "require('./PRD.json').stories.filter(s=>s.verification).length"` → 11 |
+| Field            | Value                                                                                                                                                                                                                                                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **HIGH**                                                                                                                                                                                                                                                                                                          |
+| **Affected**     | `PRD.json`                                                                                                                                                                                                                                                                                                        |
+| **Evidence**     | 11 stories carry a `verification.notVerified` array — the authors' own statement of what was never demonstrated. I checked each; **none has since been verified.** Examples: "no OAuth flow and no token refresh" (CON-002), "There is no packaged-build sign-in test" (DESK-001), "no native project" (MOB-001). |
+| **Expected**     | Each block either verified with evidence, or the story moved off `done`                                                                                                                                                                                                                                           |
+| **Actual**       | All 45 stories are marked `done` while 11 carry written admissions of incompleteness                                                                                                                                                                                                                              |
+| **Verification** | `node -e "require('./PRD.json').stories.filter(s=>s.verification).length"` → 11                                                                                                                                                                                                                                   |
 
 **Correction to a common misreading:** the `verification` blocks are **not** evidence of dishonesty — they are unusually honest self-reporting. The defect is that the story status (`done`) contradicts the verification block, and `TASKS.md` states "Nothing open".
 
@@ -148,41 +149,41 @@ Even one would transform the safety of changes to the shipping path.
 
 ### QA-005 — Test distribution is skewed toward happy paths
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | 30 suites |
-| **Evidence** | Coverage by area is uneven. Error-path tests are concentrated in security/privacy; the desktop suite (1,511 LOC) tests components in isolation and never the shell configuration. |
-| **Expected** | Adversarial cases in every domain |
-| **Actual** | Strong in backend security, weak in client integration |
-| **Verification** | Coverage report by directory |
+| Field            | Value                                                                                                                                                                             |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                                                                                                                                                        |
+| **Affected**     | 30 suites                                                                                                                                                                         |
+| **Evidence**     | Coverage by area is uneven. Error-path tests are concentrated in security/privacy; the desktop suite (1,511 LOC) tests components in isolation and never the shell configuration. |
+| **Expected**     | Adversarial cases in every domain                                                                                                                                                 |
+| **Actual**       | Strong in backend security, weak in client integration                                                                                                                            |
+| **Verification** | Coverage report by directory                                                                                                                                                      |
 
 ---
 
 ### QA-006 — No performance or load test exists
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | Test architecture |
-| **Evidence** | No k6/autocannon/artillery. No latency assertion anywhere. |
-| **Expected** | At least a throughput baseline |
-| **Actual** | None |
-| **Verification** | Dependency inventory |
+| Field            | Value                                                      |
+| ---------------- | ---------------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                                 |
+| **Affected**     | Test architecture                                          |
+| **Evidence**     | No k6/autocannon/artillery. No latency assertion anywhere. |
+| **Expected**     | At least a throughput baseline                             |
+| **Actual**       | None                                                       |
+| **Verification** | Dependency inventory                                       |
 
 ---
 
 ## 7. Missing functionality
 
-| Item | Status |
-|---|---|
-| E2E tests | **Not implemented** |
-| Mutation testing | **Not implemented** |
-| Coverage thresholds | **Not implemented** |
-| Load/performance tests | **Not implemented** |
-| Visual regression | **Not implemented** |
-| Accessibility tests | **Not implemented** (A11Y-002) |
-| Contract shape tests | **Not implemented** (API-001) |
+| Item                   | Status                         |
+| ---------------------- | ------------------------------ |
+| E2E tests              | **Not implemented**            |
+| Mutation testing       | **Not implemented**            |
+| Coverage thresholds    | **Not implemented**            |
+| Load/performance tests | **Not implemented**            |
+| Visual regression      | **Not implemented**            |
+| Accessibility tests    | **Not implemented** (A11Y-002) |
+| Contract shape tests   | **Not implemented** (API-001)  |
 
 ---
 
@@ -209,25 +210,25 @@ Suite runtime is good (45 s). No product performance testing exists — that is 
 
 ## EVIDENCE CLASSIFICATION
 
-| Class | Items |
-|---|---|
-| **A. Verified working** | 406 stable tests, real harness, behavioural naming, one sensitive validator, fast runtime |
-| **B. Verified failing** | QA-002, QA-004 |
-| **C. Not implemented** | E2E, mutation, thresholds, load, visual, a11y, contract-shape |
-| **D. Partially implemented** | Validators (path yes, payload no) |
-| **E. Unable to verify** | Mutation score, real-world regression sensitivity, product behaviour under load |
+| Class                        | Items                                                                                     |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| **A. Verified working**      | 406 stable tests, real harness, behavioural naming, one sensitive validator, fast runtime |
+| **B. Verified failing**      | QA-002, QA-004                                                                            |
+| **C. Not implemented**       | E2E, mutation, thresholds, load, visual, a11y, contract-shape                             |
+| **D. Partially implemented** | Validators (path yes, payload no)                                                         |
+| **E. Unable to verify**      | Mutation score, real-world regression sensitivity, product behaviour under load           |
 
 ---
 
 ## ISSUE SUMMARY
 
-| ID | Severity | Title |
-|---|---|---|
-| QA-001 | **CRITICAL** | No e2e — root cause of R-01 and MOB-001 |
-| QA-002 | **HIGH** | 58.75% branch coverage, unenforced |
-| QA-003 | **HIGH** | Mutation score unknown |
-| QA-004 | **HIGH** | 11 verification blocks unverified while stories are `done` |
-| QA-005 | MEDIUM | Error-path coverage skewed |
-| QA-006 | MEDIUM | No performance testing |
+| ID     | Severity     | Title                                                      |
+| ------ | ------------ | ---------------------------------------------------------- |
+| QA-001 | **CRITICAL** | No e2e — root cause of R-01 and MOB-001                    |
+| QA-002 | **HIGH**     | 58.75% branch coverage, unenforced                         |
+| QA-003 | **HIGH**     | Mutation score unknown                                     |
+| QA-004 | **HIGH**     | 11 verification blocks unverified while stories are `done` |
+| QA-005 | MEDIUM       | Error-path coverage skewed                                 |
+| QA-006 | MEDIUM       | No performance testing                                     |
 
 **Totals: 1 CRITICAL · 3 HIGH · 2 MEDIUM · 0 LOW**

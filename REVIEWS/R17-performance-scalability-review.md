@@ -23,14 +23,14 @@ I traced allocation behaviour on the hot paths by reading code, computed worst-c
 
 ## 2. Files and components inspected
 
-| File | Checked |
-|---|---|
-| `apps/backend/src/http/routes/batch-routes.ts` | multipart buffering |
-| `apps/backend/src/services/batch-service.ts` | `MAX_BATCH_FILES` placement |
-| `apps/backend/src/config.ts` | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB` |
-| `apps/backend/src/db/sqlite.ts` | synchronous driver |
-| `apps/backend/src/auth/tokens.ts` | `AttemptLimiter` |
-| `apps/backend/src/services/organisation-service.ts` | dashboard aggregate |
+| File                                                | Checked                           |
+| --------------------------------------------------- | --------------------------------- |
+| `apps/backend/src/http/routes/batch-routes.ts`      | multipart buffering               |
+| `apps/backend/src/services/batch-service.ts`        | `MAX_BATCH_FILES` placement       |
+| `apps/backend/src/config.ts`                        | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB` |
+| `apps/backend/src/db/sqlite.ts`                     | synchronous driver                |
+| `apps/backend/src/auth/tokens.ts`                   | `AttemptLimiter`                  |
+| `apps/backend/src/services/organisation-service.ts` | dashboard aggregate               |
 
 ---
 
@@ -42,24 +42,24 @@ Document upload · batch upload · extraction throughput · dashboard aggregatio
 
 ## 4. Tests performed
 
-| # | Test | Result |
-|---|---|---|
-| T1 | Batch worst-case arithmetic | **FAIL — PERF-001** |
-| T2 | Load harness present | **NONE** |
-| T3 | PostgreSQL available for benchmarking | **NO** |
-| T4 | Dataset present | **NO** |
-| T5 | Dashboard 2 s target measured | **NO** — PRD admits it: "asserted by design … not by a load test or a real dataset" |
-| T6 | SQLite synchronous confirmation | **PASS** — `node:sqlite` is sync by design |
-| T7 | `AttemptLimiter` bounded | **NO** — BE-003 |
-| T8 | Pagination caps | **PASS** — `MIN(limit, 100)` |
-| T9 | Connection pooling | PG pool exists; SQLite n/a |
+| #   | Test                                  | Result                                                                              |
+| --- | ------------------------------------- | ----------------------------------------------------------------------------------- |
+| T1  | Batch worst-case arithmetic           | **FAIL — PERF-001**                                                                 |
+| T2  | Load harness present                  | **NONE**                                                                            |
+| T3  | PostgreSQL available for benchmarking | **NO**                                                                              |
+| T4  | Dataset present                       | **NO**                                                                              |
+| T5  | Dashboard 2 s target measured         | **NO** — PRD admits it: "asserted by design … not by a load test or a real dataset" |
+| T6  | SQLite synchronous confirmation       | **PASS** — `node:sqlite` is sync by design                                          |
+| T7  | `AttemptLimiter` bounded              | **NO** — BE-003                                                                     |
+| T8  | Pagination caps                       | **PASS** — `MIN(limit, 100)`                                                        |
+| T9  | Connection pooling                    | PG pool exists; SQLite n/a                                                          |
 
 ---
 
 ## 5. Successful findings
 
 1. **List endpoints are capped** at 100 (`Math.min(limit, 100)`), so no endpoint can return an unbounded set.
-2. **The dashboard uses a bounded 90-day window with an indexed query** — the *design* is defensible, even though the target is unmeasured.
+2. **The dashboard uses a bounded 90-day window with an indexed query** — the _design_ is defensible, even though the target is unmeasured.
 3. **A PostgreSQL pool exists** with a statement timeout ("Reject queries slower than this so a bad query cannot wedge a request forever") — the right instinct.
 4. **The worker processes at most 100 jobs per drain**, preventing a single tick from monopolising the loop.
 5. **Retry backoff is exponential**, so a failing connector does not spin.
@@ -70,21 +70,22 @@ Document upload · batch upload · extraction throughput · dashboard aggregatio
 
 ### PERF-001 — Batch upload buffers up to ~2 GB per request before enforcing its own cap
 
-| Field | Value |
-|---|---|
-| **Severity** | **CRITICAL** |
-| **Affected** | `apps/backend/src/http/routes/batch-routes.ts:33` |
-| **Evidence** | `files.push({ buffer: await part.toBuffer(), filename: part.filename })` inside `for await (const part of request.parts())`. Multipart is configured `files: MAX_BATCH_FILES + 1` (101). `MAX_BATCH_FILES = 100`, `MAX_UPLOAD_MB = 20`. The "at most 100 files" check lives in `batch-service.ts:61`, **after** the loop. |
-| **Expected** | Reject before allocating; stream to storage |
-| **Actual** | 101 × 20 MB ≈ **2 GB resident per request**. Two concurrent requests exhaust a 4 GB container. |
-| **Verification** | Read line 33; `config.ts:48-49`; `batch-service.ts:29,61` — note the ordering |
+| Field            | Value                                                                                                                                                                                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **CRITICAL**                                                                                                                                                                                                                                                                                                              |
+| **Affected**     | `apps/backend/src/http/routes/batch-routes.ts:33`                                                                                                                                                                                                                                                                         |
+| **Evidence**     | `files.push({ buffer: await part.toBuffer(), filename: part.filename })` inside `for await (const part of request.parts())`. Multipart is configured `files: MAX_BATCH_FILES + 1` (101). `MAX_BATCH_FILES = 100`, `MAX_UPLOAD_MB = 20`. The "at most 100 files" check lives in `batch-service.ts:61`, **after** the loop. |
+| **Expected**     | Reject before allocating; stream to storage                                                                                                                                                                                                                                                                               |
+| **Actual**       | 101 × 20 MB ≈ **2 GB resident per request**. Two concurrent requests exhaust a 4 GB container.                                                                                                                                                                                                                            |
+| **Verification** | Read line 33; `config.ts:48-49`; `batch-service.ts:29,61` — note the ordering                                                                                                                                                                                                                                             |
 
 **Why CRITICAL:** this is a remote denial-of-service available to any authenticated user with upload permission, requiring no malformed input — just a legitimate request at the documented limits. It is also trivially reachable from the product's own UI (batch upload).
 
 **Recommended correction:**
+
 1. Count parts and abort as soon as `index > MAX_BATCH_FILES`.
 2. Stream each part to storage as it arrives; never hold more than one file in memory.
-3. Keep a per-request byte cap enforced *during* streaming, not after.
+3. Keep a per-request byte cap enforced _during_ streaming, not after.
 
 **Verification requirements:** A test posting 101 small files asserting rejection before the 101st is buffered; a memory-profile test at the real cap.
 
@@ -92,14 +93,14 @@ Document upload · batch upload · extraction throughput · dashboard aggregatio
 
 ### PERF-002 — `node:sqlite` blocks the event loop synchronously
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | `apps/backend/src/db/sqlite.ts` |
-| **Evidence** | `node:sqlite`'s `DatabaseSync` is synchronous. Every query blocks the event loop for its full duration. |
-| **Expected** | Acceptable for dev/test; unacceptable for production concurrency |
-| **Actual** | The default driver is SQLite (`config.ts`), so a deployment that does not set `DB_DRIVER=postgres` runs on a blocking database |
-| **Verification** | Read `sqlite.ts`; `DB_DRIVER` default is `sqlite` |
+| Field            | Value                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Severity**     | **HIGH**                                                                                                                       |
+| **Affected**     | `apps/backend/src/db/sqlite.ts`                                                                                                |
+| **Evidence**     | `node:sqlite`'s `DatabaseSync` is synchronous. Every query blocks the event loop for its full duration.                        |
+| **Expected**     | Acceptable for dev/test; unacceptable for production concurrency                                                               |
+| **Actual**       | The default driver is SQLite (`config.ts`), so a deployment that does not set `DB_DRIVER=postgres` runs on a blocking database |
+| **Verification** | Read `sqlite.ts`; `DB_DRIVER` default is `sqlite`                                                                              |
 
 **Recommended correction:** This is another reason DB-001 must be resolved: production must run on PostgreSQL, and the default must not silently select a blocking driver.
 
@@ -107,14 +108,14 @@ Document upload · batch upload · extraction throughput · dashboard aggregatio
 
 ### PERF-003 — The `DASH-001` two-second target is asserted, not measured
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `PRD.json` DASH-001; `organisation-service.ts` |
-| **Evidence** | The PRD's own block states: *"The 2-second target for 90 days is asserted by design (a bounded window and an indexed query), not by a load test or a real dataset."* |
-| **Expected** | A measured p95 at a stated volume |
-| **Actual** | Unmeasured |
-| **Verification** | Read the verification block |
+| Field            | Value                                                                                                                                                                |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                                                                                                                                           |
+| **Affected**     | `PRD.json` DASH-001; `organisation-service.ts`                                                                                                                       |
+| **Evidence**     | The PRD's own block states: _"The 2-second target for 90 days is asserted by design (a bounded window and an indexed query), not by a load test or a real dataset."_ |
+| **Expected**     | A measured p95 at a stated volume                                                                                                                                    |
+| **Actual**       | Unmeasured                                                                                                                                                           |
+| **Verification** | Read the verification block                                                                                                                                          |
 
 **Recommended correction:** Once PostgreSQL exists (DB-001), seed 100k documents and measure. Then either confirm 2 s or restate the target.
 
@@ -122,52 +123,52 @@ Document upload · batch upload · extraction throughput · dashboard aggregatio
 
 ### PERF-004 — No load-testing capability exists at all
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | Test architecture |
-| **Evidence** | No k6, autocannon, artillery, or benchmark script. |
-| **Expected** | A repeatable harness |
-| **Actual** | None |
-| **Verification** | Dependency inventory |
+| Field            | Value                                              |
+| ---------------- | -------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                         |
+| **Affected**     | Test architecture                                  |
+| **Evidence**     | No k6, autocannon, artillery, or benchmark script. |
+| **Expected**     | A repeatable harness                               |
+| **Actual**       | None                                               |
+| **Verification** | Dependency inventory                               |
 
 ---
 
 ### PERF-005 — Export generation builds full payloads in memory
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `apps/backend/src/services/export-service.ts` |
-| **Evidence** | `exceljs` writes to a buffer in memory; a large export is fully materialised before streaming. |
-| **Expected** | Streamed writes with a row cap |
-| **Actual** | Whole-workbook in memory |
-| **Verification** | Read `export-service.ts` |
+| Field            | Value                                                                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                                                                     |
+| **Affected**     | `apps/backend/src/services/export-service.ts`                                                  |
+| **Evidence**     | `exceljs` writes to a buffer in memory; a large export is fully materialised before streaming. |
+| **Expected**     | Streamed writes with a row cap                                                                 |
+| **Actual**       | Whole-workbook in memory                                                                       |
+| **Verification** | Read `export-service.ts`                                                                       |
 
 ---
 
 ### PERF-006 — No throughput or cost baseline for extraction
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | AI pipeline |
+| Field        | Value                                                                                                                            |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity** | **MEDIUM**                                                                                                                       |
+| **Affected** | AI pipeline                                                                                                                      |
 | **Evidence** | Documents per minute and cost per 1,000 documents are unknown — yet both are needed for pricing (R22) and for capacity planning. |
-| **Expected** | A baseline |
-| **Actual** | None |
+| **Expected** | A baseline                                                                                                                       |
+| **Actual**   | None                                                                                                                             |
 
 ---
 
 ## 7. Missing functionality
 
-| Item | Status |
-|---|---|
-| Load harness | **Not implemented** |
-| Performance baseline | **Not implemented** |
-| Streaming upload/export | **Not implemented** |
-| Memory profiling | **Not implemented** |
+| Item                         | Status              |
+| ---------------------------- | ------------------- |
+| Load harness                 | **Not implemented** |
+| Performance baseline         | **Not implemented** |
+| Streaming upload/export      | **Not implemented** |
+| Memory profiling             | **Not implemented** |
 | Index verification (EXPLAIN) | **Not implemented** |
-| Capacity model | **Not implemented** |
+| Capacity model               | **Not implemented** |
 
 ---
 
@@ -194,25 +195,25 @@ Consolidated above. The single most urgent item is PERF-001; the most foundation
 
 ## EVIDENCE CLASSIFICATION
 
-| Class | Items |
-|---|---|
-| **A. Verified working** | Pagination caps, bounded dashboard window, PG statement timeout, drain cap, exponential backoff |
-| **B. Verified failing** | **PERF-001 (CRITICAL)**, PERF-002 |
-| **C. Not implemented** | Harness, baseline, streaming, profiling, EXPLAIN |
-| **D. Partially implemented** | Dashboard (designed for the target, unmeasured) |
-| **E. Unable to verify** | **Every runtime performance claim** — no PostgreSQL, no load tool, no dataset |
+| Class                        | Items                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| **A. Verified working**      | Pagination caps, bounded dashboard window, PG statement timeout, drain cap, exponential backoff |
+| **B. Verified failing**      | **PERF-001 (CRITICAL)**, PERF-002                                                               |
+| **C. Not implemented**       | Harness, baseline, streaming, profiling, EXPLAIN                                                |
+| **D. Partially implemented** | Dashboard (designed for the target, unmeasured)                                                 |
+| **E. Unable to verify**      | **Every runtime performance claim** — no PostgreSQL, no load tool, no dataset                   |
 
 ---
 
 ## ISSUE SUMMARY
 
-| ID | Severity | Title |
-|---|---|---|
+| ID       | Severity     | Title                                       |
+| -------- | ------------ | ------------------------------------------- |
 | PERF-001 | **CRITICAL** | Batch upload buffers ~2 GB before cap check |
-| PERF-002 | **HIGH** | Synchronous SQLite blocks the event loop |
-| PERF-003 | MEDIUM | `DASH-001` 2 s target unmeasured |
-| PERF-004 | MEDIUM | No load-testing capability |
-| PERF-005 | MEDIUM | Export fully materialised in memory |
-| PERF-006 | MEDIUM | No extraction throughput/cost baseline |
+| PERF-002 | **HIGH**     | Synchronous SQLite blocks the event loop    |
+| PERF-003 | MEDIUM       | `DASH-001` 2 s target unmeasured            |
+| PERF-004 | MEDIUM       | No load-testing capability                  |
+| PERF-005 | MEDIUM       | Export fully materialised in memory         |
+| PERF-006 | MEDIUM       | No extraction throughput/cost baseline      |
 
 **Totals: 1 CRITICAL · 1 HIGH · 4 MEDIUM · 0 LOW**

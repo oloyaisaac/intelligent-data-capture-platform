@@ -25,13 +25,13 @@ The gaps are in **role granularity** and **API-key scoping**, not in tenant isol
 
 ## 2. Files and components inspected
 
-| File | Checked |
-|---|---|
-| `apps/backend/src/http/guards.ts` | 107 LOC — full read |
-| `apps/backend/src/repositories/*.ts` | 143 `organisation_id` predicates |
-| `packages/shared/src/contracts.ts` | role definitions |
-| `apps/backend/test/{pairing,privacy,review,teams,documents}.test.ts` | cross-tenant assertions |
-| `apps/backend/src/services/api-key*` | scope enforcement |
+| File                                                                 | Checked                          |
+| -------------------------------------------------------------------- | -------------------------------- |
+| `apps/backend/src/http/guards.ts`                                    | 107 LOC — full read              |
+| `apps/backend/src/repositories/*.ts`                                 | 143 `organisation_id` predicates |
+| `packages/shared/src/contracts.ts`                                   | role definitions                 |
+| `apps/backend/test/{pairing,privacy,review,teams,documents}.test.ts` | cross-tenant assertions          |
+| `apps/backend/src/services/api-key*`                                 | scope enforcement                |
 
 ---
 
@@ -43,15 +43,15 @@ Role model · membership resolution · device auth · API-key auth · resource o
 
 ## 4. Tests performed
 
-| Test | Method | Result |
-|---|---|---|
-| T1 Membership re-read per request | read `guards.ts:68` | **PASS** — DB hit every request |
-| T2 Tenancy predicate coverage | count `organisation_id` in repositories | **143** across ~170 statements |
-| T3 Cross-tenant negative tests | grep test suite | **PASS** — 5 dedicated tests found |
-| T4 Role gating helper | read `requireRole` | **PASS** — `roleAtLeast` |
-| T5 Unscoped query hunt | look for statements without `organisation_id` | **PASS** — all found are keyed by primary id *after* an org check |
-| T6 API-key scope enforcement | read `apiKeys.authenticate` | **PARTIAL — see TEN-002** |
-| T7 Full tenancy suites | `npx jest pairing privacy review teams documents` | **PASS** |
+| Test                              | Method                                            | Result                                                            |
+| --------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------- |
+| T1 Membership re-read per request | read `guards.ts:68`                               | **PASS** — DB hit every request                                   |
+| T2 Tenancy predicate coverage     | count `organisation_id` in repositories           | **143** across ~170 statements                                    |
+| T3 Cross-tenant negative tests    | grep test suite                                   | **PASS** — 5 dedicated tests found                                |
+| T4 Role gating helper             | read `requireRole`                                | **PASS** — `roleAtLeast`                                          |
+| T5 Unscoped query hunt            | look for statements without `organisation_id`     | **PASS** — all found are keyed by primary id _after_ an org check |
+| T6 API-key scope enforcement      | read `apiKeys.authenticate`                       | **PARTIAL — see TEN-002**                                         |
+| T7 Full tenancy suites            | `npx jest pairing privacy review teams documents` | **PASS**                                                          |
 
 ---
 
@@ -69,14 +69,14 @@ Role model · membership resolution · device auth · API-key auth · resource o
 
 ### TEN-001 — Five roles cannot express the permissions the UI offers
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `packages/shared/src/contracts.ts` (roles); all routes using `requireRole` |
-| **Evidence** | The role model is a linear hierarchy (`roleAtLeast`), which means every permission is implied by rank. A role cannot grant (e.g.) "can export but cannot delete" or "can review but cannot manage connectors". `requireRole` can only express "at least X". |
-| **Expected** | Permissions expressible independently of rank |
-| **Actual** | All permissions collapse onto one ordering |
-| **Verification** | Read `roleAtLeast` and note every call site uses a scalar |
+| Field            | Value                                                                                                                                                                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                                                                                                                                                                                                                                  |
+| **Affected**     | `packages/shared/src/contracts.ts` (roles); all routes using `requireRole`                                                                                                                                                                                  |
+| **Evidence**     | The role model is a linear hierarchy (`roleAtLeast`), which means every permission is implied by rank. A role cannot grant (e.g.) "can export but cannot delete" or "can review but cannot manage connectors". `requireRole` can only express "at least X". |
+| **Expected**     | Permissions expressible independently of rank                                                                                                                                                                                                               |
+| **Actual**       | All permissions collapse onto one ordering                                                                                                                                                                                                                  |
+| **Verification** | Read `roleAtLeast` and note every call site uses a scalar                                                                                                                                                                                                   |
 
 **Why MEDIUM:** for the current 5 roles this is workable. It becomes a defect when a customer asks for a "viewer who may export" or an "auditor who may read everything but change nothing" — both standard requests. It also makes the least-privilege story weaker than it appears.
 
@@ -88,14 +88,14 @@ Role model · membership resolution · device auth · API-key auth · resource o
 
 ### TEN-002 — API-key scoping is coarse and its enforcement point is not uniformly verified
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `apps/backend/src/services/api-key*`; `guards.ts:46-58` |
-| **Evidence** | An API key resolves to a principal carrying `role` and `scopes`. Routes check the *role* via `requireRole`, but only some check `scopes`. Grep for scope checks shows a small number of call sites relative to the 101 routes. |
-| **Expected** | Every route reachable by an API key either checks a scope or documents that role is sufficient |
-| **Actual** | Inconsistent — most routes rely on role alone |
-| **Verification** | STATIC: enumerate routes callable with `X-API-Key` and check for a scope guard |
+| Field            | Value                                                                                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Severity**     | **MEDIUM**                                                                                                                                                                                                                     |
+| **Affected**     | `apps/backend/src/services/api-key*`; `guards.ts:46-58`                                                                                                                                                                        |
+| **Evidence**     | An API key resolves to a principal carrying `role` and `scopes`. Routes check the _role_ via `requireRole`, but only some check `scopes`. Grep for scope checks shows a small number of call sites relative to the 101 routes. |
+| **Expected**     | Every route reachable by an API key either checks a scope or documents that role is sufficient                                                                                                                                 |
+| **Actual**       | Inconsistent — most routes rely on role alone                                                                                                                                                                                  |
+| **Verification** | STATIC: enumerate routes callable with `X-API-Key` and check for a scope guard                                                                                                                                                 |
 
 **Recommended correction:** Either (a) require an explicit scope for every API-key-reachable route, or (b) state that an API key is equivalent to its owner's role and drop "scopes" from the model as misleading.
 
@@ -105,14 +105,14 @@ Role model · membership resolution · device auth · API-key auth · resource o
 
 ### TEN-003 — No automated detection of a new route that forgets tenancy
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | CI / test architecture |
-| **Evidence** | Tenancy correctness is proven by 5 hand-written negative tests. There is no lint rule, no repository-level enforcement (e.g. a query builder that *requires* an org id), and no generated cross-tenant suite over all 101 routes. A new route added tomorrow with a missing predicate would pass CI. |
-| **Expected** | Structural enforcement or generated coverage |
-| **Actual** | Point coverage only |
-| **Verification** | `grep -rn "organisation_id" apps/backend/src/repositories` shows convention, not compulsion |
+| Field            | Value                                                                                                                                                                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                                                                                                                                                                                                                                                                           |
+| **Affected**     | CI / test architecture                                                                                                                                                                                                                                                                               |
+| **Evidence**     | Tenancy correctness is proven by 5 hand-written negative tests. There is no lint rule, no repository-level enforcement (e.g. a query builder that _requires_ an org id), and no generated cross-tenant suite over all 101 routes. A new route added tomorrow with a missing predicate would pass CI. |
+| **Expected**     | Structural enforcement or generated coverage                                                                                                                                                                                                                                                         |
+| **Actual**       | Point coverage only                                                                                                                                                                                                                                                                                  |
+| **Verification** | `grep -rn "organisation_id" apps/backend/src/repositories` shows convention, not compulsion                                                                                                                                                                                                          |
 
 **Recommended correction:** Generate a cross-tenant smoke suite from the route registry: for every authenticated route, call it as org B against a resource owned by org A and assert 404. This is the highest-leverage test in the whole programme.
 
@@ -122,14 +122,14 @@ Role model · membership resolution · device auth · API-key auth · resource o
 
 ### TEN-004 — Ownership transfer paths are not covered by isolation tests
 
-| Field | Value |
-|---|---|
-| **Severity** | **LOW** |
-| **Affected** | `teams` domain — role change, ownership transfer, member removal |
-| **Evidence** | Isolation tests cover read paths well; the mutation paths (demote, remove, transfer) are covered by functional tests but not by a cross-tenant negative test. |
-| **Expected** | A member of org B cannot demote a member of org A |
-| **Actual** | Believed safe by construction (membership lookup is org-scoped) but not asserted |
-| **Verification** | STATIC |
+| Field            | Value                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **LOW**                                                                                                                                                       |
+| **Affected**     | `teams` domain — role change, ownership transfer, member removal                                                                                              |
+| **Evidence**     | Isolation tests cover read paths well; the mutation paths (demote, remove, transfer) are covered by functional tests but not by a cross-tenant negative test. |
+| **Expected**     | A member of org B cannot demote a member of org A                                                                                                             |
+| **Actual**       | Believed safe by construction (membership lookup is org-scoped) but not asserted                                                                              |
+| **Verification** | STATIC                                                                                                                                                        |
 
 **Recommended correction:** Add 3 negative tests for the mutation paths.
 
@@ -137,12 +137,12 @@ Role model · membership resolution · device auth · API-key auth · resource o
 
 ## 7. Missing functionality
 
-| Item | Status |
-|---|---|
-| Permission-based (non-hierarchical) roles | **Not implemented** |
-| Generated cross-tenant suite | **Not implemented** (TEN-003) |
-| Per-resource ACLs | **Not implemented** — org + role only |
-| API-key scope enforcement uniformity | **Partially implemented** (TEN-002) |
+| Item                                      | Status                                |
+| ----------------------------------------- | ------------------------------------- |
+| Permission-based (non-hierarchical) roles | **Not implemented**                   |
+| Generated cross-tenant suite              | **Not implemented** (TEN-003)         |
+| Per-resource ACLs                         | **Not implemented** — org + role only |
+| API-key scope enforcement uniformity      | **Partially implemented** (TEN-002)   |
 
 ---
 
@@ -169,23 +169,23 @@ Re-reading membership on every request costs one indexed query per call. Correct
 
 ## EVIDENCE CLASSIFICATION
 
-| Class | Items |
-|---|---|
-| **A. Verified working** | Membership re-read, 143 predicates, 5 isolation tests, unified actor shape, `requireRole` composition |
-| **B. Verified failing** | TEN-002 (inconsistent scoping) |
-| **C. Not implemented** | Permission model, generated suite, resource ACLs |
-| **D. Partially implemented** | Role model (works, cannot express fine permissions); API-key scopes |
-| **E. Unable to verify** | Behaviour under concurrent membership change mid-request |
+| Class                        | Items                                                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **A. Verified working**      | Membership re-read, 143 predicates, 5 isolation tests, unified actor shape, `requireRole` composition |
+| **B. Verified failing**      | TEN-002 (inconsistent scoping)                                                                        |
+| **C. Not implemented**       | Permission model, generated suite, resource ACLs                                                      |
+| **D. Partially implemented** | Role model (works, cannot express fine permissions); API-key scopes                                   |
+| **E. Unable to verify**      | Behaviour under concurrent membership change mid-request                                              |
 
 ---
 
 ## ISSUE SUMMARY
 
-| ID | Severity | Title |
-|---|---|---|
-| TEN-001 | MEDIUM | Linear role model cannot express fine-grained permissions |
-| TEN-002 | MEDIUM | API-key scope enforcement inconsistent |
-| TEN-003 | MEDIUM | No structural enforcement; new routes can forget tenancy |
-| TEN-004 | LOW | Mutation-path isolation untested |
+| ID      | Severity | Title                                                     |
+| ------- | -------- | --------------------------------------------------------- |
+| TEN-001 | MEDIUM   | Linear role model cannot express fine-grained permissions |
+| TEN-002 | MEDIUM   | API-key scope enforcement inconsistent                    |
+| TEN-003 | MEDIUM   | No structural enforcement; new routes can forget tenancy  |
+| TEN-004 | LOW      | Mutation-path isolation untested                          |
 
 **Totals: 0 CRITICAL · 0 HIGH · 3 MEDIUM · 1 LOW**

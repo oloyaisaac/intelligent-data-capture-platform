@@ -17,23 +17,23 @@
 
 I read the client, the capture shim, the queue and the assist modules, then checked which native modules are actually installed and reachable. I could not build or run anything: there is no `android/` or `ios/` directory, no Android SDK, no Xcode, and no simulator.
 
-**Verdict: the mobile *logic* is well-written and honestly shimmed; the mobile *product* cannot be built.** The code is explicit about which native capabilities are absent — `frameProcessor.tsx` and `speechPlatform.ts` both use `optionalRequire` and document that the modules cannot run in this environment. That honesty is a credit to the authors and it is also the finding: **two of the flagship mobile features (document edge detection, voice assistance) are not functional, only gracefully degraded.**
+**Verdict: the mobile _logic_ is well-written and honestly shimmed; the mobile _product_ cannot be built.** The code is explicit about which native capabilities are absent — `frameProcessor.tsx` and `speechPlatform.ts` both use `optionalRequire` and document that the modules cannot run in this environment. That honesty is a credit to the authors and it is also the finding: **two of the flagship mobile features (document edge detection, voice assistance) are not functional, only gracefully degraded.**
 
 ---
 
 ## 2. Files and components inspected
 
-| File | LOC | Checked |
-|---|---|---|
-| `apps/mobile/src/api/client.ts` | 388 | `assertSecureEndpoint` L83-88 |
-| `apps/mobile/src/capture/frameProcessor.tsx` | 98 | `optionalRequire` shims |
-| `apps/mobile/src/capture/edgeDetection.ts` | 417 | pure logic |
-| `apps/mobile/src/capture/imagePipeline.ts` | 281 | resize/quality |
-| `apps/mobile/src/state/uploadQueue.ts` | 226 | retry/backoff |
-| `apps/mobile/src/state/queueStorage.ts` | 102 | persistence |
-| `apps/mobile/src/assist/speechPlatform.ts` | — | `optionalRequire` shim |
-| `apps/mobile/src/auth/secureStore.ts` | 92 | Keychain |
-| `apps/mobile/app.json` | — | app config |
+| File                                         | LOC | Checked                       |
+| -------------------------------------------- | --- | ----------------------------- |
+| `apps/mobile/src/api/client.ts`              | 388 | `assertSecureEndpoint` L83-88 |
+| `apps/mobile/src/capture/frameProcessor.tsx` | 98  | `optionalRequire` shims       |
+| `apps/mobile/src/capture/edgeDetection.ts`   | 417 | pure logic                    |
+| `apps/mobile/src/capture/imagePipeline.ts`   | 281 | resize/quality                |
+| `apps/mobile/src/state/uploadQueue.ts`       | 226 | retry/backoff                 |
+| `apps/mobile/src/state/queueStorage.ts`      | 102 | persistence                   |
+| `apps/mobile/src/assist/speechPlatform.ts`   | —   | `optionalRequire` shim        |
+| `apps/mobile/src/auth/secureStore.ts`        | 92  | Keychain                      |
+| `apps/mobile/app.json`                       | —   | app config                    |
 
 ---
 
@@ -45,18 +45,18 @@ Capture · edge detection · QR pairing · review · offline queue · upload ret
 
 ## 4. Tests performed
 
-| # | Test | Result |
-|---|---|---|
-| T1 | `npx jest mobile` | **PASS** — 1,054 LOC of tests |
-| T2 | Native project directories | **ABSENT** — no `android/`, no `ios/` |
-| T3 | `react-native run-android` | **NOT RUN** — no SDK |
-| T4 | `react-native run-ios` | **NOT RUN** — no Xcode |
-| T5 | `react-native-vision-camera` installed | **YES** (^4.6.4) |
-| T6 | `react-native-worklets-core` installed | **NO** |
-| T7 | `@react-native-voice/voice` installed | **NO** |
-| T8 | Frame processor functional | **NO — degrades via `optionalRequire`** |
-| T9 | Voice assist functional | **NO — reports "unavailable"** |
-| T10 | `assertSecureEndpoint` rejects http | **PASS** — https or loopback only |
+| #   | Test                                   | Result                                  |
+| --- | -------------------------------------- | --------------------------------------- |
+| T1  | `npx jest mobile`                      | **PASS** — 1,054 LOC of tests           |
+| T2  | Native project directories             | **ABSENT** — no `android/`, no `ios/`   |
+| T3  | `react-native run-android`             | **NOT RUN** — no SDK                    |
+| T4  | `react-native run-ios`                 | **NOT RUN** — no Xcode                  |
+| T5  | `react-native-vision-camera` installed | **YES** (^4.6.4)                        |
+| T6  | `react-native-worklets-core` installed | **NO**                                  |
+| T7  | `@react-native-voice/voice` installed  | **NO**                                  |
+| T8  | Frame processor functional             | **NO — degrades via `optionalRequire`** |
+| T9  | Voice assist functional                | **NO — reports "unavailable"**          |
+| T10 | `assertSecureEndpoint` rejects http    | **PASS** — https or loopback only       |
 
 ---
 
@@ -75,14 +75,14 @@ Capture · edge detection · QR pairing · review · offline queue · upload ret
 
 ### MOB-001 — No native project exists; the app has never been built
 
-| Field | Value |
-|---|---|
-| **Severity** | **CRITICAL** |
-| **Affected** | `apps/mobile/` root |
-| **Evidence** | `ls apps/mobile/` → `app.json, index.js, node_modules, package.json, src, test, tsconfig.json`. **No `android/`, no `ios/`.** `package.json` declares `"android": "react-native run-android"` and `"ios": "react-native run-ios"`, both of which would fail immediately. |
-| **Expected** | A buildable React Native project |
-| **Actual** | Only the JS layer exists. Native projects have never been generated or committed. |
-| **Verification** | `ls apps/mobile`; `npx react-native run-android` → fails |
+| Field            | Value                                                                                                                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Severity**     | **CRITICAL**                                                                                                                                                                                                                                                             |
+| **Affected**     | `apps/mobile/` root                                                                                                                                                                                                                                                      |
+| **Evidence**     | `ls apps/mobile/` → `app.json, index.js, node_modules, package.json, src, test, tsconfig.json`. **No `android/`, no `ios/`.** `package.json` declares `"android": "react-native run-android"` and `"ios": "react-native run-ios"`, both of which would fail immediately. |
+| **Expected**     | A buildable React Native project                                                                                                                                                                                                                                         |
+| **Actual**       | Only the JS layer exists. Native projects have never been generated or committed.                                                                                                                                                                                        |
+| **Verification** | `ls apps/mobile`; `npx react-native run-android` → fails                                                                                                                                                                                                                 |
 
 **Why CRITICAL:** the entire mobile platform — one of the three pillars in the README's product claim ("Phone camera → AI extraction → Human review") — has never produced a runnable application. The 1,054 LOC of passing tests exercise pure JS only. This is the mobile counterpart of R-01.
 
@@ -94,14 +94,14 @@ Capture · edge detection · QR pairing · review · offline queue · upload ret
 
 ### MOB-002 — Document detection (edge detection) is not functional on device
 
-| Field | Value |
-|---|---|
-| **Severity** | **HIGH** |
-| **Affected** | `apps/mobile/src/capture/frameProcessor.tsx` |
-| **Evidence** | The worklet runtime comes from `react-native-worklets-core`, which is **not installed**. `isFrameProcessorAvailable()` returns `false`. The 417-LOC `edgeDetection.ts` contains tested pure geometry that **never runs on a frame**. |
-| **Expected** | Live document edge overlay while framing a shot |
-| **Actual** | No overlay; capture falls back to plain photo mode |
-| **Verification** | `node -e "require('./apps/mobile/package.json').dependencies"` → no worklets; read `frameProcessor.tsx:34-39` |
+| Field            | Value                                                                                                                                                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Severity**     | **HIGH**                                                                                                                                                                                                                             |
+| **Affected**     | `apps/mobile/src/capture/frameProcessor.tsx`                                                                                                                                                                                         |
+| **Evidence**     | The worklet runtime comes from `react-native-worklets-core`, which is **not installed**. `isFrameProcessorAvailable()` returns `false`. The 417-LOC `edgeDetection.ts` contains tested pure geometry that **never runs on a frame**. |
+| **Expected**     | Live document edge overlay while framing a shot                                                                                                                                                                                      |
+| **Actual**       | No overlay; capture falls back to plain photo mode                                                                                                                                                                                   |
+| **Verification** | `node -e "require('./apps/mobile/package.json').dependencies"` → no worklets; read `frameProcessor.tsx:34-39`                                                                                                                        |
 
 **Recommended correction:** Install `react-native-worklets-core`, regenerate native projects (MOB-001), and verify the frame processor on a real device. Until then, remove edge-detection from the marketing claim or label it "manual framing".
 
@@ -109,14 +109,14 @@ Capture · edge detection · QR pairing · review · offline queue · upload ret
 
 ### MOB-003 — Voice assistance is not functional
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `apps/mobile/src/assist/speechPlatform.ts` |
-| **Evidence** | Requires `@react-native-voice/voice` and `react-native-tts`, neither installed. The shim returns an "unavailable" recogniser. |
-| **Expected** | Spoken field entry during review |
-| **Actual** | UI reports unavailable |
-| **Verification** | Read the shim; check `package.json` |
+| Field            | Value                                                                                                                         |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                                                                                                    |
+| **Affected**     | `apps/mobile/src/assist/speechPlatform.ts`                                                                                    |
+| **Evidence**     | Requires `@react-native-voice/voice` and `react-native-tts`, neither installed. The shim returns an "unavailable" recogniser. |
+| **Expected**     | Spoken field entry during review                                                                                              |
+| **Actual**       | UI reports unavailable                                                                                                        |
+| **Verification** | Read the shim; check `package.json`                                                                                           |
 
 **Recommended correction:** Install the modules with the native build, or descope the feature explicitly. The consent and command-grammar logic is pure and tested, so the remaining work is integration.
 
@@ -124,15 +124,15 @@ Capture · edge detection · QR pairing · review · offline queue · upload ret
 
 ### MOB-004 — `app.json` does not declare permissions the features need
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `apps/mobile/app.json` |
-| **Evidence** | Camera and microphone usage descriptions / Android permissions are normally required. Since no native project exists, no manifest declares them. |
-| **Expected** | `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`, `android.permission.CAMERA` |
-| **Actual** | Not present anywhere |
-| **Verification** | Read `app.json`; no manifest exists |
-| **Note** | Blocked on MOB-001 — cannot be assessed until a native project exists |
+| Field            | Value                                                                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Severity**     | **MEDIUM**                                                                                                                                       |
+| **Affected**     | `apps/mobile/app.json`                                                                                                                           |
+| **Evidence**     | Camera and microphone usage descriptions / Android permissions are normally required. Since no native project exists, no manifest declares them. |
+| **Expected**     | `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`, `android.permission.CAMERA`                                                          |
+| **Actual**       | Not present anywhere                                                                                                                             |
+| **Verification** | Read `app.json`; no manifest exists                                                                                                              |
+| **Note**         | Blocked on MOB-001 — cannot be assessed until a native project exists                                                                            |
 
 **Recommended correction:** Add the descriptions when scaffolding. App Store review will reject without them.
 
@@ -140,14 +140,14 @@ Capture · edge detection · QR pairing · review · offline queue · upload ret
 
 ### MOB-005 — Offline queue behaviour is only unit-tested
 
-| Field | Value |
-|---|---|
-| **Severity** | **MEDIUM** |
-| **Affected** | `uploadQueue.ts`, `queueStorage.ts` |
-| **Evidence** | Backoff and persistence are tested with fakes. No test covers app suspension, OS-level queue eviction, or a device going offline mid-upload. |
-| **Expected** | Verified behaviour under real app lifecycle |
-| **Actual** | Unverified |
-| **Verification** | Requires a device |
+| Field            | Value                                                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Severity**     | **MEDIUM**                                                                                                                                   |
+| **Affected**     | `uploadQueue.ts`, `queueStorage.ts`                                                                                                          |
+| **Evidence**     | Backoff and persistence are tested with fakes. No test covers app suspension, OS-level queue eviction, or a device going offline mid-upload. |
+| **Expected**     | Verified behaviour under real app lifecycle                                                                                                  |
+| **Actual**       | Unverified                                                                                                                                   |
+| **Verification** | Requires a device                                                                                                                            |
 
 **Recommended correction:** Device test matrix: airplane mode during upload, app kill mid-queue, storage full.
 
@@ -155,15 +155,15 @@ Capture · edge detection · QR pairing · review · offline queue · upload ret
 
 ## 7. Missing functionality
 
-| Item | Status |
-|---|---|
-| Native Android project | **Not implemented** |
-| Native iOS project | **Not implemented** |
-| Frame processor runtime | **Not installed** |
-| Voice modules | **Not installed** |
-| Permissions manifest | **Not implemented** |
+| Item                    | Status              |
+| ----------------------- | ------------------- |
+| Native Android project  | **Not implemented** |
+| Native iOS project      | **Not implemented** |
+| Frame processor runtime | **Not installed**   |
+| Voice modules           | **Not installed**   |
+| Permissions manifest    | **Not implemented** |
 | App Store / Play assets | **Not implemented** |
-| Deep-link handling | **Not implemented** |
+| Deep-link handling      | **Not implemented** |
 
 ---
 
@@ -190,24 +190,24 @@ Secure endpoint enforcement is correct. Tokens live in Keychain. The speech shim
 
 ## EVIDENCE CLASSIFICATION
 
-| Class | Items |
-|---|---|
-| **A. Verified working** | Secure endpoint check, Keychain storage, queue backoff logic, pure geometry, honest shims |
-| **B. Verified failing** | **MOB-001 (CRITICAL)**, MOB-002, MOB-003 |
-| **C. Not implemented** | Native projects, permissions, store assets, deep links |
-| **D. Partially implemented** | Capture (logic yes, frame processing no); assist (logic yes, speech no) |
-| **E. Unable to verify** | Anything on a device: capture, QR pairing, offline queue under lifecycle, permissions prompts |
+| Class                        | Items                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| **A. Verified working**      | Secure endpoint check, Keychain storage, queue backoff logic, pure geometry, honest shims     |
+| **B. Verified failing**      | **MOB-001 (CRITICAL)**, MOB-002, MOB-003                                                      |
+| **C. Not implemented**       | Native projects, permissions, store assets, deep links                                        |
+| **D. Partially implemented** | Capture (logic yes, frame processing no); assist (logic yes, speech no)                       |
+| **E. Unable to verify**      | Anything on a device: capture, QR pairing, offline queue under lifecycle, permissions prompts |
 
 ---
 
 ## ISSUE SUMMARY
 
-| ID | Severity | Title |
-|---|---|---|
-| MOB-001 | **CRITICAL** | No native project; app never built |
-| MOB-002 | **HIGH** | Edge detection non-functional (worklets not installed) |
-| MOB-003 | MEDIUM | Voice assist non-functional |
-| MOB-004 | MEDIUM | Permissions not declared |
-| MOB-005 | MEDIUM | Offline queue only unit-tested |
+| ID      | Severity     | Title                                                  |
+| ------- | ------------ | ------------------------------------------------------ |
+| MOB-001 | **CRITICAL** | No native project; app never built                     |
+| MOB-002 | **HIGH**     | Edge detection non-functional (worklets not installed) |
+| MOB-003 | MEDIUM       | Voice assist non-functional                            |
+| MOB-004 | MEDIUM       | Permissions not declared                               |
+| MOB-005 | MEDIUM       | Offline queue only unit-tested                         |
 
 **Totals: 1 CRITICAL · 1 HIGH · 3 MEDIUM · 0 LOW**
