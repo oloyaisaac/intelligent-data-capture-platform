@@ -1,100 +1,45 @@
-# Tasks
+# Current Work Queue — Systematic Remediation
 
-Short-term work queue. `PRD.json` is the complete project; this file is what we are doing **now**.
-Story IDs refer to `PRD.json`. Keep this list short and honest.
+- **Last updated:** 2026-11-15
+- **Detailed register:** [`REMEDIATION/REMEDIATION-PLAN.md`](REMEDIATION/REMEDIATION-PLAN.md)
+- **Verification evidence:** [`REMEDIATION/VERIFICATION-LOG.md`](REMEDIATION/VERIFICATION-LOG.md)
 
-**Last updated:** 2026-10-27
+`REQUIREMENTS.md` and `PRD.json` remain the product requirements and story-status sources of truth.
+This remediation queue does not delete or weaken existing product functionality. The PRD's 45 stories
+remain `done`; its 11 existing, unverified verification blocks remain explicitly unverified.
 
----
+## Active — CRITICAL first
 
-## Done (this milestone)
+| ID            | Task                                                                                                                      | Status          | Evidence / blocker                                                                                                                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MC-01 + MC-02 | Make packaged Electron use a real `app://idcp` origin, the baked `API_BASE_URL`, and an API-specific CSP response header. | **IN PROGRESS** | Unit, build, static-contract and full-suite checks pass. A real Electron package launch is not verified: the sandbox's Electron binary fetch fails (`TypeError: fetch failed`). See verification log. |
+| MC-04         | Execute migrations and the full backend integration suite against PostgreSQL in CI.                                       | **IN PROGRESS** | Added a `postgres:16` job, isolated schema-per-harness test adapter, smoke test, and `npm run test:postgres`; local execution is impossible without PostgreSQL/Docker, so CI results remain pending.  |
+| MC-06         | Enforce batch count and total bytes while streaming multipart parts; spool files privately and process one at a time.     | **DONE**        | 9 batch tests pass; revert check fails on old handler (Expected 413, got 201). See verification log.                                                                                                  |
+| MC-03         | Produce a deployable backend artefact and exercise its build in CI.                                                       | **IN PROGRESS** | Multi-stage Dockerfile, PostgreSQL Compose stack, migration service and CI build/health smoke job added. No local Docker; GitHub Actions execution is pending.                                        |
+| MC-05         | Add buildable Android and iOS project scaffolds and verify an APK in CI.                                                  | TODO            | No local Java/Android SDK; CI/device build required.                                                                                                                                                  |
+| MC-07         | Add a packaged desktop sign-in end-to-end test.                                                                           | TODO            | Depends on the real Electron packaged-runtime harness (P-3).                                                                                                                                          |
+| MC-08         | Measure the value proposition on real operator workflows and documents.                                                   | BLOCKED         | Requires pilot operators and a labelled corpus; not something code changes can honestly simulate.                                                                                                     |
 
-M0 and M1 are complete, and these M2 stories are now done too:
+The CRITICAL queue must be fixed or explicitly blocked before starting independent HIGH remediation.
+The narrow MH-04/MH-05 navigation guards were included with the MC-01/02 Electron-shell change because
+the new privileged renderer origin must not retain an unrestricted navigation path.
 
-- [x] **BACK-001 / DB-001 / AUTH-001 / AUTH-002** — API skeleton, schema + migrations, Argon2id auth
-      with rotating refresh tokens, RBAC and tenant scoping.
-- [x] **UDM-001 / AI-001–AI-004** — Universal Data Model, OCR abstraction, classification,
-      field/table extraction with per-field confidence, templates.
-- [x] **PAIR-001–PAIR-004** — QR pairing, device credentials, revocation.
-- [x] **DOC-001 / REV-001 / EXPORT-001 / EXPORT-002** — upload with sniffing + idempotency, review
-      workflow, Excel/CSV export.
-- [x] **CON-001–CON-003 / MAP-001 / DUP-001** — connector SDK with CSV, SQLite, PostgreSQL, MySQL and
-      Google Sheets destinations, mapping profiles and duplicate policy.
-- [x] **DESK-001 / DEVAPI-001** — desktop renderer (dashboard over SSE, documents, review, templates,
-      connectors, exports, devices, settings) and developer API keys.
-- [x] **BATCH-001** — batch upload with partial-failure handling, derived progress and CSV results.
-- [x] **TEAM-001** — projects and expiring, single-use hashed invitation links.
+## Verified alongside the current change
 
-## Now
+| ID    | Result                                                                                                                                                    |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MC-06 | Batch count and total bytes are enforced while streaming; excess part is not read; private temp files are cleaned. Revert check fails on the old handler. |
+| MH-04 | External opening accepts only HTTPS or safe `mailto:` URLs; other schemes are rejected. Unit callback tests pass.                                         |
+| MH-05 | Navigation is restricted to the exact `app://idcp` (or configured development) origin. Unit callback tests pass.                                          |
+| P-0   | Remediation register exists, records dependencies/status, and tracks all 97 actionable IDs plus 10 informational observations.                            |
 
-Nothing open: all 45 stories in `PRD.json` are `done`. The last round was a documentation audit, not
-new features — `.env.example` was unusable, `DATABASE.md` claimed the schema was unimplemented, and
-`DECISIONS.md` was missing DEC-013, which several documents cited. All three are fixed and
-`apps/backend/test/config.test.ts` now fails if the environment file and the config schema drift.
+## Next severity waves
 
-## Done this round
+- **HIGH:** See the complete `MH-01..39` task register. `MH-04/05` are verified above; begin other independent HIGH work after the CRITICAL queue is resolved or blocked. Owner-/vendor-/credential-dependent items remain explicitly blocked.
+- **MEDIUM:** `MM-01..40`; the cross-tenant sweep prerequisite is P-1. Corpus-, device-, and vendor-dependent items remain explicitly blocked.
+- **LOW:** `ML-01..10` after MEDIUM, except tasks already covered by a required security correction.
+- **INFORMATIONAL:** `MI-01..10` are evidence-positive observations retained without corrective changes.
 
-- [x] **DUP-001** — side-effect-free duplicate preview and policy-aware send (`skip`/`update`/`merge`/`append`).
-- [x] **REV-002** — document type on every correction, aggregate stats, opt-in training export.
-- [x] **DESK-001** — allow-listed IPC, keychain token file, sandboxed renderer, packaging targets.
-- [x] **DESK-002** — device filter, live document list, bulk approve with a skipped report.
-- [x] **MOB-002** — automatic page detection, EXIF orientation, crop, enhancement and compression.
-- [x] **CRM-001** — HubSpot, Odoo and QuickBooks adapters with a shared HTTP transport.
-- [x] **MARKET-001** — signed connector catalogue, permission disclosure and rollback.
-- [x] **AGENT-001** — workflow rules with a run log; destructive actions wait for per-run approval.
-- [x] **VOICE-001** — offline capture guidance, consented spoken commands, per-run confirmations.
-- [x] **I18N-001** — one complete `en/sw/fr` catalogue, locale-aware formatting, logical-property RTL.
-- [x] **SEC-001** — retention now runs by itself: `MaintenanceService` sweeps documents past
-      `retention_days`, expired exports, sessions, reset tokens and pairing codes on an interval
-      (`DEC-031`, `test/maintenance.test.ts`).
-- [x] **Password recovery and session control** — forgot/reset/change password, list and revoke
-      sessions, sign out everywhere (`DEC-030`, `test/auth-recovery.test.ts`).
-- [x] **Data-subject rights** — `GET /me/export` and `POST /me/erase`, wired to the desktop Account page.
-- [x] **Legal pack** — privacy policy, terms, DPA, sub-processor list and security summary under
-      `legal/`, published at `GET /legal/{slug}` and checked by `npm run test:legal`.
-- [x] **Web hardening** — security headers on every response and a structured access log.
-- [x] **Terms acceptance** — the sign-up checkbox is enforced at the API boundary, the version that
-      was accepted is stored and shown, and a revised pack re-prompts (`DEC-032`).
-- [x] **Audit log export** — `GET /audit-logs.csv` for a customer's auditor.
-- [x] **`TRUST_PROXY`** — proxy trust is configurable, so per-IP limits cannot be spoofed when the API
-      is exposed directly (`DEC-033`).
-- [x] **Audit filter bug** — the actor filter was silently ignored; client, route and OpenAPI now agree.
-- [x] **Multi-factor authentication** — TOTP enrolment with a five-minute login challenge, ten
-      single-use recovery codes stored as hashes, password-plus-code disable, and an Account-page
-      section to enrol, regenerate and switch it off (`DEC-034`, `test/totp.test.ts`,
-      `test/mfa.test.ts`). Desktop sign-in and the mobile app both handle the challenge.
+## Current verification baseline
 
-## Now (product)
-
-One acceptance criterion is unmet, recorded as a `verification` block in `PRD.json`:
-
-- [ ] **CON-002 OAuth**: consent flow + encrypted refresh token + refresh before a Sheets run. Until
-      then a Sheets destination works for about an hour per pasted token.
-- [ ] **MFA policy**: let an organisation require a second factor for a role (and for the owner),
-      and show who has it on. Today enrolment is self-service only (`DEC-034`).
-
-## Now (operations)
-
-Deployment work, not product stories. The full table with consequences is `DEPLOYMENT.md` §11.
-
-- [x] Re-queue jobs stranded in `running` by a crash or redeploy, so a document cannot sit in
-      `processing` forever (`test/worker-recovery.test.ts`).
-- [ ] Container image (`Dockerfile`) + publish step, so the documented pipeline can run.
-- [ ] `npm run db:backup` (`VACUUM INTO`) and a rehearsed restore for SQLite.
-- [x] Scheduled retention purge, expired-export deletion and session sweep (`MaintenanceService`).
-- [ ] `/metrics` (queue depth, job outcomes, latency) — the access log now exists, the metrics do not.
-- [x] Security headers.
-- [ ] Dependency audit gate in CI — needs the `zod` v3 → v4 migration first (9 advisories, 1 critical).
-
-## Later (security)
-
-- [ ] WebAuthn/passkeys as a second factor, so a phished code is not enough. The enrolment shape
-      (start → confirm → encrypted secret) already fits (`DEC-034`).
-
-## Later (Phase 3)
-
-- [ ] Sign and smoke-test installers on Windows, macOS and Linux (DEC-022).
-- [ ] Run the connectors and the backend against live MySQL, PostgreSQL and Google Sheets.
-- [ ] Implement the `s3` storage adapter; `STORAGE_DRIVER=s3` fails fast today.
-- [ ] Socket.IO transport alongside SSE (DEC-016), behind the same `RealtimeHub`.
-- [ ] One end-to-end test (Playwright for the renderer; Detox or Maestro for mobile).
+`npm run format:check` — PASS. `npm run verify` — PASS: 31 suites passed, 1 conditional PostgreSQL suite skipped; 432 tests passed and 1 skipped (433 total), plus typecheck, lint, PRD, OpenAPI, packaging-contract, and legal-pack checks. This is code/test evidence only; it is not evidence of an installer launch, a PostgreSQL deployment, a Docker image, an APK, or an iOS build.

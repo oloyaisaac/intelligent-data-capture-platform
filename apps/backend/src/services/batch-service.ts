@@ -55,12 +55,28 @@ export class BatchService {
 
   async create(
     actor: AuthenticatedActor,
-    input: { name?: string; projectId?: string; documentType?: DocumentType; files: BatchFile[] },
+    input: {
+      name?: string;
+      projectId?: string;
+      documentType?: DocumentType;
+      /** Files are loaded lazily so each document is uploaded before the next buffer is allocated. */
+      files: AsyncIterable<BatchFile>;
+    },
   ): Promise<BatchSummary> {
-    if (input.files.length === 0) throw badRequest('Add at least one file to the batch.');
-    if (input.files.length > MAX_BATCH_FILES) {
-      throw badRequest(`A batch can hold at most ${MAX_BATCH_FILES} files.`);
-    }
+    const iterator = input.files[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    if (first.done) throw badRequest('Add at least one file to the batch.');
+
+    const files = {
+      async *[Symbol.asyncIterator](): AsyncGenerator<BatchFile> {
+        yield first.value;
+        while (true) {
+          const next = await iterator.next();
+          if (next.done) return;
+          yield next.value;
+        }
+      },
+    };
 
     if (input.projectId) {
       const project = await this.projects.findById(actor.organisationId, input.projectId);
@@ -79,8 +95,14 @@ export class BatchService {
 
     // One idempotency key per item, derived from the batch so a retried request is safe.
     const batchKey = newToken(9);
+    let fileCount = 0;
 
-    for (const [index, file] of input.files.entries()) {
+    for await (const file of files) {
+      const index = fileCount;
+      fileCount += 1;
+      if (fileCount > MAX_BATCH_FILES) {
+        throw badRequest(`A batch can hold at most ${MAX_BATCH_FILES} files.`);
+      }
       try {
         const result = await this.documentService.upload(actor, {
           buffer: file.buffer,
@@ -120,12 +142,12 @@ export class BatchService {
       action: 'batch.created',
       targetType: 'batch',
       targetId: batch.id,
-      metadata: { files: input.files.length, projectId: input.projectId ?? null },
+      metadata: { files: fileCount, projectId: input.projectId ?? null },
     });
 
     this.hub.toOrganisation(actor.organisationId, 'batch:created', {
       batchId: batch.id,
-      files: input.files.length,
+      files: fileCount,
     });
 
     return this.get(actor, batch.id);

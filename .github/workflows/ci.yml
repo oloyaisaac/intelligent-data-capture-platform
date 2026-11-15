@@ -55,6 +55,71 @@ jobs:
       - name: Build renderer
         run: npm run build --workspace @idcp/desktop
 
+  postgres:
+    name: PostgreSQL integration (Node 22)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: idcp
+          POSTGRES_PASSWORD: idcp
+          POSTGRES_DB: idcp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U idcp -d idcp_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DB_DRIVER: postgres
+      DATABASE_URL: postgresql://idcp:idcp@localhost:5432/idcp_test
+      DATABASE_POOL_SIZE: '4'
+      IDCP_TEST_DB_POOL_SIZE: '3'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Apply PostgreSQL migrations
+        run: npm run db:migrate
+
+      - name: Run the complete backend suite against PostgreSQL
+        run: npm run test:postgres
+
+  container:
+    name: Backend container build and Compose smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Compose configuration
+        run: docker compose --env-file .env.compose.example config --quiet
+
+      - name: Build and smoke-test the PostgreSQL deployment stack
+        run: |
+          set -euo pipefail
+          env_file=.env.compose.example
+          export POSTGRES_PASSWORD='ci-compose-smoke-postgres-password'
+          export JWT_SECRET='ci-compose-smoke-jwt-secret-with-at-least-32-characters'
+          docker compose --env-file "$env_file" up --build --detach
+          cleanup() {
+            docker compose --env-file "$env_file" down --volumes --remove-orphans
+          }
+          trap cleanup EXIT
+          if ! curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:4000/api/v1/health; then
+            docker compose --env-file "$env_file" logs --no-color
+            exit 1
+          fi
+
   secrets:
     name: No committed secrets
     runs-on: ubuntu-latest

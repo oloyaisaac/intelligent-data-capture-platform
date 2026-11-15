@@ -3,10 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ws:; script-src 'self'"
-    />
+    <!-- CSP is set by the Vite dev-server response header in development and by the Electron
+         app:// protocol response header in packaged builds. A static meta CSP would be intersected
+         with the per-deployment API origin policy and block the packaged backend connection. -->
     <title>IDCP — data capture</title>
   </head>
   <body>

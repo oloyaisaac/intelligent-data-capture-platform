@@ -2,10 +2,10 @@
 /**
  * Checks the desktop packaging configuration (DESK-001).
  *
- * The Electron binary and electron-builder are not installed in CI (they need platform-specific
- * downloads), so the packaging contract is validated statically instead: three platform targets,
- * ASAR enabled, the built main process entry point, and no browser window that hands Node to the
- * renderer.
+ * This check validates the packaging contract statically: platform targets, ASAR enabled, the
+ * built main-process entry point, baked API configuration, the secure renderer scheme, and no
+ * browser window that hands Node to the renderer. It is not evidence that a native installer
+ * launches; that requires the Electron binary and a packaged-runtime smoke test.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +22,8 @@ const expect = (condition, message) => {
 const config = JSON.parse(read('apps/desktop/electron-builder.json'));
 const pkg = JSON.parse(read('apps/desktop/package.json'));
 const mainSource = read('apps/desktop/src/main/electron-main.ts');
+const rendererHtml = read('apps/desktop/index.html');
+const viteConfig = read('apps/desktop/vite.config.ts');
 
 expect(config.asar === true, 'packaging must keep ASAR enabled');
 expect(config.appId === 'com.idcp.desktop', 'unexpected application id');
@@ -44,8 +46,34 @@ expect(
   'packaging must include both the renderer and main process builds',
 );
 expect(
-  pkg.scripts?.['build:electron'] !== undefined,
-  'a build:electron script must compile the main process',
+  typeof pkg.devDependencies?.electron === 'string',
+  'Electron must be a declared build dependency; electron-builder alone cannot produce a runnable app',
+);
+expect(
+  typeof pkg.devDependencies?.['electron-builder'] === 'string',
+  'electron-builder must be a declared dependency so packaging is reproducible',
+);
+expect(
+  pkg.scripts?.['build:electron']?.includes('configure-desktop-api.mjs'),
+  'build:electron must generate the baked API configuration consumed by the main process',
+);
+for (const script of ['package', 'package:win', 'package:mac', 'package:linux']) {
+  expect(
+    pkg.scripts?.[script]?.includes('configure-desktop-api.mjs --check'),
+    `${script} must reject a missing or invalid API_BASE_URL before building`,
+  );
+}
+expect(
+  !/http-equiv\s*=\s*["']Content-Security-Policy/i.test(rendererHtml),
+  'the packaged HTML must not contain a static meta CSP that intersects with its API-specific header',
+);
+expect(
+  /headers:\s*\{\s*['"]Content-Security-Policy['"]/.test(viteConfig),
+  'the development server must set CSP with a response header after the static meta policy is removed',
+);
+expect(
+  /registerSchemesAsPrivileged/.test(mainSource) && /protocol\.handle/.test(mainSource),
+  'the packaged app must register and serve its secure custom renderer scheme',
 );
 
 expect(

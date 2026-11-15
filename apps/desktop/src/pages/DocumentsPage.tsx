@@ -67,7 +67,7 @@ export function DocumentsPage({
   useEffect(() => {
     if (!accessToken) return;
     const connection = connectRealtime({
-      url: eventsUrl(accessToken),
+      url: eventsUrl(accessToken, client.baseOrigin),
       onEvent: (event) => {
         if (event.startsWith('document:') || event === 'job:progress') void documents.reload();
       },

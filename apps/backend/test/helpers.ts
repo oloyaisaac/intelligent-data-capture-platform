@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
+import { Pool } from 'pg';
 import { loadConfig, type Config } from '../src/config';
-import { createTestDatabase } from '../src/db';
+import { applyMigrations, createTestDatabase, PostgresDatabase } from '../src/db';
 import { createLogger } from '../src/logger';
 import { MemoryStorage } from '../src/storage';
 import { InMemoryRealtimeHub } from '../src/realtime/hub';
@@ -107,9 +109,83 @@ export function testConfig(overrides: NodeJS.ProcessEnv = {}): Config {
   } as NodeJS.ProcessEnv);
 }
 
+/**
+ * One isolated PostgreSQL schema per test harness. The full backend suite can therefore run against
+ * the production driver without tests sharing tables or requiring a database per test. `options`
+ * sets the search_path for every pooled connection; the generated schema identifier is hex-only.
+ */
+async function createPostgresTestDatabase(connectionString: string): Promise<Database> {
+  const schema = `idcp_test_${randomUUID().replace(/-/g, '')}`;
+  const admin = new Pool({ connectionString, max: 1 });
+  try {
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+  } catch (error) {
+    await admin.end();
+    throw error;
+  }
+
+  const scopedUrl = new URL(connectionString);
+  const existingOptions = scopedUrl.searchParams.get('options');
+  scopedUrl.searchParams.set(
+    'options',
+    [existingOptions, `-c search_path=${schema}`].filter(Boolean).join(' '),
+  );
+  const database = new PostgresDatabase({ connectionString: scopedUrl.toString(), poolSize: 3 });
+
+  try {
+    await applyMigrations(database);
+  } catch (error) {
+    try {
+      await database.close();
+    } finally {
+      try {
+        await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      } finally {
+        await admin.end();
+      }
+    }
+    throw error;
+  }
+
+  let closed = false;
+  return {
+    driver: 'postgres',
+    query: (sql, params) => database.query(sql, params),
+    one: (sql, params) => database.one(sql, params),
+    execute: (sql, params) => database.execute(sql, params),
+    transaction: (run) => database.transaction(run),
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      try {
+        await database.close();
+      } finally {
+        try {
+          await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+        } finally {
+          await admin.end();
+        }
+      }
+    },
+  };
+}
+
 export async function createHarness(overrides: NodeJS.ProcessEnv = {}): Promise<Harness> {
-  const config = testConfig(overrides);
-  const db = await createTestDatabase();
+  const postgresTestRun = process.env.IDCP_TEST_DB_DRIVER === 'postgres';
+  const config = testConfig({
+    ...overrides,
+    ...(postgresTestRun
+      ? {
+          DB_DRIVER: 'postgres',
+          DATABASE_URL: process.env.DATABASE_URL,
+          DATABASE_POOL_SIZE: process.env.IDCP_TEST_DB_POOL_SIZE ?? '3',
+        }
+      : {}),
+  });
+  const db =
+    config.DB_DRIVER === 'postgres'
+      ? await createPostgresTestDatabase(config.DATABASE_URL as string)
+      : await createTestDatabase();
   const logger = createLogger({ level: 'error', sink: () => undefined });
   const storage = new MemoryStorage();
   const hub = new InMemoryRealtimeHub();

@@ -161,6 +161,17 @@ export class ApiClient {
     return this.accessToken;
   }
 
+  /**
+   * The API base URL this client sends requests to.
+   *
+   * Pages need it to build absolute URLs the browser will not resolve for them — notably the SSE
+   * event stream (MC-01). A relative value means the dev server is proxying; anything else is the
+   * packaged app talking to a real API origin.
+   */
+  get baseOrigin(): string {
+    return this.baseUrl;
+  }
+
   async restoreSession(): Promise<boolean> {
     const { accessToken, refreshToken } = await this.storage.read();
     if (!refreshToken) return false;

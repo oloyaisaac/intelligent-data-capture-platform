@@ -33,7 +33,8 @@
     "test:api": "node scripts/validate-openapi.mjs && node scripts/generate-udm-schema.mjs --check",
     "schema:udm": "node scripts/generate-udm-schema.mjs",
     "test:packaging": "node scripts/validate-packaging.mjs",
-    "test:legal": "node scripts/validate-legal.mjs"
+    "test:legal": "node scripts/validate-legal.mjs",
+    "test:postgres": "node scripts/test-postgres.mjs"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

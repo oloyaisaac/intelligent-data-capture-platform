@@ -9,11 +9,11 @@
     "preview": "vite preview",
     "electron": "tsx src/main/electron-main.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
-    "build:electron": "tsc -p tsconfig.electron.json",
-    "package": "npm run build && npm run build:electron && npx --yes electron-builder@25 --config electron-builder.json",
-    "package:win": "npm run build && npm run build:electron && npx --yes electron-builder@25 --config electron-builder.json --win",
-    "package:mac": "npm run build && npm run build:electron && npx --yes electron-builder@25 --config electron-builder.json --mac",
-    "package:linux": "npm run build && npm run build:electron && npx --yes electron-builder@25 --config electron-builder.json --linux"
+    "build:electron": "tsc -p tsconfig.electron.json && node ../../scripts/configure-desktop-api.mjs",
+    "package": "node ../../scripts/configure-desktop-api.mjs --check && npm run build && npm run build:electron && electron-builder --config electron-builder.json",
+    "package:win": "node ../../scripts/configure-desktop-api.mjs --check && npm run build && npm run build:electron && electron-builder --config electron-builder.json --win",
+    "package:mac": "node ../../scripts/configure-desktop-api.mjs --check && npm run build && npm run build:electron && electron-builder --config electron-builder.json --mac",
+    "package:linux": "node ../../scripts/configure-desktop-api.mjs --check && npm run build && npm run build:electron && electron-builder --config electron-builder.json --linux"
   },
   "dependencies": {
     "@idcp/shared": "*",
@@ -28,6 +28,8 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
     "jsdom": "^25.0.1",
     "vite": "^6.0.7"
   }

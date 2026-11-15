@@ -1,0 +1,34 @@
+# Credentials, local data, and captured documents must never enter an image build context.
+.git
+.env
+.env.*
+!.env.example
+secrets/
+credentials.json
+*.pem
+*.p12
+*.key
+*.keystore
+local-storage/
+uploads/local/
+fixtures/private/
+*.db
+*.sqlite
+*.sqlite3
+
+# Dependencies and generated output are created inside the image stages.
+node_modules/
+**/node_modules/
+apps/*/dist/
+apps/*/dist-electron/
+apps/*/build/
+packages/*/dist/
+coverage/
+.nyc_output/
+.cache/
+.turbo/
+.vite/
+
+# Reviewer and remediation material is not part of the API runtime.
+REVIEWS/
+REMEDIATION/

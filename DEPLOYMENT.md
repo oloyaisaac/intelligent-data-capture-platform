@@ -2,9 +2,9 @@
 
 How the platform goes from a laptop to production.
 
-> **Status:** the application and CI pipeline exist and run; nothing is deployed to a shared environment
-> yet. Local and single-host deployment is documented and works (§4). Hosting provider, region and
-> domain are still pending owner decisions (`PRD.json` Q-003).
+> **Status:** nothing is deployed to a shared environment yet. A PostgreSQL-backed Docker Compose
+> path and CI build/health-smoke job are now defined; that job still needs to run successfully before
+> the artefact is verified. Hosting provider, region and domain remain owner decisions (`PRD.json` Q-003).
 
 ---
 
@@ -55,16 +55,18 @@ External services requiring accounts and keys: AI/OCR provider(s), Google Cloud 
 ## 3. Build and release pipeline
 
 ```
-push / PR → CI: install → typecheck → lint → test → build → security scan
+push / PR → CI: install → typecheck → lint → test → build → Docker Compose/PostgreSQL smoke test
         → merge to main
         → build immutable image (tagged with commit SHA)
         → deploy to staging → smoke tests → manual verification
         → promote same image to production → health check → monitor
 ```
 
-Today the pipeline stops after `CI`: there is no `Dockerfile`, no image publish and no deploy job in
-`.github/workflows/`, so steps 7–10 above are a plan, not automation. A release is currently a manual
-`git pull && npm ci && npm run build && npm run db:migrate && systemd restart` on one host (§4).
+CI now validates `docker-compose.yml`, builds the backend image, starts PostgreSQL, runs the image's
+migration service, and checks the API health endpoint. This build-and-smoke job is configured but
+must pass in GitHub Actions before the artefact is considered verified. CI still does **not** publish
+an image or deploy it; those release stages depend on the hosting-provider decision. A release is
+therefore still a manual operation on the target host (§4).
 
 Rules:
 
@@ -80,28 +82,57 @@ Every key is documented in `.env.example`, and a test keeps that file equal to w
 committed. There is no Redis or object-store key because the shipped runtime has neither — see
 DEC-029 for the order in which they arrive.
 
-**Running one instance today (DEC-029).** One process, one host, two directories it owns:
-`SQLITE_PATH` (the database) and `STORAGE_PATH` (documents and exports). Run it under a supervisor
-that restarts on failure and forwards `SIGTERM` — `systemd`, Docker with `--restart`, or a platform
-process manager. Do not run more than one replica against a SQLite file: the worker claims jobs
-transactionally, but two SQLite writers are not a supported topology.
+**SQLite development/standalone mode (DEC-029).** One process on one host owns `SQLITE_PATH` (the
+database) and `STORAGE_PATH` (documents and exports). Run it under a supervisor that restarts on
+failure and forwards `SIGTERM` — `systemd`, Docker with `--restart`, or a platform process manager. Do
+not run more than one replica against a SQLite file: the worker claims jobs transactionally, but two
+SQLite writers are not a supported topology.
+
+**Single-host PostgreSQL Compose path (CI runtime pending).** `docker-compose.yml` configures one
+API/worker container, PostgreSQL 16, a one-shot migration service, and a persistent filesystem
+document volume. The image includes Tesseract English data for the default local OCR provider. This
+is intended as a single-instance path, not a horizontally scalable topology; the actual image and
+Compose startup still await the CI smoke test. Managed PostgreSQL, shared object storage/queue,
+backup automation, image publishing, and provider-specific deployment are future work.
+
+To try it, copy `.env.compose.example` to `.env.compose`, replace the example origins and both sample
+secrets with distinct random values, then run from the repository root. The JWT value in the example
+is the backend's known development default, which production startup rejects until you replace it:
+
+```sh
+cp .env.compose.example .env.compose
+chmod 600 .env.compose
+# Edit .env.compose: use `openssl rand -hex 32` for POSTGRES_PASSWORD and JWT_SECRET.
+# The database password is interpolated into DATABASE_URL, so keep it URL-safe (hex is safe).
+docker compose --env-file .env.compose config --quiet
+docker compose --env-file .env.compose up --build --detach
+curl --fail http://127.0.0.1:4000/api/v1/health
+docker compose --env-file .env.compose logs --follow api
+```
+
+The API port binds to `127.0.0.1` by default; put a TLS-terminating reverse proxy in front of it and
+configure it to overwrite forwarded client-IP headers (`TRUST_PROXY=true`). `CORS_ORIGINS` must list
+the actual web app origin and `app://idcp` for packaged Electron clients. Do not expose the API
+without TLS. `docker compose down` preserves the named database and document volumes; **do not use
+`docker compose down --volumes` on a deployment** unless you intend to delete that data. Keep
+`.env.compose` outside version control and use a secret manager for a real production host.
 
 `SIGTERM` stops the worker, closes the HTTP server and closes the database. A job interrupted
 mid-extraction is re-queued the next time the worker starts (anything claimed more than 30 seconds
 before boot), so a restart is safe — the document returns to the queue instead of sitting in
 `processing` forever.
 
-| Group          | Keys (see `.env.example`)                                                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Runtime        | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                              |
-| Database       | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                           |
-| Auth           | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`               |
-| Storage        | `STORAGE_DRIVER` (`filesystem` today), `STORAGE_PATH`                                                                                      |
-| AI             | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC` |
-| Google         | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                                                                          |
-| Limits         | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_*`                                                                    |
-| Exports, jobs  | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                         |
-| Mobile/desktop | `API_BASE_URL` baked per build environment, never a secret in the bundle                                                                   |
+| Group          | Keys (see `.env.example`)                                                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime        | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                                  |
+| Database       | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                               |
+| Auth           | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`                   |
+| Storage        | `STORAGE_DRIVER` (`filesystem` today), `STORAGE_PATH`                                                                                          |
+| AI             | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`     |
+| Google         | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                                                                              |
+| Limits         | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_*`                                                                        |
+| Exports, jobs  | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                             |
+| Mobile/desktop | `API_BASE_URL` baked into each release artefact (public URL, never a secret); production `CORS_ORIGINS` must include `app://idcp` for Electron |
 
 Rotation: JWT signing keys and provider keys rotate on a schedule and immediately on suspected exposure. Rotating the JWT key invalidates access tokens; users re-authenticate or refresh.
 
@@ -116,10 +147,10 @@ Rotation: JWT signing keys and provider keys rotate on a schedule and immediatel
 **Backups.** There is no backup script in this repository yet; the operator owns this step, and it
 differs by driver:
 
-| Driver                            | Correct backup                                                                                                                                                             | Notes                                                                                                                                                            |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite (today)                    | `sqlite3 local-storage/idcp.db "VACUUM INTO '/backups/idcp-$(date +%F).db'"` while the server runs, or copy the `.db` **and** `-wal`/`-shm` files with the process stopped | Copying only `idcp.db` while WAL is active loses recent writes. Point-in-time recovery is not available on SQLite — take a snapshot at least daily and keep ≥ 7. |
-| PostgreSQL (after DEC-029 step 1) | Provider snapshots plus WAL archiving (PITR)                                                                                                                               | Then the original "daily full + PITR" applies.                                                                                                                   |
+| Driver                               | Correct backup                                                                                                                                                             | Notes                                                                                                                                                            |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite (today)                       | `sqlite3 local-storage/idcp.db "VACUUM INTO '/backups/idcp-$(date +%F).db'"` while the server runs, or copy the `.db` **and** `-wal`/`-shm` files with the process stopped | Copying only `idcp.db` while WAL is active loses recent writes. Point-in-time recovery is not available on SQLite — take a snapshot at least daily and keep ≥ 7. |
+| PostgreSQL (Compose deployment path) | Managed snapshots plus WAL archiving (PITR) where available; for the Compose-hosted database, schedule and test `pg_dump` backups                                          | There is no backup automation here; keep database backups coordinated with the document volume.                                                                  |
 
 Restores are tested quarterly and rehearsed before the first paying customer. A restore is not
 "done" until `GET /api/v1/health` returns `ok`, a login succeeds and a document downloads from
@@ -138,10 +169,12 @@ no longer exist.
 
 **Desktop (Electron)**
 
-1. Build per platform (Windows `.exe`/`.msi`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
-2. Sign (Authenticode on Windows; Developer ID + notarisation on macOS).
-3. Publish to the release channel; auto-update manifest served over HTTPS with signature verification.
-4. Support a `--no-auto-update` flag or config for controlled deployments.
+1. Set `API_BASE_URL` to the deployment's public API base (for example `https://api.example.com/api/v1`) before packaging. The build validates and embeds this public URL in `dist-electron/api-config.json`; it is not a credential. `npm run package --workspace @idcp/desktop` fails rather than producing an installer without a valid URL. Loopback HTTP is accepted only for local development packages; non-loopback hosts must use HTTPS.
+2. Set the backend's production `CORS_ORIGINS` to include `app://idcp` (plus any browser origins that are actually used). The desktop renderer's custom `app://idcp` origin is sent by Chromium on API requests.
+3. Build per platform (Windows `.exe`/`.msi`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
+4. Sign (Authenticode on Windows; Developer ID + notarisation on macOS).
+5. Publish to the release channel; auto-update manifest served over HTTPS with signature verification.
+6. Support a `--no-auto-update` flag or config for controlled deployments.
 
 **Mobile**
 
@@ -196,17 +229,17 @@ no longer exist.
 Ordered by what would hurt first. Everything here is deliberate and listed in `AGENT_STATE.md`;
 none of it is a bug the code hides.
 
-| Gap                                             | Consequence today                                                                                                                                                        | Fix                                                               |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| No `Dockerfile`, image build, deploy job or IaC | Releases are manual on one host (§3)                                                                                                                                     | Add an image build + publish step, then the pipeline above        |
-| No backup or restore script                     | Losing the host loses the database **and** the documents; the operator must schedule `VACUUM INTO` themselves (§5)                                                       | Ship `npm run db:backup` + a restore test                         |
-| No metrics endpoint or alerting                 | Only logs and the health check; "queue depth" and "p95 latency" are not measured                                                                                         | `/metrics` for queue depth, job outcomes, extraction latency      |
-| Rate limiting is in-process memory              | Resets on restart and does not cover a second instance; `TRUST_PROXY` is right behind the documented proxy, and must be `false` if you expose the API directly (DEC-033) | Shared limiter when a queue/cache exists                          |
-| No MFA                                          | A stolen password is a full session                                                                                                                                      | TOTP plus recovery codes, and an admin reset path                 |
-| Automation is in-process                        | `MaintenanceService` (DEC-031) sweeps retention, exports, sessions, reset tokens and pairing codes. With several replicas every replica sweeps — idempotent, redundant   | Move behind a single elector before horizontal scaling (DEC-029)  |
-| No dependency vulnerability scan in CI          | `npm audit` reports 9 advisories (1 critical via `shell-quote`; `zod` and `image-size` high) but CI does not fail on them                                                | Audit job once the upgrades land; `zod` needs a v3 → v4 migration |
-| Signed installers not built                     | Desktop/mobile distribution is manual (§7)                                                                                                                               | Release workflow per platform (DEC-022)                           |
-| No browser or device e2e                        | Integration tests cover the API, nothing covers a real click path                                                                                                        | Playwright (desktop), Detox or Maestro (mobile)                   |
+| Gap                                    | Consequence today                                                                                                                                                        | Fix                                                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| No image publish/deploy job or IaC     | CI now builds and smoke-tests the Docker Compose stack, but no immutable image is published or deployed (§3)                                                             | Add tagged-image publishing and deployment automation after the hosting-provider decision |
+| No backup or restore script            | Losing the host loses the database **and** the documents; the operator must schedule `VACUUM INTO` themselves (§5)                                                       | Ship `npm run db:backup` + a restore test                                                 |
+| No metrics endpoint or alerting        | Only logs and the health check; "queue depth" and "p95 latency" are not measured                                                                                         | `/metrics` for queue depth, job outcomes, extraction latency                              |
+| Rate limiting is in-process memory     | Resets on restart and does not cover a second instance; `TRUST_PROXY` is right behind the documented proxy, and must be `false` if you expose the API directly (DEC-033) | Shared limiter when a queue/cache exists                                                  |
+| No MFA                                 | A stolen password is a full session                                                                                                                                      | TOTP plus recovery codes, and an admin reset path                                         |
+| Automation is in-process               | `MaintenanceService` (DEC-031) sweeps retention, exports, sessions, reset tokens and pairing codes. With several replicas every replica sweeps — idempotent, redundant   | Move behind a single elector before horizontal scaling (DEC-029)                          |
+| No dependency vulnerability scan in CI | `npm audit` reports 9 advisories (1 critical via `shell-quote`; `zod` and `image-size` high) but CI does not fail on them                                                | Audit job once the upgrades land; `zod` needs a v3 → v4 migration                         |
+| Signed installers not built            | Desktop/mobile distribution is manual (§7)                                                                                                                               | Release workflow per platform (DEC-022)                                                   |
+| No browser or device e2e               | Integration tests cover the API, nothing covers a real click path                                                                                                        | Playwright (desktop), Detox or Maestro (mobile)                                           |
 
 Struck off this list in the October 2026 hardening pass: the access log (structured `onResponse`
 line), the security headers (`nosniff`, `DENY`, `no-referrer`, CSP, permissions policy, COOP/CORP,
