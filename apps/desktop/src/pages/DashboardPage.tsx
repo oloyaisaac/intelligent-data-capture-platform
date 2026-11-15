@@ -35,7 +35,7 @@ export function DashboardPage({
   useEffect(() => {
     if (!accessToken) return;
     const connection = connectRealtime({
-      url: eventsUrl(accessToken),
+      url: eventsUrl(accessToken, client.baseOrigin),
       onStatusChange: setLive,
       onEvent: (event) => {
         setEvents((previous) => [{ event, at: new Date().toISOString() }, ...previous].slice(0, 8));

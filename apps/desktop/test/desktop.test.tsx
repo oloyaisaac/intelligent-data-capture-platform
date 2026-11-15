@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ApiClient, ApiError, MemoryTokenStorage } from '../src/api/client';
-import { parseRoute, routeHref } from '../src/App';
+import { parseRoute, resolveClientBaseUrl, routeHref } from '../src/App';
 import {
   confidenceTone,
   formatBytes,
@@ -278,6 +278,33 @@ describe('dashboard (DASH-001)', () => {
   });
 });
 
+describe('packaged API configuration (MC-01)', () => {
+  it('uses the packaged API origin from the preload and keeps development relative', () => {
+    expect(resolveClientBaseUrl({ apiBaseUrl: 'https://api.example.com/api/v1' })).toBe(
+      'https://api.example.com/api/v1',
+    );
+    expect(resolveClientBaseUrl({ apiBaseUrl: '  https://api.example.com/api/v1/  ' })).toBe(
+      'https://api.example.com/api/v1/',
+    );
+    expect(resolveClientBaseUrl({ apiBaseUrl: '' })).toBe('');
+    expect(resolveClientBaseUrl(undefined)).toBe('');
+  });
+
+  it('sends an API request to the baked origin instead of the app:// renderer origin', async () => {
+    const baseUrl = resolveClientBaseUrl({ apiBaseUrl: 'https://api.example.com/api/v1' });
+    let requestedUrl = '';
+    const fetchImpl = (async (url: string | URL | Request) => {
+      requestedUrl = String(url);
+      return jsonResponse({ status: 'ok' });
+    }) as unknown as typeof fetch;
+    const client = new ApiClient({ baseUrl, fetchImpl, storage: new MemoryTokenStorage() });
+
+    await expect(client.request('/health')).resolves.toEqual({ status: 'ok' });
+    expect(requestedUrl).toBe('https://api.example.com/api/v1/health');
+    expect(client.baseOrigin).toBe(baseUrl);
+  });
+});
+
 describe('routing', () => {
   it('parses hash routes, including a deep link to a record', () => {
     expect(parseRoute('')).toEqual({ name: 'dashboard' });
@@ -374,9 +401,12 @@ describe('API client', () => {
 });
 
 describe('realtime client (DESK-002)', () => {
-  it('builds an events URL that keeps the token out of the body', () => {
+  it('builds relative and packaged events URLs while keeping the token out of the body', () => {
     expect(eventsUrl(null)).toBe('/api/v1/events');
     expect(eventsUrl('a b')).toBe('/api/v1/events?access_token=a%20b');
+    expect(eventsUrl('a b', 'https://api.example.com/api/v1/')).toBe(
+      'https://api.example.com/api/v1/events?access_token=a%20b',
+    );
   });
 
   it('delivers named events and closes cleanly', async () => {

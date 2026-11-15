@@ -1,4 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   CreateBatchRequestSchema,
   DOCUMENT_TYPES,
@@ -8,14 +11,17 @@ import {
 import type { Services } from '../../services/container';
 import type { Guards } from '../guards';
 import type { BatchFile } from '../../services/batch-service';
+import { spoolBatchParts } from './batch-upload';
 
 /**
  * BATCH-001 — one request, many files.
  *
- * Multipart fields that arrive before any file describe the batch (`name`, `projectId`,
- * `documentType`); every file part after them is one batch item. Partial success is the normal
- * case, so the response is always 201 with per-item results.
+ * Multipart text fields describe the batch (`name`, `projectId`, `documentType`); each file part is
+ * one batch item. File bytes are spooled to bounded temporary storage before the document service
+ * processes them one at a time. Partial success is the normal case, so the response is always 201
+ * with per-item results.
  */
+
 export function registerBatchRoutes(
   app: FastifyInstance,
   services: Services,
@@ -25,30 +31,40 @@ export function registerBatchRoutes(
     const actor = await guards.authenticate(request);
     if (!request.isMultipart()) throw badRequest('Upload the files as multipart/form-data.');
 
-    const files: BatchFile[] = [];
-    const fields: Record<string, string> = {};
+    const tempDir = await mkdtemp(join(tmpdir(), 'idcp-batch-'));
 
-    for await (const part of request.parts()) {
-      if (part.type === 'file') {
-        files.push({ buffer: await part.toBuffer(), filename: part.filename });
-      } else if (typeof part.value === 'string') {
-        fields[part.fieldname] = part.value;
-      }
+    try {
+      const { files, fields } = await spoolBatchParts(
+        request.parts(),
+        tempDir,
+        services.config.MAX_REQUEST_MB * 1024 * 1024,
+        services.config.MAX_REQUEST_MB,
+      );
+      const documentTypeRaw = fields.documentType;
+      const parsed = CreateBatchRequestSchema.safeParse({
+        name: fields.name,
+        projectId: fields.projectId || undefined,
+        documentType:
+          documentTypeRaw && (DOCUMENT_TYPES as readonly string[]).includes(documentTypeRaw)
+            ? (documentTypeRaw as DocumentType)
+            : undefined,
+      });
+      if (!parsed.success) throw badRequest('Check the batch details.', parsed.error.issues);
+
+      // The service reads one buffer, uploads it, then advances the iterator. The temp files preserve
+      // field/file ordering compatibility without retaining the entire batch in RAM.
+      const batchFiles = async function* (): AsyncGenerator<BatchFile> {
+        for (const file of files) {
+          yield { buffer: await readFile(file.path), filename: file.filename };
+        }
+      };
+      const batch = await services.batches.create(actor, { ...parsed.data, files: batchFiles() });
+      return reply.code(201).send(batch);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true }).catch((error: unknown) => {
+        request.log.error({ error }, 'could not remove temporary batch-upload files');
+      });
     }
-
-    const documentTypeRaw = fields.documentType;
-    const parsed = CreateBatchRequestSchema.safeParse({
-      name: fields.name,
-      projectId: fields.projectId || undefined,
-      documentType:
-        documentTypeRaw && (DOCUMENT_TYPES as readonly string[]).includes(documentTypeRaw)
-          ? (documentTypeRaw as DocumentType)
-          : undefined,
-    });
-    if (!parsed.success) throw badRequest('Check the batch details.', parsed.error.issues);
-
-    const batch = await services.batches.create(actor, { ...parsed.data, files });
-    return reply.code(201).send(batch);
   });
 
   app.get('/batches', async (request) => {

@@ -102,8 +102,15 @@ export function connectRealtime(options: RealtimeClientOptions): RealtimeClient 
   };
 }
 
-/** The events URL for the current session. The token stays in the query string, never in a body. */
+/**
+ * The events URL for the current session. The token stays in the query string, never in a body.
+ *
+ * `base` must be the same API base URL the request client uses. When it is relative the dev server
+ * proxies it; in the packaged app it is absolute, because a relative URL would resolve to
+ * `app://idcp/events` and never reach the API (MC-01).
+ */
 export function eventsUrl(accessToken: string | null, base = '/api/v1'): string {
-  if (!accessToken) return `${base}/events`;
-  return `${base}/events?access_token=${encodeURIComponent(accessToken)}`;
+  const trimmed = base.replace(/\/$/, '');
+  if (!accessToken) return `${trimmed}/events`;
+  return `${trimmed}/events?access_token=${encodeURIComponent(accessToken)}`;
 }

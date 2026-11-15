@@ -16,15 +16,37 @@ interface ContextBridgeLike {
   exposeInMainWorld(key: string, api: unknown): void;
 }
 
+/**
+ * MC-01: the absolute API base URL, read synchronously from the command line the main process set.
+ * Keep this parser inline: Electron's sandboxed preload cannot require arbitrary local modules.
+ */
+const API_BASE_ARG_PREFIX = '--idcp-api-base-url=';
+
+function apiBaseUrlFromArgv(argv: readonly string[]): string {
+  for (const arg of argv) {
+    if (!arg.startsWith(API_BASE_ARG_PREFIX)) continue;
+    try {
+      return decodeURIComponent(arg.slice(API_BASE_ARG_PREFIX.length));
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
 export interface DesktopBridge {
+  /** Absolute API base URL (e.g. `https://api.example.com/api/v1`), or `''` for same-origin. */
+  apiBaseUrl: string;
   readTokens(): Promise<{ accessToken: string | null; refreshToken: string | null }>;
   writeTokens(tokens: { accessToken: string | null; refreshToken: string | null }): Promise<void>;
   checkForUpdates(): Promise<{ status: 'disabled' | 'up_to_date' | 'available'; version?: string }>;
   appVersion(): Promise<string>;
 }
 
-function buildBridge(ipcRenderer: IpcRendererLike): DesktopBridge {
+function buildBridge(ipcRenderer: IpcRendererLike, apiBaseUrl: string): DesktopBridge {
   return {
+    // Not an IPC call: the renderer needs this before its first module runs.
+    apiBaseUrl,
     readTokens: () =>
       ipcRenderer.invoke('idcp:tokens:read') as Promise<{
         accessToken: string | null;
@@ -43,8 +65,12 @@ function buildBridge(ipcRenderer: IpcRendererLike): DesktopBridge {
 export function registerPreload(
   contextBridge: ContextBridgeLike,
   ipcRenderer: IpcRendererLike,
+  argv: readonly string[] = (globalThis as { process?: { argv?: string[] } }).process?.argv ?? [],
 ): void {
-  contextBridge.exposeInMainWorld('idcpDesktop', buildBridge(ipcRenderer));
+  contextBridge.exposeInMainWorld(
+    'idcpDesktop',
+    buildBridge(ipcRenderer, apiBaseUrlFromArgv(argv)),
+  );
 }
 
 // Inside Electron this module is loaded by the preload loader, which provides `electron`.

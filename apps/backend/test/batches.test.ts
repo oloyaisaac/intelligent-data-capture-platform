@@ -1,3 +1,10 @@
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Readable } from 'node:stream';
+import type { MultipartFile } from '@fastify/multipart';
+import { spoolBatchParts } from '../src/http/routes/batch-upload';
+import { MAX_BATCH_FILES } from '../src/services/batch-service';
 import {
   createHarness,
   drainWorker,
@@ -181,6 +188,120 @@ describe('BATCH-001 batch upload', () => {
       token: other.accessToken,
     });
     expect(peek.statusCode).toBe(404);
+  });
+
+  it('rejects the 101st file before it can become another buffered batch item', async () => {
+    const account = await registerAccount(harness);
+    const form = new FormData();
+    for (let index = 0; index <= MAX_BATCH_FILES; index += 1) {
+      form.append(
+        'files',
+        new Blob([Buffer.from('x')], { type: 'application/octet-stream' }),
+        `f-${index}.bin`,
+      );
+    }
+
+    const response = await fetch(`${harness.baseUrl}/api/v1/batches`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${account.accessToken}` },
+      body: form,
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'FIELD_VALIDATION_FAILED', message: expect.stringContaining('100 files') },
+    });
+
+    const batches = await harness.api.json('GET', '/api/v1/batches', {
+      token: account.accessToken,
+    });
+    expect(batches.json<{ items: unknown[] }>().items).toHaveLength(0);
+  });
+
+  it('destroys the 101st multipart stream before reading its bytes', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'idcp-batch-limit-test-'));
+    let excessReadCalls = 0;
+    const toBuffer = jest.fn(async () => Buffer.from('should not use toBuffer'));
+    const excessStream = new Readable({
+      read() {
+        excessReadCalls += 1;
+        this.push(Buffer.from('must not be read'));
+        this.push(null);
+      },
+    });
+    const filePart = (filename: string, file: Readable): MultipartFile => {
+      const multipartFile = file as MultipartFile['file'];
+      Object.assign(multipartFile, { truncated: false });
+      return {
+        type: 'file',
+        file: multipartFile,
+        filename,
+        fieldname: 'files',
+        encoding: '7bit',
+        mimetype: 'application/octet-stream',
+        fields: {},
+        toBuffer,
+      };
+    };
+    const parts = async function* () {
+      for (let index = 0; index < MAX_BATCH_FILES; index += 1) {
+        yield filePart(`file-${index}.bin`, Readable.from([Buffer.from('x')]));
+      }
+      yield filePart('excess.bin', excessStream);
+    };
+
+    try {
+      await expect(spoolBatchParts(parts(), tempDir, 1024 * 1024, 1)).rejects.toThrow(
+        `A batch can hold at most ${MAX_BATCH_FILES} files.`,
+      );
+      expect(excessStream.destroyed).toBe(true);
+      expect(excessReadCalls).toBe(0);
+      expect(toBuffer).not.toHaveBeenCalled();
+      expect(await readdir(tempDir)).toHaveLength(MAX_BATCH_FILES);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('enforces the whole-request byte budget while spooling and cleans partial uploads', async () => {
+    const boundedHarness = await createHarness({ MAX_REQUEST_MB: '1', MAX_UPLOAD_MB: '1' });
+    try {
+      const account = await registerAccount(boundedHarness);
+      const beforeTempDirs = new Set(
+        (await readdir(tmpdir())).filter((name) => name.startsWith('idcp-batch-')),
+      );
+      const form = new FormData();
+      for (let index = 0; index < 3; index += 1) {
+        form.append(
+          'files',
+          new Blob([Buffer.alloc(400 * 1024)], { type: 'application/octet-stream' }),
+          `large-${index}.bin`,
+        );
+      }
+
+      const response = await fetch(`${boundedHarness.baseUrl}/api/v1/batches`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${account.accessToken}` },
+        body: form,
+      });
+      expect(response.status).toBe(413);
+      expect(await response.json()).toMatchObject({
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message: 'The batch exceeds the 1 MB request limit.',
+        },
+      });
+      const afterTempDirs = new Set(
+        (await readdir(tmpdir())).filter((name) => name.startsWith('idcp-batch-')),
+      );
+      expect([...afterTempDirs].filter((name) => !beforeTempDirs.has(name))).toEqual([]);
+
+      const batches = await boundedHarness.api.json('GET', '/api/v1/batches', {
+        token: account.accessToken,
+      });
+      expect(batches.json<{ items: unknown[] }>().items).toHaveLength(0);
+    } finally {
+      await boundedHarness.close();
+    }
   });
 
   it('assigns a batch to a project and can read it back', async () => {

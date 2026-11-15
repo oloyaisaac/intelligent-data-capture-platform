@@ -24,9 +24,14 @@ import type { Locale } from '@idcp/shared';
 /**
  * Application shell (DESK-001).
  *
- * Hash routing keeps the renderer working when loaded from `file://` inside Electron, where
- * history-based routing would 404 on reload. The shell owns the session: pages receive a client
- * that is already authenticated.
+ * Hash routing keeps the renderer working inside the packaged app, where history-based routing
+ * would depend on the protocol handler serving every path. The shell owns the session: pages
+ * receive a client that is already authenticated.
+ *
+ * MC-01: the API base URL is no longer implicit. In the packaged app it arrives from the preload
+ * bridge (which the main process sets from `API_BASE_URL`); in development it stays relative so
+ * the Vite dev server can proxy `/api`. A packaged build with no configured API origin fails at
+ * startup in the main process rather than opening a window that cannot sign in.
  */
 
 export type Route =
@@ -131,12 +136,33 @@ const NAV: Array<{
   { route: { name: 'account' }, labelKey: 'nav.account' },
 ];
 
+type DesktopBridgeLike = ConstructorParameters<typeof BridgeTokenStorage>[0] & {
+  apiBaseUrl?: string;
+};
+
+function desktopBridge(): DesktopBridgeLike | undefined {
+  return (globalThis as { idcpDesktop?: DesktopBridgeLike }).idcpDesktop;
+}
+
+/**
+ * The absolute API base URL for this build, or `''` when the renderer should use the same origin.
+ *
+ * Exported for the packaged-configuration test: the defect this fixes (MC-01) was that the packaged
+ * app silently used a relative URL, so the test asserts the bridge value is actually honoured.
+ */
+export function resolveClientBaseUrl(bridge: DesktopBridgeLike | undefined): string {
+  // The preload bridge is the only supported channel. A build-time env fallback was considered and
+  // rejected: it would bake one API origin into the artefact, so the same installer could not be
+  // pointed at a different tenant's backend, and it cannot be read in the Jest (CJS) transform.
+  return bridge?.apiBaseUrl?.trim() ?? '';
+}
+
 function createClient(onSessionExpired: () => void): ApiClient {
-  const bridge = (
-    globalThis as { idcpDesktop?: ConstructorParameters<typeof BridgeTokenStorage>[0] }
-  ).idcpDesktop;
+  const bridge = desktopBridge();
+  const baseUrl = resolveClientBaseUrl(bridge);
   return new ApiClient({
     storage: bridge ? new BridgeTokenStorage(bridge) : new MemoryTokenStorage(),
+    ...(baseUrl === '' ? {} : { baseUrl }),
     onSessionExpired,
   });
 }
