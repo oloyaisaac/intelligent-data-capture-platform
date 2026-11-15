@@ -1,18 +1,18 @@
 # REVIEWER 16 — QA LEAD & TEST ARCHITECTURE
 
-| Field | Value |
-|-------|-------|
-| **Reviewer ID** | R16 |
-| **Title** | QA Lead & Test Architecture Reviewer |
-| **Board** | E — Quality, performance & reliability |
-| **Wave** | 4 (weeks 6–8) |
-| **Effort** | 12 person-days |
-| **Gate chaired** | **G2 — Functional correctness** and **G8 — Automated testing approval** |
-| **Co-signs** | none |
-| **Finding prefix** | `QA-###` |
-| **Upstream** | ALL Wave 1–3 reviewers (you consolidate their evidence) |
-| **Downstream** | G2, G8, G10 |
-| **Status** | ☐ Not started ☐ In progress ☐ Blocked ☐ Complete ☐ Passed ☐ Failed |
+| Field              | Value                                                                   |
+| ------------------ | ----------------------------------------------------------------------- |
+| **Reviewer ID**    | R16                                                                     |
+| **Title**          | QA Lead & Test Architecture Reviewer                                    |
+| **Board**          | E — Quality, performance & reliability                                  |
+| **Wave**           | 4 (weeks 6–8)                                                           |
+| **Effort**         | 12 person-days                                                          |
+| **Gate chaired**   | **G2 — Functional correctness** and **G8 — Automated testing approval** |
+| **Co-signs**       | none                                                                    |
+| **Finding prefix** | `QA-###`                                                                |
+| **Upstream**       | ALL Wave 1–3 reviewers (you consolidate their evidence)                 |
+| **Downstream**     | G2, G8, G10                                                             |
+| **Status**         | ☐ Not started ☐ In progress ☐ Blocked ☐ Complete ☐ Passed ☐ Failed      |
 
 ---
 
@@ -20,26 +20,26 @@
 
 Determine whether the test suite is **evidence** or **decoration**. This repository's 406 passing tests in 30
 suites are the project's main quality claim — and that claim failed to detect a defect (R-01) that makes the
-packaged desktop application unable to reach its own backend. Your job is to explain *why*, quantify how much
+packaged desktop application unable to reach its own backend. Your job is to explain _why_, quantify how much
 of the suite is protecting anything, and design the testing that would prevent the next such defect.
 
 **Measured baseline you start from:**
 
-| Metric | Value |
-|--------|-------|
-| Test suites | 30 (backend 24, desktop 2, mobile 1, shared 1, connectors 1) |
-| Tests | 406, all passing, 44.8 s |
-| Statements | 74.47 % (6 217 / 8 348) |
-| **Branches** | **58.75 % (2 409 / 4 100)** |
-| Functions | 66.2 % (1 185 / 1 790) |
-| Lines | 76.88 % (5 826 / 7 578) |
-| **End-to-end tests** | **0** |
-| Mutation score | **unknown** |
-| Accessibility tests | 0 |
-| Contract validators | 4 (`validate-prd`, `validate-openapi`, `validate-packaging`, `validate-legal`) |
+| Metric               | Value                                                                          |
+| -------------------- | ------------------------------------------------------------------------------ |
+| Test suites          | 30 (backend 24, desktop 2, mobile 1, shared 1, connectors 1)                   |
+| Tests                | 406, all passing, 44.8 s                                                       |
+| Statements           | 74.47 % (6 217 / 8 348)                                                        |
+| **Branches**         | **58.75 % (2 409 / 4 100)**                                                    |
+| Functions            | 66.2 % (1 185 / 1 790)                                                         |
+| Lines                | 76.88 % (5 826 / 7 578)                                                        |
+| **End-to-end tests** | **0**                                                                          |
+| Mutation score       | **unknown**                                                                    |
+| Accessibility tests  | 0                                                                              |
+| Contract validators  | 4 (`validate-prd`, `validate-openapi`, `validate-packaging`, `validate-legal`) |
 
 **The central question:** statement coverage at 74 % with branch coverage at 59 % and zero e2e means large
-parts of the *shipped artefact* are untested. Prove that, then fix the test architecture.
+parts of the _shipped artefact_ are untested. Prove that, then fix the test architecture.
 
 ---
 
@@ -64,38 +64,38 @@ projects**.
 
 **Test infrastructure:**
 
-| Artefact | Path |
-|----------|------|
-| Jest configuration (5 projects) | `jest.config.cjs` |
-| Backend test harness (starts a real listener) | `apps/backend/test/helpers.ts` (394) |
-| Test doctrine | `TESTING.md` (20 KB) |
-| PRD contract validator | `scripts/validate-prd.mjs` |
-| OpenAPI contract validator | `scripts/validate-openapi.mjs` |
-| Packaging contract validator | `scripts/validate-packaging.mjs` |
-| Legal pack validator | `scripts/validate-legal.mjs` |
-| UDM schema drift check | `scripts/generate-udm-schema.mjs --check` |
-| CI | `.github/workflows/ci.yml` (2 jobs) |
-| Root scripts | `package.json` (`test`, `test:unit`, `test:coverage`, `verify`) |
+| Artefact                                      | Path                                                            |
+| --------------------------------------------- | --------------------------------------------------------------- |
+| Jest configuration (5 projects)               | `jest.config.cjs`                                               |
+| Backend test harness (starts a real listener) | `apps/backend/test/helpers.ts` (394)                            |
+| Test doctrine                                 | `TESTING.md` (20 KB)                                            |
+| PRD contract validator                        | `scripts/validate-prd.mjs`                                      |
+| OpenAPI contract validator                    | `scripts/validate-openapi.mjs`                                  |
+| Packaging contract validator                  | `scripts/validate-packaging.mjs`                                |
+| Legal pack validator                          | `scripts/validate-legal.mjs`                                    |
+| UDM schema drift check                        | `scripts/generate-udm-schema.mjs --check`                       |
+| CI                                            | `.github/workflows/ci.yml` (2 jobs)                             |
+| Root scripts                                  | `package.json` (`test`, `test:unit`, `test:coverage`, `verify`) |
 
 **All 30 suites:**
 
-*Backend (24):* `ai` · `audit-export` · `auth` · `auth-recovery` · `batches` · `config` · `connector` ·
+_Backend (24):_ `ai` · `audit-export` · `auth` · `auth-recovery` · `batches` · `config` · `connector` ·
 `dashboard` · `devapi` · `documents` · `export` · `maintenance` · `marketplace` · `mfa` · `pairing` ·
 `privacy` · `review` · `security` · `teams` · `templates` · `terms` · `totp` · `web-surface` ·
 `worker-recovery` · `workflows`
 
-*Other (6):* `apps/desktop/test/desktop.test.tsx` (1 511) · `apps/desktop/test/shell.test.ts` (213) ·
+_Other (6):_ `apps/desktop/test/desktop.test.tsx` (1 511) · `apps/desktop/test/shell.test.ts` (213) ·
 `apps/mobile/test/mobile.test.ts` (1 054) · `packages/connectors/test/connectors.test.ts` (627) ·
 `packages/shared/test/shared.test.ts` (430)
 
 **The `verification` block mechanism.** 11 of 45 PRD stories carry a `verification` block naming an
-acceptance criterion that is *asserted rather than demonstrated*: `DB-001`, `PAIR-002`, `MOB-001`, `AI-001`,
+acceptance criterion that is _asserted rather than demonstrated_: `DB-001`, `PAIR-002`, `MOB-001`, `AI-001`,
 `AI-002`, `EXPORT-001`, `DESK-001`, `CON-002`, `SEC-001`, `DASH-001`, `I18N-001`. `npm run test:prd` fails if a
 block is empty. `TESTING.md` §3.1 explains the kinds. **Audit each one.**
 
-**Known environment constraint** (`AGENT_STATE.md`): *"Jest cannot load Fastify's `inject()` here (ESM-only
+**Known environment constraint** (`AGENT_STATE.md`): _"Jest cannot load Fastify's `inject()` here (ESM-only
 `cookie` dependency), so the backend suite starts a real listener on an ephemeral port. Do not reintroduce
-`app.inject()`."*
+`app.inject()`."_
 
 ---
 
@@ -114,8 +114,8 @@ which of the 101 routes / 38 features it covers. Do not sample.
 
 ### 4.3 Must read the `verification` blocks
 
-`PRD.json` → the 11 stories listed above. For each, quote the criterion and judge: *is this measurable today,
-and is it measured?*
+`PRD.json` → the 11 stories listed above. For each, quote the criterion and judge: _is this measurable today,
+and is it measured?_
 
 ### 4.4 Explicit non-goals
 
@@ -126,10 +126,10 @@ methodology → R07 · accessibility testing → R13.
 
 ## 5. Upstream artefacts required
 
-| From | Artefact | Why |
-|------|----------|-----|
-| R01–R13 | All `findings.md` | You consolidate which defects the suite failed to catch |
-| R02 | `evidence/R02/route-matrix.csv` | To measure route coverage |
+| From    | Artefact                        | Why                                                     |
+| ------- | ------------------------------- | ------------------------------------------------------- |
+| R01–R13 | All `findings.md`               | You consolidate which defects the suite failed to catch |
+| R02     | `evidence/R02/route-matrix.csv` | To measure route coverage                               |
 
 ---
 
@@ -137,120 +137,120 @@ methodology → R07 · accessibility testing → R13.
 
 ### 6.1 PYRAMID / SHAPE
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| QA-01 | Count tests by level: unit / integration / e2e | Map all 30 suites | Table with counts | **WRITE** |
-| QA-02 | Confirm the e2e count is **zero** | No Playwright/Detox/Maestro/Cypress in any `package.json` | Confirmed — primary finding | **RUNTIME** |
-| QA-03 | Assess the `inject()` workaround | Read `helpers.ts`; understand why a real listener is used | Documented; assess whether it limits what can be tested | STATIC |
-| QA-04 | Determine whether any test exercises the **packaged renderer** | Read the desktop tests | They mount with an injected `baseUrl` — this is *why* R-01 survived | STATIC |
-| QA-05 | Determine whether any test exercises the **real Electron shell** | `shell.test.ts` uses a stand-in | Confirmed stand-in; no real Electron | STATIC |
-| QA-06 | Determine whether any test exercises a **real mobile build** | `mobile.test.ts` is JS-only | Confirmed | STATIC |
-| QA-07 | Assess the test-to-feature ratio by area | 38 features vs 406 tests | Identify over- and under-tested areas | **WRITE** |
+| ID    | Item                                                             | How to verify                                             | Expected                                                            | Type        |
+| ----- | ---------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------- | ----------- |
+| QA-01 | Count tests by level: unit / integration / e2e                   | Map all 30 suites                                         | Table with counts                                                   | **WRITE**   |
+| QA-02 | Confirm the e2e count is **zero**                                | No Playwright/Detox/Maestro/Cypress in any `package.json` | Confirmed — primary finding                                         | **RUNTIME** |
+| QA-03 | Assess the `inject()` workaround                                 | Read `helpers.ts`; understand why a real listener is used | Documented; assess whether it limits what can be tested             | STATIC      |
+| QA-04 | Determine whether any test exercises the **packaged renderer**   | Read the desktop tests                                    | They mount with an injected `baseUrl` — this is _why_ R-01 survived | STATIC      |
+| QA-05 | Determine whether any test exercises the **real Electron shell** | `shell.test.ts` uses a stand-in                           | Confirmed stand-in; no real Electron                                | STATIC      |
+| QA-06 | Determine whether any test exercises a **real mobile build**     | `mobile.test.ts` is JS-only                               | Confirmed                                                           | STATIC      |
+| QA-07 | Assess the test-to-feature ratio by area                         | 38 features vs 406 tests                                  | Identify over- and under-tested areas                               | **WRITE**   |
 
 ### 6.2 COVERAGE ANALYSIS
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| QA-08 | Produce per-file coverage | `npm run test:coverage`; export per-file table | `evidence/R16/coverage-by-file.md` | **RUNTIME** |
-| QA-09 | Identify **security-relevant uncovered branches** | For `auth-service`, `guards`, `crypto`, `tokens`, `api-key-service` | A ranked list with line numbers | **RUNTIME** |
-| QA-10 | Identify uncovered error paths | Branch coverage on `catch`/guard branches | Ranked list | **RUNTIME** |
-| QA-11 | Identify uncovered role-denial paths | Cross-reference `requireRole` calls | Each denial has a test or is listed | STATIC |
-| QA-12 | Identify files with **zero** coverage | Sort ascending | Full list | **RUNTIME** |
-| QA-13 | Set a coverage policy | Proposal | Thresholds per area (not one global number) | **WRITE** |
+| ID    | Item                                              | How to verify                                                       | Expected                                    | Type        |
+| ----- | ------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------- | ----------- |
+| QA-08 | Produce per-file coverage                         | `npm run test:coverage`; export per-file table                      | `evidence/R16/coverage-by-file.md`          | **RUNTIME** |
+| QA-09 | Identify **security-relevant uncovered branches** | For `auth-service`, `guards`, `crypto`, `tokens`, `api-key-service` | A ranked list with line numbers             | **RUNTIME** |
+| QA-10 | Identify uncovered error paths                    | Branch coverage on `catch`/guard branches                           | Ranked list                                 | **RUNTIME** |
+| QA-11 | Identify uncovered role-denial paths              | Cross-reference `requireRole` calls                                 | Each denial has a test or is listed         | STATIC      |
+| QA-12 | Identify files with **zero** coverage             | Sort ascending                                                      | Full list                                   | **RUNTIME** |
+| QA-13 | Set a coverage policy                             | Proposal                                                            | Thresholds per area (not one global number) | **WRITE**   |
 
 ### 6.3 MUTATION TESTING — do the tests actually protect anything?
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| QA-14 | Run mutation testing on `auth-service.ts` | Stryker (or equivalent) | Mutation score | **RUNTIME** |
-| QA-15 | Run mutation testing on `guards.ts` | Same | Mutation score | **RUNTIME** |
-| QA-16 | Run mutation testing on `crypto.ts` | Same | Mutation score | **RUNTIME** |
-| QA-17 | Run mutation testing on `packages/shared/src/{csv,dedupe,money}.ts` | Same | Mutation score | **RUNTIME** |
-| QA-18 | Interpret the scores | >70 % = the suite actually constrains behaviour; <40 % = tests execute code but assert little | Written interpretation | **WRITE** |
-| QA-19 | Identify **surviving mutants** that represent real defects | Inspect survivors | Concrete defects found by mutation — list them as findings | **RUNTIME** |
-| QA-20 | Recommend a mutation gate for security-critical modules only | Proposal | Scoped, runnable in CI time budget | **WRITE** |
+| ID    | Item                                                                | How to verify                                                                                 | Expected                                                   | Type        |
+| ----- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ----------- |
+| QA-14 | Run mutation testing on `auth-service.ts`                           | Stryker (or equivalent)                                                                       | Mutation score                                             | **RUNTIME** |
+| QA-15 | Run mutation testing on `guards.ts`                                 | Same                                                                                          | Mutation score                                             | **RUNTIME** |
+| QA-16 | Run mutation testing on `crypto.ts`                                 | Same                                                                                          | Mutation score                                             | **RUNTIME** |
+| QA-17 | Run mutation testing on `packages/shared/src/{csv,dedupe,money}.ts` | Same                                                                                          | Mutation score                                             | **RUNTIME** |
+| QA-18 | Interpret the scores                                                | >70 % = the suite actually constrains behaviour; <40 % = tests execute code but assert little | Written interpretation                                     | **WRITE**   |
+| QA-19 | Identify **surviving mutants** that represent real defects          | Inspect survivors                                                                             | Concrete defects found by mutation — list them as findings | **RUNTIME** |
+| QA-20 | Recommend a mutation gate for security-critical modules only        | Proposal                                                                                      | Scoped, runnable in CI time budget                         | **WRITE**   |
 
 ### 6.4 ASSERTION QUALITY
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| QA-21 | Find tests that assert only a status code | Grep `expect(res.statusCode).toBe(200)` with no body assertion | List them | STATIC |
-| QA-22 | Find tests that would pass if the implementation returned a wrong body | Spot-check 20 tests by mutating the expectation mentally | List weak tests | STATIC |
-| QA-23 | Find `expect(true)` / `toHaveBeenCalled` without argument assertions | Grep | List | STATIC |
-| QA-24 | Verify at least one test fails if a critical behaviour breaks | Delete an assertion in a golden test and confirm CI fails | Demonstrated | **RUNTIME** |
-| QA-25 | Check that denial paths are asserted, not just success | Count 401/403/404 assertions per suite | Table | STATIC |
-| QA-26 | Check that **negative** security tests exist (tampered token, foreign id) | Read `security.test.ts` | Present; extend if thin | STATIC |
+| ID    | Item                                                                      | How to verify                                                  | Expected                | Type        |
+| ----- | ------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------- | ----------- |
+| QA-21 | Find tests that assert only a status code                                 | Grep `expect(res.statusCode).toBe(200)` with no body assertion | List them               | STATIC      |
+| QA-22 | Find tests that would pass if the implementation returned a wrong body    | Spot-check 20 tests by mutating the expectation mentally       | List weak tests         | STATIC      |
+| QA-23 | Find `expect(true)` / `toHaveBeenCalled` without argument assertions      | Grep                                                           | List                    | STATIC      |
+| QA-24 | Verify at least one test fails if a critical behaviour breaks             | Delete an assertion in a golden test and confirm CI fails      | Demonstrated            | **RUNTIME** |
+| QA-25 | Check that denial paths are asserted, not just success                    | Count 401/403/404 assertions per suite                         | Table                   | STATIC      |
+| QA-26 | Check that **negative** security tests exist (tampered token, foreign id) | Read `security.test.ts`                                        | Present; extend if thin | STATIC      |
 
 ### 6.5 CONTRACT VALIDATORS — are the gates real?
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| QA-27 | `validate-prd.mjs` fails on a stale/invalid story | Introduce an error, run | Fails | **RUNTIME** |
-| QA-28 | `validate-openapi.mjs` fails on route removal | Delete a route, run | Fails | **RUNTIME** |
-| QA-29 | `validate-openapi.mjs` fails on a **response-shape** change | Modify a response, run | **Record pass/fail — likely passes (finding)** | **RUNTIME** |
-| QA-30 | `validate-packaging.mjs` fails on a broken packaging contract | Break a target, run | Fails | **RUNTIME** |
-| QA-31 | `validate-legal.mjs` fails on a retention-figure mismatch | Change a default, run | Fails | **RUNTIME** |
-| QA-32 | `generate-udm-schema.mjs --check` fails on schema drift | Edit the schema, run | Fails | **RUNTIME** |
-| QA-33 | Every validator's failure message is actionable | Read each | Names the file and the fix | STATIC |
+| ID    | Item                                                          | How to verify           | Expected                                       | Type        |
+| ----- | ------------------------------------------------------------- | ----------------------- | ---------------------------------------------- | ----------- |
+| QA-27 | `validate-prd.mjs` fails on a stale/invalid story             | Introduce an error, run | Fails                                          | **RUNTIME** |
+| QA-28 | `validate-openapi.mjs` fails on route removal                 | Delete a route, run     | Fails                                          | **RUNTIME** |
+| QA-29 | `validate-openapi.mjs` fails on a **response-shape** change   | Modify a response, run  | **Record pass/fail — likely passes (finding)** | **RUNTIME** |
+| QA-30 | `validate-packaging.mjs` fails on a broken packaging contract | Break a target, run     | Fails                                          | **RUNTIME** |
+| QA-31 | `validate-legal.mjs` fails on a retention-figure mismatch     | Change a default, run   | Fails                                          | **RUNTIME** |
+| QA-32 | `generate-udm-schema.mjs --check` fails on schema drift       | Edit the schema, run    | Fails                                          | **RUNTIME** |
+| QA-33 | Every validator's failure message is actionable               | Read each               | Names the file and the fix                     | STATIC      |
 
 ### 6.6 THE 11 `verification` BLOCKS
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| QA-34 | Audit `DB-001` | Read the block; judge measurability | Verdict: measurable-but-unmeasured / genuinely blocked | STATIC |
-| QA-35 | Audit `PAIR-002` | Same | Verdict | STATIC |
-| QA-36 | Audit `MOB-001` | Same (native build) | Verdict | STATIC |
-| QA-37 | Audit `AI-001` and `AI-002` | Same (benchmark) | Verdict | STATIC |
-| QA-38 | Audit `EXPORT-001` | Same | Verdict | STATIC |
-| QA-39 | Audit `DESK-001` | Same (installers) | Verdict | STATIC |
-| QA-40 | Audit `CON-002` | Same (OAuth) | Verdict — this is a real hole, not a verification gap | STATIC |
-| QA-41 | Audit `SEC-001`, `DASH-001`, `I18N-001` | Same | Verdict | STATIC |
-| QA-42 | Decide, for each, whether the story may remain `done` | Judgement | A table: story · keep `done` / move to `in progress` · who closes it and how | **WRITE** |
-| QA-43 | Verify `test:prd` genuinely fails on an empty block | Empty a block, run | Fails | **RUNTIME** |
+| ID    | Item                                                  | How to verify                       | Expected                                                                     | Type        |
+| ----- | ----------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------- | ----------- |
+| QA-34 | Audit `DB-001`                                        | Read the block; judge measurability | Verdict: measurable-but-unmeasured / genuinely blocked                       | STATIC      |
+| QA-35 | Audit `PAIR-002`                                      | Same                                | Verdict                                                                      | STATIC      |
+| QA-36 | Audit `MOB-001`                                       | Same (native build)                 | Verdict                                                                      | STATIC      |
+| QA-37 | Audit `AI-001` and `AI-002`                           | Same (benchmark)                    | Verdict                                                                      | STATIC      |
+| QA-38 | Audit `EXPORT-001`                                    | Same                                | Verdict                                                                      | STATIC      |
+| QA-39 | Audit `DESK-001`                                      | Same (installers)                   | Verdict                                                                      | STATIC      |
+| QA-40 | Audit `CON-002`                                       | Same (OAuth)                        | Verdict — this is a real hole, not a verification gap                        | STATIC      |
+| QA-41 | Audit `SEC-001`, `DASH-001`, `I18N-001`               | Same                                | Verdict                                                                      | STATIC      |
+| QA-42 | Decide, for each, whether the story may remain `done` | Judgement                           | A table: story · keep `done` / move to `in progress` · who closes it and how | **WRITE**   |
+| QA-43 | Verify `test:prd` genuinely fails on an empty block   | Empty a block, run                  | Fails                                                                        | **RUNTIME** |
 
 ### 6.7 DETERMINISM AND ISOLATION
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| QA-44 | Run the suite twice and diff results | `npm test` ×2 | Identical | **RUNTIME** |
-| QA-45 | Shuffle test order | `--randomize` | Identical results (no order dependence) | **RUNTIME** |
-| QA-46 | Check for shared mutable state | Inspect `helpers.ts` for shared DB/clock/limiter | Isolated per suite | STATIC |
-| QA-47 | Check for real time/timers | `jest.useFakeTimers` usage | Consistent | STATIC |
-| QA-48 | Check for network dependence | Grep for real HTTP in tests | Zero (or mocked) | STATIC |
-| QA-49 | Check for flaky patterns | `setTimeout` in tests, arbitrary waits | None | STATIC |
-| QA-50 | Record the runtime budget | 44.8 s today | A CI budget stated | **RUNTIME** |
+| ID    | Item                                 | How to verify                                    | Expected                                | Type        |
+| ----- | ------------------------------------ | ------------------------------------------------ | --------------------------------------- | ----------- |
+| QA-44 | Run the suite twice and diff results | `npm test` ×2                                    | Identical                               | **RUNTIME** |
+| QA-45 | Shuffle test order                   | `--randomize`                                    | Identical results (no order dependence) | **RUNTIME** |
+| QA-46 | Check for shared mutable state       | Inspect `helpers.ts` for shared DB/clock/limiter | Isolated per suite                      | STATIC      |
+| QA-47 | Check for real time/timers           | `jest.useFakeTimers` usage                       | Consistent                              | STATIC      |
+| QA-48 | Check for network dependence         | Grep for real HTTP in tests                      | Zero (or mocked)                        | STATIC      |
+| QA-49 | Check for flaky patterns             | `setTimeout` in tests, arbitrary waits           | None                                    | STATIC      |
+| QA-50 | Record the runtime budget            | 44.8 s today                                     | A CI budget stated                      | **RUNTIME** |
 
 ### 6.8 TEST DATA
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| QA-51 | `helpers.ts` provides factories, not copy-paste fixtures | Read 394 lines | Factories present | STATIC |
-| QA-52 | No real personal data in fixtures | Inspect | Synthetic | STATIC |
-| QA-53 | Fixtures for connectors match live API shapes | Cross-check with R15 | Match or flagged | STATIC |
-| QA-54 | A golden-file / snapshot strategy exists where useful | Grep `toMatchSnapshot` | Deliberate or absent | STATIC |
+| ID    | Item                                                     | How to verify          | Expected             | Type   |
+| ----- | -------------------------------------------------------- | ---------------------- | -------------------- | ------ |
+| QA-51 | `helpers.ts` provides factories, not copy-paste fixtures | Read 394 lines         | Factories present    | STATIC |
+| QA-52 | No real personal data in fixtures                        | Inspect                | Synthetic            | STATIC |
+| QA-53 | Fixtures for connectors match live API shapes            | Cross-check with R15   | Match or flagged     | STATIC |
+| QA-54 | A golden-file / snapshot strategy exists where useful    | Grep `toMatchSnapshot` | Deliberate or absent | STATIC |
 
 ### 6.9 GAPS FOR THE NEXT DEFECT CLASS
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| QA-55 | **Specify the e2e suite that would have caught R-01** | Design | Playwright (or Electron `spectron`-successor) test: build → load `dist/index.html` → sign in → assert data loads | **WRITE** |
-| QA-56 | Specify mobile e2e (Detox or Maestro) covering capture → queue → upload | Design | Scoped to 3 critical journeys | **WRITE** |
-| QA-57 | Specify a Postgres-in-CI job | Design | Service container + migrate + full backend suite | **WRITE** |
-| QA-58 | Specify a dependency/audit gate for CI | Design | `npm audit --omit=dev --audit-level=high` after zod v4 | **WRITE** |
-| QA-59 | Specify an accessibility gate | Design | `jest-axe` per page + CI | **WRITE** |
-| QA-60 | Specify the CI pipeline order and time budget | Design | build → typecheck → lint → contracts → unit → integration → e2e → a11y → audit → package | **WRITE** |
+| ID    | Item                                                                    | How to verify | Expected                                                                                                         | Type      |
+| ----- | ----------------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------- | --------- |
+| QA-55 | **Specify the e2e suite that would have caught R-01**                   | Design        | Playwright (or Electron `spectron`-successor) test: build → load `dist/index.html` → sign in → assert data loads | **WRITE** |
+| QA-56 | Specify mobile e2e (Detox or Maestro) covering capture → queue → upload | Design        | Scoped to 3 critical journeys                                                                                    | **WRITE** |
+| QA-57 | Specify a Postgres-in-CI job                                            | Design        | Service container + migrate + full backend suite                                                                 | **WRITE** |
+| QA-58 | Specify a dependency/audit gate for CI                                  | Design        | `npm audit --omit=dev --audit-level=high` after zod v4                                                           | **WRITE** |
+| QA-59 | Specify an accessibility gate                                           | Design        | `jest-axe` per page + CI                                                                                         | **WRITE** |
+| QA-60 | Specify the CI pipeline order and time budget                           | Design        | build → typecheck → lint → contracts → unit → integration → e2e → a11y → audit → package                         | **WRITE** |
 
 ---
 
 ## 7. Known QA risks to confirm or refute
 
-| Risk | Statement |
-|------|-----------|
-| **R-06 (HIGH)** | No e2e; 406 passing tests could not detect R-01 |
-| — | Branch coverage 58.75 % — security error paths may be untested |
-| — | Mutation score unknown; some tests may assert almost nothing |
-| — | The OpenAPI validator may only compare paths |
-| **R-08 (MEDIUM)** | 11 stories are `done` with unverified criteria |
+| Risk              | Statement                                                      |
+| ----------------- | -------------------------------------------------------------- |
+| **R-06 (HIGH)**   | No e2e; 406 passing tests could not detect R-01                |
+| —                 | Branch coverage 58.75 % — security error paths may be untested |
+| —                 | Mutation score unknown; some tests may assert almost nothing   |
+| —                 | The OpenAPI validator may only compare paths                   |
+| **R-08 (MEDIUM)** | 11 stories are `done` with unverified criteria                 |
 
 ---
 
@@ -285,7 +285,7 @@ npx jest --config jest.config.cjs --randomize --ci 2>&1 | tail -5
 
 # ---------- mutation testing ----------
 npm i -D @stryker-mutator/core @stryker-mutator/jest-runner @stryker-mutator/typescript-checker
-npx stryker run --mutate 'apps/backend/src/services/auth-service.ts' 
+npx stryker run --mutate 'apps/backend/src/services/auth-service.ts'
 npx stryker run --mutate 'apps/backend/src/http/guards.ts'
 npx stryker run --mutate 'apps/backend/src/services/crypto.ts'
 
@@ -315,19 +315,19 @@ grep -rn "playwright\|detox\|maestro\|cypress\|webdriver" package.json apps/*/pa
 
 ## 10. Tests to perform
 
-| # | Test | Procedure | Pass criterion |
-|---|------|-----------|----------------|
-| T-01 | Baseline green run | `npm test` | 406 pass, recorded |
-| T-02 | Coverage export | Per-file table | Produced |
-| T-03 | Mutation: auth | Stryker | Score recorded |
-| T-04 | Mutation: guards | Stryker | Score recorded |
-| T-05 | Mutation: crypto | Stryker | Score recorded |
-| T-06 | Validator sensitivity ×5 | Each validator, seeded drift | Every one fails on its own drift type |
-| T-07 | Determinism | Two runs + shuffle | Identical |
-| T-08 | Golden-test sensitivity | Break one critical assertion path | CI fails |
-| T-09 | `verification` audit | All 11 blocks | Verdict per block |
-| T-10 | Negative-test census | Count denial assertions | Table |
-| T-11 | e2e proposal | Design the R-01 test | Written and justified |
+| #    | Test                     | Procedure                         | Pass criterion                        |
+| ---- | ------------------------ | --------------------------------- | ------------------------------------- |
+| T-01 | Baseline green run       | `npm test`                        | 406 pass, recorded                    |
+| T-02 | Coverage export          | Per-file table                    | Produced                              |
+| T-03 | Mutation: auth           | Stryker                           | Score recorded                        |
+| T-04 | Mutation: guards         | Stryker                           | Score recorded                        |
+| T-05 | Mutation: crypto         | Stryker                           | Score recorded                        |
+| T-06 | Validator sensitivity ×5 | Each validator, seeded drift      | Every one fails on its own drift type |
+| T-07 | Determinism              | Two runs + shuffle                | Identical                             |
+| T-08 | Golden-test sensitivity  | Break one critical assertion path | CI fails                              |
+| T-09 | `verification` audit     | All 11 blocks                     | Verdict per block                     |
+| T-10 | Negative-test census     | Count denial assertions           | Table                                 |
+| T-11 | e2e proposal             | Design the R-01 test              | Written and justified                 |
 
 ---
 
@@ -367,32 +367,32 @@ docs/reviewers/evidence/R16/
 
 ## 13. Blocked items
 
-| Item ID | Blocker | What unblocks it | Owner |
-|---------|---------|------------------|-------|
-| QA-56 | No mobile build | R11 | R11 |
-| QA-04/T-11 | Needs a packaged renderer | R10 | R10 |
+| Item ID    | Blocker                   | What unblocks it | Owner |
+| ---------- | ------------------------- | ---------------- | ----- |
+| QA-56      | No mobile build           | R11              | R11   |
+| QA-04/T-11 | Needs a packaged renderer | R10              | R10   |
 
 ---
 
 ## 14. Findings register
 
-| ID | Severity | File:line | Finding | Why it matters | Reproduce | Suggested fix | Owner |
-|----|----------|-----------|---------|----------------|-----------|---------------|-------|
-| QA-001 | | | | | | | |
+| ID     | Severity | File:line | Finding | Why it matters | Reproduce | Suggested fix | Owner |
+| ------ | -------- | --------- | ------- | -------------- | --------- | ------------- | ----- |
+| QA-001 |          |           |         |                |           |               |       |
 
 ---
 
 ## 15. Reviewer sign-off
 
-| Field | Value |
-|-------|-------|
-| Reviewer name | |
-| Date started | |
-| Date completed | |
-| **Gate G2 result** | ☐ Pass ☐ Fail |
-| **Gate G8 result** | ☐ Pass ☐ Fail |
-| Mutation scores (auth/guards/crypto) | / / |
-| Conditions failed (IDs) | |
-| Reviewed commit | `43d384b` |
-| Statement | *I read all 30 suites, ran mutation testing on the security-critical modules, proved each contract validator's sensitivity by seeded drift, and audited every `verification` block.* |
-| Signature | |
+| Field                                | Value                                                                                                                                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Reviewer name                        |                                                                                                                                                                                      |
+| Date started                         |                                                                                                                                                                                      |
+| Date completed                       |                                                                                                                                                                                      |
+| **Gate G2 result**                   | ☐ Pass ☐ Fail                                                                                                                                                                        |
+| **Gate G8 result**                   | ☐ Pass ☐ Fail                                                                                                                                                                        |
+| Mutation scores (auth/guards/crypto) | / /                                                                                                                                                                                  |
+| Conditions failed (IDs)              |                                                                                                                                                                                      |
+| Reviewed commit                      | `43d384b`                                                                                                                                                                            |
+| Statement                            | _I read all 30 suites, ran mutation testing on the security-critical modules, proved each contract validator's sensitivity by seeded drift, and audited every `verification` block._ |
+| Signature                            |                                                                                                                                                                                      |

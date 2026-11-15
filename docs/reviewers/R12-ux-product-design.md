@@ -1,18 +1,18 @@
 # REVIEWER 12 — UX / PRODUCT DESIGN REVIEWER
 
-| Field | Value |
-|-------|-------|
-| **Reviewer ID** | R12 |
-| **Title** | UX / Product Design Reviewer |
-| **Board** | C — Client platforms & experience |
-| **Wave** | 3 (weeks 3–5) |
-| **Effort** | 8 person-days |
-| **Gate chaired** | **G7 — UI/UX & accessibility approval** |
-| **Co-signs** | G9 |
-| **Finding prefix** | `UX-###` |
-| **Upstream** | R09 (renderer behaviour), R11 (mobile behaviour) |
-| **Downstream** | R22 (pilot), R13 |
-| **Status** | ☐ Not started ☐ In progress ☐ Blocked ☐ Complete ☐ Passed ☐ Failed |
+| Field              | Value                                                              |
+| ------------------ | ------------------------------------------------------------------ |
+| **Reviewer ID**    | R12                                                                |
+| **Title**          | UX / Product Design Reviewer                                       |
+| **Board**          | C — Client platforms & experience                                  |
+| **Wave**           | 3 (weeks 3–5)                                                      |
+| **Effort**         | 8 person-days                                                      |
+| **Gate chaired**   | **G7 — UI/UX & accessibility approval**                            |
+| **Co-signs**       | G9                                                                 |
+| **Finding prefix** | `UX-###`                                                           |
+| **Upstream**       | R09 (renderer behaviour), R11 (mobile behaviour)                   |
+| **Downstream**     | R22 (pilot), R13                                                   |
+| **Status**         | ☐ Not started ☐ In progress ☐ Blocked ☐ Complete ☐ Passed ☐ Failed |
 
 ---
 
@@ -20,15 +20,15 @@
 
 Determine whether a real operator can complete the product's core loop — **pair a phone → capture → review →
 approve → export/send** — without training, and whether the interface tells the truth about what the system
-is doing. You are the reviewer who answers: *"would a customer actually be able to use this?"*
+is doing. You are the reviewer who answers: _"would a customer actually be able to use this?"_
 
 **The product's entire commercial premise rests here.** The differentiator is not the OCR; it is that a human
 confirms uncertain values quickly. If review takes longer than retyping, the product has no business case —
 and that is measurable, not aesthetic.
 
 **Specific to this repository.** The interface is unusually complete for its stage: 12 desktop pages, 5 mobile
-screens, three languages, 647 translation keys. `AUDIT-2026-10.md` §1.1 claims *"every button, link and menu
-entry does something — no placeholders, no 'coming soon' dialogs"*. Verify that independently. But also verify
+screens, three languages, 647 translation keys. `AUDIT-2026-10.md` §1.1 claims _"every button, link and menu
+entry does something — no placeholders, no 'coming soon' dialogs"_. Verify that independently. But also verify
 the inverse: **does the UI imply capabilities that do not exist?** There is no billing, no SSO, no email
 delivery, and no working auto-update.
 
@@ -57,29 +57,29 @@ Phone camera → AI extraction → Human review → Business system
 
 **Surfaces to review:**
 
-| Surface | Count | Where |
-|---------|-------|-------|
-| Desktop pages | 12 + 2 (accept-invite, marketplace) | `apps/desktop/src/pages/*.tsx`, `src/marketplace/MarketplacePage.tsx` |
-| Desktop components | 2 | `src/components/{ui,SendToDestination}.tsx` |
-| Desktop navigation | sidebar sections | `src/App.tsx` `NAV` array |
-| Mobile screens | 5 | `apps/mobile/src/screens/*.tsx` |
-| Design tokens | 1 | `apps/desktop/src/styles.css` (621) |
-| Shared confidence/review rules | 1 | `packages/shared/src/review.ts` (148) |
-| Thresholds | 1 | `packages/shared/src/constants.ts` |
+| Surface                        | Count                               | Where                                                                 |
+| ------------------------------ | ----------------------------------- | --------------------------------------------------------------------- |
+| Desktop pages                  | 12 + 2 (accept-invite, marketplace) | `apps/desktop/src/pages/*.tsx`, `src/marketplace/MarketplacePage.tsx` |
+| Desktop components             | 2                                   | `src/components/{ui,SendToDestination}.tsx`                           |
+| Desktop navigation             | sidebar sections                    | `src/App.tsx` `NAV` array                                             |
+| Mobile screens                 | 5                                   | `apps/mobile/src/screens/*.tsx`                                       |
+| Design tokens                  | 1                                   | `apps/desktop/src/styles.css` (621)                                   |
+| Shared confidence/review rules | 1                                   | `packages/shared/src/review.ts` (148)                                 |
+| Thresholds                     | 1                                   | `packages/shared/src/constants.ts`                                    |
 
 **Known product limits the UI must not misrepresent:**
 
-| Limit | Reality |
-|-------|---------|
-| Billing / plans | `organisations.plan` is a free-text column; **no billing exists** |
-| SSO / SAML | absent |
-| Password-reset email | **no mail transport exists** (R-02) |
-| Auto-update | `idcp:updates:check` returns a hardcoded `up_to_date`; publish URL is `updates.example.invalid` |
-| Google Sheets | destination dies ~1 h after a pasted token (`CON-002`) |
-| MFA enforcement | self-service only; an organisation cannot require it |
-| Workflow branching | one AND-list only; `notify` records an output, sends nothing |
-| RTL languages | no RTL catalogue ships |
-| Voice | unavailable unless native speech modules are installed |
+| Limit                | Reality                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| Billing / plans      | `organisations.plan` is a free-text column; **no billing exists**                               |
+| SSO / SAML           | absent                                                                                          |
+| Password-reset email | **no mail transport exists** (R-02)                                                             |
+| Auto-update          | `idcp:updates:check` returns a hardcoded `up_to_date`; publish URL is `updates.example.invalid` |
+| Google Sheets        | destination dies ~1 h after a pasted token (`CON-002`)                                          |
+| MFA enforcement      | self-service only; an organisation cannot require it                                            |
+| Workflow branching   | one AND-list only; `notify` records an output, sends nothing                                    |
+| RTL languages        | no RTL catalogue ships                                                                          |
+| Voice                | unavailable unless native speech modules are installed                                          |
 
 ---
 
@@ -126,10 +126,10 @@ API errors → R02 · value measurement in a pilot → R22.
 
 ## 5. Upstream artefacts required
 
-| From | Artefact | Why |
-|------|----------|-----|
-| R09 | `evidence/R09/control-inventory.csv` | A verified list of every control; you review meaning, R09 reviews function |
-| R09 | `evidence/R09/page-states.md` | Loading/empty/error states already catalogued |
+| From | Artefact                             | Why                                                                        |
+| ---- | ------------------------------------ | -------------------------------------------------------------------------- |
+| R09  | `evidence/R09/control-inventory.csv` | A verified list of every control; you review meaning, R09 reviews function |
+| R09  | `evidence/R09/page-states.md`        | Loading/empty/error states already catalogued                              |
 
 ---
 
@@ -137,110 +137,110 @@ API errors → R02 · value measurement in a pilot → R22.
 
 ### 6.1 The core journey
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| UX-01 | Execute the full loop unaided, on a packaged build, from a clean account | Sign up → pair → capture → review → approve → export | Completable without documentation | **RUNTIME** |
-| UX-02 | Count clicks and time for each step | Instrument the run | `evidence/R12/journey-metrics.md` with baseline numbers | **RUNTIME** |
-| UX-03 | Identify every dead end | Walk every branch | None, or listed | **RUNTIME** |
-| UX-04 | First-run experience: does a new user know what to do first? | Clean install | Instructive empty state for pairing | **RUNTIME** |
-| UX-05 | Is pairing discoverable from the dashboard? | Look | Primary call-to-action present | STATIC |
-| UX-06 | After pairing, is the next action obvious? | Continue the run | Yes | **RUNTIME** |
+| ID    | Item                                                                     | How to verify                                        | Expected                                                | Type        |
+| ----- | ------------------------------------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------- | ----------- |
+| UX-01 | Execute the full loop unaided, on a packaged build, from a clean account | Sign up → pair → capture → review → approve → export | Completable without documentation                       | **RUNTIME** |
+| UX-02 | Count clicks and time for each step                                      | Instrument the run                                   | `evidence/R12/journey-metrics.md` with baseline numbers | **RUNTIME** |
+| UX-03 | Identify every dead end                                                  | Walk every branch                                    | None, or listed                                         | **RUNTIME** |
+| UX-04 | First-run experience: does a new user know what to do first?             | Clean install                                        | Instructive empty state for pairing                     | **RUNTIME** |
+| UX-05 | Is pairing discoverable from the dashboard?                              | Look                                                 | Primary call-to-action present                          | STATIC      |
+| UX-06 | After pairing, is the next action obvious?                               | Continue the run                                     | Yes                                                     | **RUNTIME** |
 
 ### 6.2 The review screen (highest-value surface)
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| UX-07 | Low-confidence fields are surfaced **first** | Read `ReviewPage` ordering + `review.ts` | Confirmed and explained to the user | STATIC |
-| UX-08 | Confidence is communicated non-numerically and meaningfully | Look for colour/label usage | Understandable without a legend | STATIC |
-| UX-09 | The image is zoomable/pannable enough to verify a value | Try on a dense invoice | Usable | **RUNTIME** |
-| UX-10 | Field focus makes correction fast | Tab → type → next field | No mouse round-trips | **RUNTIME** |
-| UX-11 | Approving with unresolved low-confidence fields is deliberate, not accidental | Try it | Guarded or clearly intentional | **RUNTIME** |
-| UX-12 | The document type is visible and editable where needed | Look | Present (`REV-002` correction typing) | STATIC |
-| UX-13 | Bulk approve communicates exactly what will be skipped | Mixed selection | Explicit list before confirming | **RUNTIME** |
-| UX-14 | A reviewer can tell who approved what and when | Look for metadata | Present | STATIC |
-| UX-15 | Reviewing 20 documents in a row does not require repeating setup | Test the batch flow | Efficient | **RUNTIME** |
+| ID    | Item                                                                          | How to verify                            | Expected                              | Type        |
+| ----- | ----------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------- | ----------- |
+| UX-07 | Low-confidence fields are surfaced **first**                                  | Read `ReviewPage` ordering + `review.ts` | Confirmed and explained to the user   | STATIC      |
+| UX-08 | Confidence is communicated non-numerically and meaningfully                   | Look for colour/label usage              | Understandable without a legend       | STATIC      |
+| UX-09 | The image is zoomable/pannable enough to verify a value                       | Try on a dense invoice                   | Usable                                | **RUNTIME** |
+| UX-10 | Field focus makes correction fast                                             | Tab → type → next field                  | No mouse round-trips                  | **RUNTIME** |
+| UX-11 | Approving with unresolved low-confidence fields is deliberate, not accidental | Try it                                   | Guarded or clearly intentional        | **RUNTIME** |
+| UX-12 | The document type is visible and editable where needed                        | Look                                     | Present (`REV-002` correction typing) | STATIC      |
+| UX-13 | Bulk approve communicates exactly what will be skipped                        | Mixed selection                          | Explicit list before confirming       | **RUNTIME** |
+| UX-14 | A reviewer can tell who approved what and when                                | Look for metadata                        | Present                               | STATIC      |
+| UX-15 | Reviewing 20 documents in a row does not require repeating setup              | Test the batch flow                      | Efficient                             | **RUNTIME** |
 
 ### 6.3 Error, empty and partial states
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| UX-16 | Every page has a designed empty state that teaches | Visit with no data | Present and instructive | **RUNTIME** |
-| UX-17 | Every page has a loading state (not a blank flash) | Throttle the network | Skeleton/spinner | **RUNTIME** |
-| UX-18 | 401 shows a sign-in prompt, not a raw error | Expire the token | Clear action | **RUNTIME** |
-| UX-19 | 403 explains *why*, not just "forbidden" | Use a `viewer` for an admin action | Role-appropriate wording | **RUNTIME** |
-| UX-20 | 429 explains the wait | Trigger a rate limit | "Try again in N" | **RUNTIME** |
-| UX-21 | 500 offers a retry and a reference id | Force an error | Actionable | **RUNTIME** |
-| UX-22 | A failed connector run is explained in domain language | Break a connector | Not a stack trace | **RUNTIME** |
-| UX-23 | A document stuck in `processing` tells the user what to do | Simulate | Guidance | **RUNTIME** |
-| UX-24 | Offline/degraded realtime is visible | Stop the backend | Banner/state change | **RUNTIME** |
-| UX-25 | Validation errors point at the field | Submit an invalid form | Inline, field-level | **RUNTIME** |
+| ID    | Item                                                       | How to verify                      | Expected                 | Type        |
+| ----- | ---------------------------------------------------------- | ---------------------------------- | ------------------------ | ----------- |
+| UX-16 | Every page has a designed empty state that teaches         | Visit with no data                 | Present and instructive  | **RUNTIME** |
+| UX-17 | Every page has a loading state (not a blank flash)         | Throttle the network               | Skeleton/spinner         | **RUNTIME** |
+| UX-18 | 401 shows a sign-in prompt, not a raw error                | Expire the token                   | Clear action             | **RUNTIME** |
+| UX-19 | 403 explains _why_, not just "forbidden"                   | Use a `viewer` for an admin action | Role-appropriate wording | **RUNTIME** |
+| UX-20 | 429 explains the wait                                      | Trigger a rate limit               | "Try again in N"         | **RUNTIME** |
+| UX-21 | 500 offers a retry and a reference id                      | Force an error                     | Actionable               | **RUNTIME** |
+| UX-22 | A failed connector run is explained in domain language     | Break a connector                  | Not a stack trace        | **RUNTIME** |
+| UX-23 | A document stuck in `processing` tells the user what to do | Simulate                           | Guidance                 | **RUNTIME** |
+| UX-24 | Offline/degraded realtime is visible                       | Stop the backend                   | Banner/state change      | **RUNTIME** |
+| UX-25 | Validation errors point at the field                       | Submit an invalid form             | Inline, field-level      | **RUNTIME** |
 
 ### 6.4 Destructive and irreversible actions
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| UX-26 | Every destructive action is confirmed with consequences stated | Sweep all pages | Plain-language consequences | STATIC |
-| UX-27 | Erasure requires typing `DELETE` and the password | `AccountPage` | Matches API | STATIC |
-| UX-28 | Erasure explains the multi-owner refusal **before** the user tries | Read the copy | Pre-emptive | STATIC |
-| UX-29 | "Sign out everywhere" explains the effect on other devices | Read the copy | Clear | STATIC |
-| UX-30 | Device revoke explains what stops working | Read | Clear | STATIC |
-| UX-31 | No destructive action is adjacent to a primary action without spacing/guarding | Sweep | Safe layout | STATIC |
+| ID    | Item                                                                           | How to verify   | Expected                    | Type   |
+| ----- | ------------------------------------------------------------------------------ | --------------- | --------------------------- | ------ |
+| UX-26 | Every destructive action is confirmed with consequences stated                 | Sweep all pages | Plain-language consequences | STATIC |
+| UX-27 | Erasure requires typing `DELETE` and the password                              | `AccountPage`   | Matches API                 | STATIC |
+| UX-28 | Erasure explains the multi-owner refusal **before** the user tries             | Read the copy   | Pre-emptive                 | STATIC |
+| UX-29 | "Sign out everywhere" explains the effect on other devices                     | Read the copy   | Clear                       | STATIC |
+| UX-30 | Device revoke explains what stops working                                      | Read            | Clear                       | STATIC |
+| UX-31 | No destructive action is adjacent to a primary action without spacing/guarding | Sweep           | Safe layout                 | STATIC |
 
 ### 6.5 Honesty of the interface (product integrity)
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| UX-32 | Nothing promises billing/upgrades that do not exist | Search for plan/upgrade/pricing UI | Absent or honest | STATIC |
-| UX-33 | Nothing promises SSO/enterprise auth | Search | Absent | STATIC |
-| UX-34 | The password-reset screen is honest about delivery | Read the copy | **Tells the user what to do** given no mail transport (R-02) | STATIC |
-| UX-35 | The update check does not claim an update exists | Read UI around `checkForUpdates` | Honest | STATIC |
-| UX-36 | Google Sheets setup warns that the token expires | Read the connector form | Warning present, or record the gap (`CON-002`) | STATIC |
-| UX-37 | "Notify" in workflows does not imply delivery | Read the workflow copy | Honest | STATIC |
-| UX-38 | Voice features do not appear available when modules are missing | Mobile + desktop | Hidden or disabled with explanation | STATIC |
-| UX-39 | MFA is presented as optional, not mandatory | Read the copy | Accurate | STATIC |
-| UX-40 | No "coming soon", `href="#"` or dead menu item | Sweep | Zero | STATIC |
+| ID    | Item                                                            | How to verify                      | Expected                                                     | Type   |
+| ----- | --------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------ | ------ |
+| UX-32 | Nothing promises billing/upgrades that do not exist             | Search for plan/upgrade/pricing UI | Absent or honest                                             | STATIC |
+| UX-33 | Nothing promises SSO/enterprise auth                            | Search                             | Absent                                                       | STATIC |
+| UX-34 | The password-reset screen is honest about delivery              | Read the copy                      | **Tells the user what to do** given no mail transport (R-02) | STATIC |
+| UX-35 | The update check does not claim an update exists                | Read UI around `checkForUpdates`   | Honest                                                       | STATIC |
+| UX-36 | Google Sheets setup warns that the token expires                | Read the connector form            | Warning present, or record the gap (`CON-002`)               | STATIC |
+| UX-37 | "Notify" in workflows does not imply delivery                   | Read the workflow copy             | Honest                                                       | STATIC |
+| UX-38 | Voice features do not appear available when modules are missing | Mobile + desktop                   | Hidden or disabled with explanation                          | STATIC |
+| UX-39 | MFA is presented as optional, not mandatory                     | Read the copy                      | Accurate                                                     | STATIC |
+| UX-40 | No "coming soon", `href="#"` or dead menu item                  | Sweep                              | Zero                                                         | STATIC |
 
 ### 6.6 Consistency
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| UX-41 | Terminology is consistent (destination vs connector vs integration) | Grep UI strings | One term per concept | STATIC |
-| UX-42 | Dates, times and numbers use the locale formatter | Check `lib/format.ts` usage | Consistent | STATIC |
-| UX-43 | Button hierarchy is consistent across pages | Compare | Primary/secondary consistent | STATIC |
-| UX-44 | Table behaviours are consistent (sort, filter, pagination) | Compare Documents/Exports/Batches | Consistent | STATIC |
-| UX-45 | Error wording style is consistent | Compare pages | Consistent | STATIC |
-| UX-46 | Navigation state is always recoverable (back/refresh keeps place) | Test | Preserved | **RUNTIME** |
+| ID    | Item                                                                | How to verify                     | Expected                     | Type        |
+| ----- | ------------------------------------------------------------------- | --------------------------------- | ---------------------------- | ----------- |
+| UX-41 | Terminology is consistent (destination vs connector vs integration) | Grep UI strings                   | One term per concept         | STATIC      |
+| UX-42 | Dates, times and numbers use the locale formatter                   | Check `lib/format.ts` usage       | Consistent                   | STATIC      |
+| UX-43 | Button hierarchy is consistent across pages                         | Compare                           | Primary/secondary consistent | STATIC      |
+| UX-44 | Table behaviours are consistent (sort, filter, pagination)          | Compare Documents/Exports/Batches | Consistent                   | STATIC      |
+| UX-45 | Error wording style is consistent                                   | Compare pages                     | Consistent                   | STATIC      |
+| UX-46 | Navigation state is always recoverable (back/refresh keeps place)   | Test                              | Preserved                    | **RUNTIME** |
 
 ### 6.7 Mobile UX
 
-| ID | Item | How to verify | Expected | Type |
-|----|------|---------------|----------|------|
-| UX-47 | Capture is one tap from launch | Use the app | ≤2 taps | **RUNTIME** |
-| UX-48 | The capture screen guides the user (framing, distance) | Use it | Guidance present | STATIC |
-| UX-49 | Queue state is understandable at a glance | `QueueScreen` | Clear | STATIC |
-| UX-50 | Review on a phone is usable for simple fields | Use it | Actually usable, not a shrunken desktop | **RUNTIME** |
-| UX-51 | Sync status is visible without opening a menu | Look | Visible | STATIC |
+| ID    | Item                                                   | How to verify | Expected                                | Type        |
+| ----- | ------------------------------------------------------ | ------------- | --------------------------------------- | ----------- |
+| UX-47 | Capture is one tap from launch                         | Use the app   | ≤2 taps                                 | **RUNTIME** |
+| UX-48 | The capture screen guides the user (framing, distance) | Use it        | Guidance present                        | STATIC      |
+| UX-49 | Queue state is understandable at a glance              | `QueueScreen` | Clear                                   | STATIC      |
+| UX-50 | Review on a phone is usable for simple fields          | Use it        | Actually usable, not a shrunken desktop | **RUNTIME** |
+| UX-51 | Sync status is visible without opening a menu          | Look          | Visible                                 | STATIC      |
 
 ### 6.8 Deliverables
 
-| ID | Item | Output | Type |
-|----|------|--------|------|
-| UX-52 | Annotated journey map with click counts and timings | `evidence/R12/journey-map.md` | **WRITE** |
-| UX-53 | Heuristic evaluation (Nielsen's 10) per page | `evidence/R12/heuristics.md` | **WRITE** |
-| UX-54 | Error-state catalogue with screenshots | `evidence/R12/error-states.md` | **WRITE** |
+| ID    | Item                                                    | Output                           | Type      |
+| ----- | ------------------------------------------------------- | -------------------------------- | --------- |
+| UX-52 | Annotated journey map with click counts and timings     | `evidence/R12/journey-map.md`    | **WRITE** |
+| UX-53 | Heuristic evaluation (Nielsen's 10) per page            | `evidence/R12/heuristics.md`     | **WRITE** |
+| UX-54 | Error-state catalogue with screenshots                  | `evidence/R12/error-states.md`   | **WRITE** |
 | UX-55 | Usability test with ≥5 operators, tasks + timings + SUS | `evidence/R12/usability-test.md` | **WRITE** |
 
 ---
 
 ## 7. Known UX risks to confirm or refute
 
-| Risk | Statement |
-|------|-----------|
-| **R-01** | A packaged build cannot sign in — no journey can complete |
+| Risk     | Statement                                                         |
+| -------- | ----------------------------------------------------------------- |
+| **R-01** | A packaged build cannot sign in — no journey can complete         |
 | **R-02** | Password recovery cannot complete; the UI must be honest about it |
-| R-13 | Performance: a slow dashboard undermines the "live" promise |
-| R-22 | Accessibility evidence is thin — co-owned with R13 |
-| — | The review burden may exceed retyping (the core commercial risk) |
+| R-13     | Performance: a slow dashboard undermines the "live" promise       |
+| R-22     | Accessibility evidence is thin — co-owned with R13                |
+| —        | The review burden may exceed retyping (the core commercial risk)  |
 
 ---
 
@@ -289,18 +289,18 @@ grep -rn "confidence" apps/desktop/src/pages/ReviewPage.tsx packages/shared/src/
 
 ## 10. Tests to perform
 
-| # | Test | Procedure | Pass criterion |
-|---|------|-----------|----------------|
-| T-01 | Unassisted first run | 5 operators, no help, full loop | ≥4/5 complete without assistance |
-| T-02 | Time-to-first-approved-document | Measure | Recorded baseline; target agreed |
-| T-03 | Review vs retyping | 10 documents, stopwatch both methods | IDCP faster including review, or the premise fails |
-| T-04 | Error injection | 4xx/5xx per page | Every state actionable |
-| T-05 | Empty-state tour | Every page with no data | All instructive |
-| T-06 | Destructive sweep | Attempt every destructive action | All confirmed with consequences |
-| T-07 | Honesty sweep | Enumerate false affordances | Zero, or listed |
-| T-08 | Mobile journey | Capture → queue → review on a phone | Completable |
-| T-09 | Offline journey | Backend down mid-work | Clear state, no data loss |
-| T-10 | SUS questionnaire | 5–8 users | Score recorded |
+| #    | Test                            | Procedure                            | Pass criterion                                     |
+| ---- | ------------------------------- | ------------------------------------ | -------------------------------------------------- |
+| T-01 | Unassisted first run            | 5 operators, no help, full loop      | ≥4/5 complete without assistance                   |
+| T-02 | Time-to-first-approved-document | Measure                              | Recorded baseline; target agreed                   |
+| T-03 | Review vs retyping              | 10 documents, stopwatch both methods | IDCP faster including review, or the premise fails |
+| T-04 | Error injection                 | 4xx/5xx per page                     | Every state actionable                             |
+| T-05 | Empty-state tour                | Every page with no data              | All instructive                                    |
+| T-06 | Destructive sweep               | Attempt every destructive action     | All confirmed with consequences                    |
+| T-07 | Honesty sweep                   | Enumerate false affordances          | Zero, or listed                                    |
+| T-08 | Mobile journey                  | Capture → queue → review on a phone  | Completable                                        |
+| T-09 | Offline journey                 | Backend down mid-work                | Clear state, no data loss                          |
+| T-10 | SUS questionnaire               | 5–8 users                            | Score recorded                                     |
 
 ---
 
@@ -337,34 +337,34 @@ docs/reviewers/evidence/R12/
 
 ## 13. Blocked items
 
-| Item ID | Blocker | What unblocks it | Owner |
-|---------|---------|------------------|-------|
-| UX-01 | Packaged build cannot sign in (R-01) | R09/R10 fix | R10 |
-| UX-34 | No mail transport to describe honestly | R19 adds one | R19 |
-| UX-50 | Needs a real mobile build | R11 | R11 |
+| Item ID | Blocker                                | What unblocks it | Owner |
+| ------- | -------------------------------------- | ---------------- | ----- |
+| UX-01   | Packaged build cannot sign in (R-01)   | R09/R10 fix      | R10   |
+| UX-34   | No mail transport to describe honestly | R19 adds one     | R19   |
+| UX-50   | Needs a real mobile build              | R11              | R11   |
 
 ---
 
 ## 14. Findings register
 
-| ID | Severity | File:line | Finding | Why it matters | Reproduce | Suggested fix | Owner |
-|----|----------|-----------|---------|----------------|-----------|---------------|-------|
-| UX-001 | | | | | | | |
+| ID     | Severity | File:line | Finding | Why it matters | Reproduce | Suggested fix | Owner |
+| ------ | -------- | --------- | ------- | -------------- | --------- | ------------- | ----- |
+| UX-001 |          |           |         |                |           |               |       |
 
 ---
 
 ## 15. Reviewer sign-off
 
-| Field | Value |
-|-------|-------|
-| Reviewer name | |
-| Date started | |
-| Date completed | |
-| **Gate G7 result** | ☐ Pass ☐ Fail |
-| **G9 co-sign result** | ☐ Pass ☐ Fail ☐ Abstain |
-| Operators tested | |
-| SUS score | |
-| Conditions failed (IDs) | |
-| Reviewed commit | `43d384b` |
-| Statement | *I completed the full journey unaided on a packaged build, measured every step, ran usability tests with real operators, and swept every control for capability honesty.* |
-| Signature | |
+| Field                   | Value                                                                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reviewer name           |                                                                                                                                                                           |
+| Date started            |                                                                                                                                                                           |
+| Date completed          |                                                                                                                                                                           |
+| **Gate G7 result**      | ☐ Pass ☐ Fail                                                                                                                                                             |
+| **G9 co-sign result**   | ☐ Pass ☐ Fail ☐ Abstain                                                                                                                                                   |
+| Operators tested        |                                                                                                                                                                           |
+| SUS score               |                                                                                                                                                                           |
+| Conditions failed (IDs) |                                                                                                                                                                           |
+| Reviewed commit         | `43d384b`                                                                                                                                                                 |
+| Statement               | _I completed the full journey unaided on a packaged build, measured every step, ran usability tests with real operators, and swept every control for capability honesty._ |
+| Signature               |                                                                                                                                                                           |
