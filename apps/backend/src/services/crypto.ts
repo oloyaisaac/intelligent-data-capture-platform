@@ -15,8 +15,12 @@ export interface SecretBox {
 
 const PREFIX = 'v1';
 
-export function createSecretBox(secret: string): SecretBox {
-  const key = scryptSync(secret, 'idcp-connector-credentials', 32);
+const createSecretBox = (secret: string, encryptionKey?: string): SecretBox => {
+  // MH-09 Fix: Separate encryption key from JWT_SECRET
+  // If encryptionKey is provided (from config.ENCRYPTION_KEY), use it for connector credentials.
+  // Otherwise, fall back to JWT_SECRET derivation (legacy compatibility, but rotation safe).
+  const baseSecret = encryptionKey || secret;
+  const key = scryptSync(baseSecret, 'idcp-connector-credentials', 32);
 
   return {
     encrypt(plaintext, context) {
@@ -51,4 +55,9 @@ export function createSecretBox(secret: string): SecretBox {
       }
     },
   };
+};
+
+export function createSecretBox(secret: string): SecretBox {
+  // Legacy wrapper for existing calls (MH-09 transition)
+  return createSecretBox(secret, process.env.ENCRYPTION_KEY);
 }

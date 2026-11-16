@@ -66,6 +66,8 @@ export interface BuildServicesOptions {
   hub?: RealtimeHub;
   provider?: OcrProvider;
   hasher?: PasswordHasher;
+  // MH-09 Fix: Separate encryption key for connector credentials
+  encryptionKey?: string;
 }
 
 export function buildServices(options: BuildServicesOptions): Services {
@@ -77,11 +79,16 @@ export function buildServices(options: BuildServicesOptions): Services {
   const hub = options.hub ?? new InMemoryRealtimeHub(logger);
   const provider = options.provider ?? createProviderFactory(config)();
   const hasher = options.hasher ?? argon2Hasher;
+  
+  // MH-09 Fix: Use separate encryption key if provided, otherwise JWT_SECRET
   const tokens = createTokenService({
     secret: config.JWT_SECRET,
     accessTtlSeconds: config.ACCESS_TOKEN_TTL_SECONDS,
   });
-  const secretBox = createSecretBox(config.JWT_SECRET);
+  
+  // Pass encryptionKey to createSecretBox (MH-09)
+  const secretBox = createSecretBox(config.JWT_SECRET, options.encryptionKey);
+  
   const registry = new ConnectorRegistry();
 
   const auth = new AuthService(db, config, tokens, hasher, logger, secretBox);
@@ -97,6 +104,8 @@ export function buildServices(options: BuildServicesOptions): Services {
   const organisation = new OrganisationService(db);
   const templates = new TemplateService(db, logger);
   const apiKeys = new ApiKeyService(db, logger);
+  const marketplaceService = new MarketplaceService(db, logger);
+  const workflowsService = new WorkflowService(db, logger);
   const worker = new Worker(db, config, storage, provider, hub, documents, logger, templates);
   const privacy = new PrivacyService(db, storage, hasher, logger);
   const maintenance = new MaintenanceService(db, config, storage, logger);
