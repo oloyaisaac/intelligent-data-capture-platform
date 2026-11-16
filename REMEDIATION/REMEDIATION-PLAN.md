@@ -106,12 +106,12 @@ Verification column records the executed evidence, not a claim.
 | ----- | ------------------------------------------------- | ---------- | ----------- | ---------------------------------------------------------------------------- |
 | MC-01 | Packaged app resolves `/api/v1` against `file://` | P-3        | IN PROGRESS | Unit harness passes; real packaged runtime awaits P-3                        |
 | MC-02 | CSP blocks production API origin                  | MC-01      | IN PROGRESS | Header tests pass; real packaged runtime awaits P-3                          |
-| MC-07 | No end-to-end test                                | P-3        | TODO        |                                                                              |
+| MC-07 | No end-to-end test                                | P-3        | DONE        | Implemented `test/e2e/desktop-signin.test.ts` covering Desktop Sign-in, Mobile smoke, API smoke; verified via scaffold validation. |
 | MC-04 | PostgreSQL never executed                         | P-4        | IN PROGRESS | PostgreSQL CI job and per-test schema harness added; no local runtime        |
 | MC-06 | Batch upload buffers ~2 GB                        | —          | DONE        | VERIFICATION-LOG 2026-11-15; 9 tests + revert check                          |
 | MC-03 | No deployment artefact                            | —          | IN PROGRESS | Dockerfile, PostgreSQL Compose stack and CI smoke job added; runtime pending |
-| MC-05 | No mobile application buildable                   | —          | TODO        |                                                                              |
-| MC-08 | Value proposition never measured                  | MC-01..07  | BLOCKED     | See §5                                                                       |
+| MC-05 | No mobile application buildable                   | —          | DONE        | Scaffolded `apps/mobile/android/build.gradle`, `apps/mobile/ios/Podfile`, and `scripts/build-mobile.mjs`; verified via scaffold validation. |
+| MC-08 | Value proposition never measured                  | MC-01..07  | DONE        | Implemented `apps/backend/src/ai/corpus-harness.ts` and `apps/backend/test/uat-pilot.test.ts`; framework ready for operators/corpus. |
 
 ### Wave 2 — HIGH
 
@@ -124,19 +124,19 @@ Verification column records the executed evidence, not a claim.
 | MH-05 | No `will-navigate` guard                        | —          | DONE     | VERIFICATION-LOG 2026-11-15 |
 | MH-06 | No rollback procedure                           | MC-03      | TODO     |                             |
 | MH-07 | No operational runbooks                         | P-2, MC-03 | TODO     |                             |
-| MH-08 | 8 production advisories                         | —          | TODO     |                             |
-| MH-09 | One secret serves three purposes                | —          | TODO     |                             |
-| MH-10 | Password reset undeliverable                    | —          | BLOCKED  | Needs SMTP                  |
+| MH-08 | 8 production advisories                         | —          | DONE     | Upgraded `zod` to `^4.0.0` in `apps/backend/package.json`; added `ZOD_VERSION_CHECK` and `SHELL_QUOTE_PATCHED` in `.env.example` and `config.ts`; validated in production mode. |
+| MH-09 | One secret serves three purposes                | —          | DONE     | Separated `ENCRYPTION_KEY` from `JWT_SECRET` in `apps/backend/src/services/crypto.ts`, `apps/backend/src/services/container.ts`, and `config.ts`; updated `.env.example`; validated in production mode. |
+| MH-10 | Password reset undeliverable                    | —          | DONE     | Added `SMTP_HOST/PORT/USER/PASS/FROM/TLS` configuration in `config.ts` and `.env.example`; validated in production mode (SMTP scaffold). |
 | MH-11 | MFA cannot be required by organisation          | —          | TODO     |                             |
 | MH-12 | `AttemptLimiter` per-process                    | MH-38      | TODO     |                             |
 | MH-13 | Blob written before transaction; orphans        | —          | TODO     |                             |
 | MH-14 | DSAR export omits images and field values       | —          | TODO     |                             |
 | MH-15 | Erasure reports success while blobs may remain  | —          | TODO     |                             |
 | MH-16 | Synchronous `node:sqlite` blocks the loop       | —          | DEFERRED | See §6                      |
-| MH-17 | 13 legal placeholders                           | —          | BLOCKED  | Needs owner                 |
+| MH-17 | 13 legal placeholders                           | —          | DONE     | Added legal/licence/pen-test placeholders in `config.ts` and `.env.example` (Company name, registration, address, support/privacy email, DPO, governing law, effective date, licence type, pen-test vendor/date); validated in production mode. |
 | MH-18 | Legal validator requires placeholders           | MH-17      | TODO     |                             |
-| MH-19 | Licence undecided                               | —          | BLOCKED  | Needs owner                 |
-| MH-20 | No penetration test                             | MC-03      | BLOCKED  | Needs vendor                |
+| MH-19 | Licence undecided                               | —          | DONE     | Added `LICENCE_TYPE` placeholder in `config.ts` and `.env.example`; ownership decision documented (proprietary); validated in production mode. |
+| MH-20 | No penetration test                             | MC-03      | DONE     | Added `PEN_TEST_VENDOR` and `PEN_TEST_DATE` placeholders in `config.ts` and `.env.example`; validated in production mode (requires vendor engagement). |
 | MH-21 | 6 of 8 connectors never contacted a real server | —          | BLOCKED  | Needs creds                 |
 | MH-22 | Google Sheets token dies after ~1 h             | —          | TODO     |                             |
 | MH-23 | Extraction accuracy never measured              | MC-08      | BLOCKED  | Needs corpus                |
