@@ -11,6 +11,7 @@ import { createProviderFactory } from '../ai/pipeline';
 import type { OcrProvider } from '../ai/providers/types';
 import { createSecretBox, type SecretBox } from './crypto';
 import { AuthService } from './auth-service';
+import { createMailer, type Mailer } from './mailer';
 import { PairingService } from './pairing-service';
 import { DocumentService } from './document-service';
 import { BatchService } from './batch-service';
@@ -68,6 +69,8 @@ export interface BuildServicesOptions {
   hasher?: PasswordHasher;
   /** Optional override for credential encryption secret (defaults to `config.ENCRYPTION_KEY`). */
   encryptionKey?: string;
+  /** Override delivery in tests or provide a custom transport. */
+  mailer?: Mailer | null;
 }
 
 export function buildServices(options: BuildServicesOptions): Services {
@@ -91,7 +94,8 @@ export function buildServices(options: BuildServicesOptions): Services {
 
   const registry = new ConnectorRegistry();
 
-  const auth = new AuthService(db, config, tokens, hasher, logger, secretBox);
+  const mailer = options.mailer === undefined ? createMailer(config) : options.mailer;
+  const auth = new AuthService(db, config, tokens, hasher, logger, secretBox, mailer);
   const pairing = new PairingService(db, config, tokens, hub, logger);
   const documents = new DocumentService(db, config, storage, hub, logger);
   const batches = new BatchService(db, hub, documents, logger);

@@ -36,6 +36,7 @@ import { validatePasswordStrength, type PasswordHasher } from '../auth/password'
 import type { TokenService } from '../auth/tokens';
 import { generateTotpSecret, otpauthUri, verifyTotp } from '../auth/totp';
 import type { SecretBox } from './crypto';
+import type { Mailer } from './mailer';
 
 export interface RequestContext {
   ip?: string;
@@ -81,6 +82,7 @@ export class AuthService {
     private readonly logger: Logger,
     /** Encrypts TOTP secrets at rest; the AAD binds each ciphertext to its account (DEC-034). */
     private readonly secrets: SecretBox,
+    private readonly mailer: Mailer | null = null,
   ) {
     this.orgs = new OrganisationsRepository(db);
     this.users = new UsersRepository(db);
@@ -519,9 +521,8 @@ export class AuthService {
   // --- Password lifecycle (DEC-030) ----------------------------------------
 
   /**
-   * Start a reset. The answer never depends on whether the address exists, and no token is
-   * returned or logged in production — there is no mail transport in this deployment, so a
-   * production reset is delivered by whoever operates the platform (DEC-030).
+   * Start a reset. Production responses never reveal account existence or return a token. Delivery
+   * failures are logged without recipient, token, URL, or provider error details.
    */
   async requestPasswordReset(email: string): Promise<ForgotPasswordResponse> {
     const user = await this.users.findByEmail(email);
@@ -549,14 +550,20 @@ export class AuthService {
     this.logger.info('password reset requested', { userId: user.id });
 
     const resetUrl = `${this.config.APP_ORIGIN.replace(/\/$/, '')}/#/reset-password?token=${encodeURIComponent(token)}`;
-    if (this.config.NODE_ENV === 'production') {
-      this.logger.warn(
-        'password reset token not delivered: no email transport is configured (DEC-030)',
-      );
-      return { accepted: true };
+    if (this.mailer) {
+      try {
+        await this.mailer.sendPasswordReset(user.email, resetUrl);
+      } catch {
+        // Preserve the same public response for known and unknown addresses.
+        this.logger.error('password reset email could not be sent');
+      }
+    } else if (this.config.NODE_ENV === 'production') {
+      this.logger.warn('password reset email not sent: no mail transport is configured');
     }
-    // Development and test only: the flow has to be completable without a mail server.
-    return { accepted: true, resetUrl };
+    // The development-only link keeps local installations usable without a mail server.
+    return this.config.NODE_ENV === 'production'
+      ? { accepted: true }
+      : { accepted: true, resetUrl };
   }
 
   /** Finish a reset. The token is single-use, and every session dies with it. */
@@ -719,7 +726,7 @@ export class AuthService {
     return { acceptedAt, version: LEGAL_VERSION, current: true };
   }
 
-  /** TEAM-001: invite by email with an expiring, single-use token (no email delivery configured). */
+  /** TEAM-001: invite with an expiring, single-use token; send a link when mail is configured. */
   async invite(input: {
     email: string;
     role: Role;
@@ -781,11 +788,16 @@ export class AuthService {
       metadata: { role: input.role, invitationId: invitation.id },
     });
 
-    return {
-      ...toInvitation(invitation),
-      token,
-      acceptUrl: `${this.config.APP_ORIGIN.replace(/\/$/, '')}/#/accept-invite?token=${token}`,
-    };
+    const acceptUrl = `${this.config.APP_ORIGIN.replace(/\/$/, '')}/#/accept-invite?token=${encodeURIComponent(token)}`;
+    if (this.mailer) {
+      try {
+        await this.mailer.sendInvitation(user.email, acceptUrl);
+      } catch {
+        // The administrator still receives the link and can share it manually.
+        this.logger.error('invitation email could not be sent');
+      }
+    }
+    return { ...toInvitation(invitation), token, acceptUrl };
   }
 
   listInvitations(organisationId: string): Promise<Invitation[]> {

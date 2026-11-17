@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ApiError, MfaRequiredError, type ApiClient } from '../api/client';
 import { ErrorBanner, Field } from '../components/ui';
 import { useTranslator } from '../lib/locale';
@@ -21,8 +21,8 @@ function openLegal(slug: 'terms' | 'privacy'): void {
  * The password rule is stated before submitting (12+ characters) rather than after a rejection,
  * and server errors are surfaced verbatim because they are already written for people.
  *
- * Recovery is honest about this deployment: the API sends no email, so outside production the
- * reset link is shown on screen instead of pretending a message went out.
+ * The API can deliver recovery links by SMTP. Outside production it also exposes a local-only
+ * reset link so the flow can be tested without a mail server.
  */
 export function LoginPage({
   client,
@@ -48,6 +48,23 @@ export function LoginPage({
   const [devResetUrl, setDevResetUrl] = useState<string | null>(null);
   const t = useTranslator();
   const [busy, setBusy] = useState(false);
+
+  // Hash-only navigation does not reload the renderer. Handle a reset link opened while this
+  // screen is already mounted as well as one present at initial startup.
+  useEffect(() => {
+    const onHashChange = () => {
+      if (!window.location.hash.startsWith('#/reset-password?')) return;
+      const issued = resetTokenFromHash(window.location.hash);
+      if (!issued) return;
+      setToken(issued);
+      setPassword('');
+      setError(null);
+      setNotice(null);
+      setMode('reset');
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -81,6 +98,14 @@ export function LoginPage({
         }
       } else {
         await client.resetPassword({ token: token.trim(), password });
+        // Remove the used credential from the address bar and avoid reopening reset mode on reload.
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${window.location.search}`,
+        );
+        setToken('');
+        setDevResetUrl(null);
         setNotice(t('login.resetDone'));
         setPassword('');
         setMode('signin');

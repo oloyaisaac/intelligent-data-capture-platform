@@ -55,6 +55,22 @@ jobs:
       - name: Build renderer
         run: npm run build --workspace @idcp/desktop
 
+  e2e:
+    name: Browser end-to-end journeys
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Exercise renderer and backend
+        run: npm run test:e2e
+
   postgres:
     name: PostgreSQL integration (Node 22)
     runs-on: ubuntu-latest

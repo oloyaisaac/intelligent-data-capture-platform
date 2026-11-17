@@ -31,6 +31,9 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
+    // React Fast Refresh injects an inline preamble that our development CSP blocks. Disable it
+    // rather than weakening script-src; reload the page after renderer changes.
+    hmr: false,
     allowedHosts: true,
     proxy: {
       '/api': {
