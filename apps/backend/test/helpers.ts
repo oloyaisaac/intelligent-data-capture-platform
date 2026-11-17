@@ -3,13 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { loadConfig, type Config } from '../src/config';
 import { applyMigrations, createTestDatabase, PostgresDatabase } from '../src/db';
-import { createLogger } from '../src/logger';
+import { createLogger, type Logger } from '../src/logger';
 import { MemoryStorage } from '../src/storage';
 import { InMemoryRealtimeHub } from '../src/realtime/hub';
 import { buildServices, type Services } from '../src/services/container';
 import { buildApp } from '../src/http/app';
 import type { OcrProvider, OcrResult } from '../src/ai/providers/types';
 import type { Database } from '../src/db/database';
+import type { Mailer } from '../src/services/mailer';
 
 /**
  * Test harness: a real API over an in-memory SQLite database and in-memory storage, with a fake
@@ -170,7 +171,10 @@ async function createPostgresTestDatabase(connectionString: string): Promise<Dat
   };
 }
 
-export async function createHarness(overrides: NodeJS.ProcessEnv = {}): Promise<Harness> {
+export async function createHarness(
+  overrides: NodeJS.ProcessEnv = {},
+  options: { mailer?: Mailer | null; logger?: Logger } = {},
+): Promise<Harness> {
   const postgresTestRun = process.env.IDCP_TEST_DB_DRIVER === 'postgres';
   const config = testConfig({
     ...overrides,
@@ -186,12 +190,12 @@ export async function createHarness(overrides: NodeJS.ProcessEnv = {}): Promise<
     config.DB_DRIVER === 'postgres'
       ? await createPostgresTestDatabase(config.DATABASE_URL as string)
       : await createTestDatabase();
-  const logger = createLogger({ level: 'error', sink: () => undefined });
+  const logger = options.logger ?? createLogger({ level: 'error', sink: () => undefined });
   const storage = new MemoryStorage();
   const hub = new InMemoryRealtimeHub();
   const ocr = new FakeOcrProvider();
 
-  const services = buildServices({ config, db, logger, storage, hub, provider: ocr });
+  const services = buildServices({ config, db, logger, storage, hub, provider: ocr, ...options });
   const app = await buildApp(services);
   await app.ready();
   // A real listener on an ephemeral port: no mocking of the transport, and it keeps the suite

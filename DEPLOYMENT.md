@@ -265,8 +265,13 @@ the reasoning and what is still open.
 - [ ] The controller registration required by Uganda's Data Protection and Privacy Act 2019 filed, and
       the registration number put into `legal/PRIVACY.md`.
 - [ ] A named person owns the `[PRIVACY EMAIL]` mailbox and the 72-hour breach-notification duty.
-- [ ] Because this build sends no email, an operator procedure exists for delivering password-reset
-      links (`POST /auth/password/forgot` returns `resetUrl` outside production only — DEC-030).
+- [ ] Configure SMTP (`MAIL_TRANSPORT=smtp`, `MAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, and optional
+      `SMTP_USER`/`SMTP_PASSWORD`) and verify reset and invitation delivery to a test mailbox.
+      Use `SMTP_SECURE=true` for implicit TLS; otherwise STARTTLS is required. `APP_ORIGIN` must be
+      the public HTTPS origin for links. When SMTP is disabled, production password resets cannot
+      be delivered. API acceptance does not prove final inbox delivery; monitor mail-provider logs.
+      Delivery is synchronous and has no durable retry queue. Invite links remain available to the
+      administrator for manual sharing if delivery fails.
 - [ ] Retention defaults checked against the customers' sector rules; `MAINTENANCE_ENABLED` left on.
 - [ ] Support contact and incident process agreed.
 - [ ] `PRD.json`, `CHANGELOG.md` and `AGENT_STATE.md` updated with the release.

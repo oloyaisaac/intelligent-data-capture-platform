@@ -2,22 +2,21 @@
 
 How we prove the platform works. A story is not `done` until the relevant checks here pass.
 
-> **Status:** the suite exists and is what CI runs (`npm run verify`): 406 tests in 30 suites across
-> five Jest projects. This document states how it is organised, what each layer is for, and which
-> gaps are deliberate (no browser or device automation yet).
+> **Status:** CI runs Jest, PostgreSQL integration, a Compose smoke test, and a Chromium browser
+> journey. Packaged Electron and physical-device testing are still separate release requirements.
 
 ---
 
 ## 1. Test pyramid
 
-| Layer       | Scope                                                                                                                    | Tooling                         | Runs                  |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------- | --------------------- |
-| Unit        | Pure functions: UDM validation, confidence thresholds, mapping transforms, CSV escaping, duplicate scoring, date parsing | Jest + ts-jest                  | Every commit          |
-| Integration | API routes against a real Fastify listener over SQLite (`node:sqlite`) and filesystem storage in a temp directory        | Jest + `fetch` harness          | Every PR              |
-| Contract    | Connector contract tests; UDM schema round-trip; OpenAPI validation                                                      | Jest + custom harness           | Every PR              |
-| Component   | Desktop screens rendered in jsdom; mobile logic and screens as pure functions                                            | Testing Library (jsdom)         | Every PR              |
-| End-to-end  | Pair → capture → extract → review → export (not automated yet; covered by the manual cases below)                        | Detox / Playwright, to be added | Manual before release |
-| Manual      | Physical device camera/QR, real spreadsheet, real database                                                               | Checklist below                 | Before release        |
+| Layer       | Scope                                                                                                                    | Tooling                 | Runs           |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------- | -------------- |
+| Unit        | Pure functions: UDM validation, confidence thresholds, mapping transforms, CSV escaping, duplicate scoring, date parsing | Jest + ts-jest          | Every commit   |
+| Integration | API routes against a real Fastify listener over SQLite (`node:sqlite`) and filesystem storage in a temp directory        | Jest + `fetch` harness  | Every PR       |
+| Contract    | Connector contract tests; UDM schema round-trip; OpenAPI validation                                                      | Jest + custom harness   | Every PR       |
+| Component   | Desktop screens rendered in jsdom; mobile logic and screens as pure functions                                            | Testing Library (jsdom) | Every PR       |
+| End-to-end  | Sign-in → password reset → sign-in through Chromium, Vite proxy and a real test backend                                  | Playwright              | Every PR       |
+| Manual      | Physical device camera/QR, real spreadsheet, real database                                                               | Checklist below         | Before release |
 
 Target: ≥ 80% coverage on business logic (`packages/shared`, backend domain services). Coverage is a floor, not a goal — cover behaviour, not lines.
 
@@ -36,6 +35,8 @@ npm run test:unit         # the three Node workspaces (no jsdom)
 npm run test:prd          # PRD.json integrity (ids, refs, statuses, artifacts)
 npm run test:api          # OpenAPI 3.1 validity + route cross-check, UDM schema freshness
 npm run test:coverage
+npx playwright install --with-deps chromium  # once, on a supported machine
+npm run test:e2e          # Chromium + isolated in-memory backend + renderer dev server
 npm run typecheck         # tsc --noEmit in every workspace
 npm run lint              # eslint, zero warnings allowed
 npm run format:check
@@ -43,9 +44,11 @@ npm run test:legal        # legal pack: files, placeholders, retention figures, 
 npm run verify            # typecheck + lint + PRD + API + packaging + legal + tests
 ```
 
-There is no Docker dependency: the backend suite runs SQLite in memory, storage in memory, and a
-fake OCR provider. `test:integration` and `test:e2e` do not exist yet — they arrive with a database
-and browser harness.
+The standard backend suite runs SQLite in memory, storage in memory, and a fake OCR provider. The
+browser journey uses dedicated ports 4000 and 5173 and starts an isolated in-memory database; it
+must not reuse existing services. It tests the Vite renderer, **not** a packaged Electron binary. The
+pair → capture → review → export journey and mobile/device tests still require separate coverage.
+PostgreSQL and Docker Compose have separate CI jobs.
 
 ### Current coverage
 

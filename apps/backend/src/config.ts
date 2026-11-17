@@ -14,6 +14,15 @@ const booleanish = z
 const IntFromString = (defaultValue: number, min = 0, max = Number.MAX_SAFE_INTEGER) =>
   z.coerce.number().int().min(min).max(max).default(defaultValue);
 
+const optionalNonEmpty = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().min(1).optional(),
+);
+const optionalEmail = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().email().optional(),
+);
+
 const ConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: IntFromString(4000, 1, 65535),
@@ -34,6 +43,14 @@ const ConfigSchema = z.object({
   PAIRING_TOKEN_TTL_SECONDS: IntFromString(120, 30, 600),
   /** DEC-030: how long a password-reset link stays usable. */
   PASSWORD_RESET_TTL_SECONDS: IntFromString(60 * 60, 300, 24 * 60 * 60),
+  /** SMTP is optional in development; production deployments should configure it for account mail. */
+  MAIL_TRANSPORT: z.enum(['disabled', 'smtp']).default('disabled'),
+  MAIL_FROM: optionalEmail,
+  SMTP_HOST: optionalNonEmpty,
+  SMTP_PORT: IntFromString(587, 1, 65535),
+  SMTP_SECURE: booleanish.default(false),
+  SMTP_USER: optionalNonEmpty,
+  SMTP_PASSWORD: optionalNonEmpty,
 
   STORAGE_DRIVER: z.enum(['filesystem', 's3']).default('filesystem'),
   STORAGE_PATH: z.string().default('./local-storage/documents'),
@@ -100,6 +117,33 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const config = parsed.data;
 
   // Cross-field rules that zod cannot express cleanly.
+  if (config.MAIL_TRANSPORT === 'smtp') {
+    if (!config.SMTP_HOST || !config.MAIL_FROM) {
+      throw new Error('Invalid configuration:\n  SMTP_HOST and MAIL_FROM are required for SMTP');
+    }
+    if (Boolean(config.SMTP_USER) !== Boolean(config.SMTP_PASSWORD)) {
+      throw new Error('Invalid configuration:\n  SMTP_USER and SMTP_PASSWORD must be set together');
+    }
+    let origin: URL;
+    try {
+      origin = new URL(config.APP_ORIGIN);
+    } catch {
+      throw new Error('Invalid configuration:\n  APP_ORIGIN must be a valid HTTP(S) origin');
+    }
+    if (
+      !['http:', 'https:'].includes(origin.protocol) ||
+      (config.NODE_ENV === 'production' && origin.protocol !== 'https:') ||
+      origin.username ||
+      origin.password ||
+      origin.pathname !== '/' ||
+      origin.search ||
+      origin.hash
+    ) {
+      throw new Error(
+        'Invalid configuration:\n  APP_ORIGIN must be an HTTP(S) origin (HTTPS in production)',
+      );
+    }
+  }
   if (config.DB_DRIVER === 'postgres' && !config.DATABASE_URL) {
     throw new Error('Invalid configuration:\n  DATABASE_URL: required when DB_DRIVER=postgres');
   }

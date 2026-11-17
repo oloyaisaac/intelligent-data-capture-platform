@@ -2,7 +2,7 @@
   "name": "idcp",
   "version": "0.1.0",
   "private": true,
-  "description": "AI Universal Data Capture Platform \u2014 capture documents, extract structured data, review, and push to business systems.",
+  "description": "AI Universal Data Capture Platform — capture documents, extract structured data, review, and push to business systems.",
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=22.0.0",
@@ -34,9 +34,11 @@
     "schema:udm": "node scripts/generate-udm-schema.mjs",
     "test:packaging": "node scripts/validate-packaging.mjs",
     "test:legal": "node scripts/validate-legal.mjs",
-    "test:postgres": "node scripts/test-postgres.mjs"
+    "test:postgres": "node scripts/test-postgres.mjs",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.2",
     "eslint": "^9.17.0",

@@ -109,9 +109,8 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services, gua
   // --- Password reset (DEC-030) -------------------------------------------
 
   /**
-   * Public, because the caller cannot sign in. The response never reveals whether the address
-   * exists; outside production it carries the link so the flow can be finished without a mail
-   * server (there is none in this deployment).
+   * Public, because the caller cannot sign in. In production the response never reveals whether
+   * the address exists; outside production it carries a link for local development.
    */
   app.post('/auth/password/forgot', async (request, reply) => {
     const parsed = ForgotPasswordRequestSchema.safeParse(request.body);

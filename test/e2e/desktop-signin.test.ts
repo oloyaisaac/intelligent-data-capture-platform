@@ -1,29 +1,47 @@
 import { test, expect } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 
-/**
- * E2E Harness: Desktop Sign-in (MC-07).
- */
-test.describe('Desktop Sign-in E2E', () => {
-  test('packaged desktop app resolves /api/v1 and signs in successfully', async ({ page }) => {
-    await page.goto('http://localhost:5173');
-
-    const cspHeader = await page
-      .locator('meta[http-equiv="Content-Security-Policy"]')
-      .getAttribute('content');
-    expect(cspHeader).toBeNull();
-
-    await page.fill('input[type="email"]', 'owner@example.com');
-    await page.fill('input[type="password"]', 'demo-password-change-me');
-    await page.click('button[type="submit"]');
-
-    const response = await page.waitForResponse(/api\/v1\/auth\/login/);
-    expect(response.status()).toBe(200);
+/** Real Chromium + renderer + backend. This is not a packaged Electron test. */
+test('a user can sign in, reset a password and sign in again', async ({ page, request }) => {
+  const email = `e2e-${randomUUID()}@example.com`;
+  const oldPassword = 'initial secure passphrase';
+  const newPassword = 'another secure passphrase';
+  const registration = await request.post('/api/v1/auth/register', {
+    data: {
+      email,
+      password: oldPassword,
+      displayName: 'E2E Owner',
+      organisationName: 'E2E Workspace',
+      acceptTerms: true,
+    },
   });
+  expect(registration.status()).toBe(201);
 
-  test('API health smoke test', async ({ request }) => {
-    const response = await request.get('/api/v1/health');
-    expect(response.status()).toBe(200);
-    const data = (await response.json()) as { status: string };
-    expect(data.status).toBe('ok');
-  });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Sign in to IDCP' })).toBeVisible();
+  await page.locator('input[type=email]').fill(email);
+  await page.locator('input[type=password]').fill(oldPassword);
+  const login = page.waitForResponse((response) => response.url().endsWith('/api/v1/auth/login'));
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  expect((await login).status()).toBe(200);
+  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Forgot your password?' }).click();
+  await page.locator('input[type=email]').fill(email);
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  const link = page.getByTestId('dev-reset-link');
+  await expect(link).toBeVisible();
+  // The local-only link is returned in NODE_ENV=test; production mail never exposes it to the API caller.
+  const resetUrl = await link.getAttribute('href');
+  expect(resetUrl).toBeTruthy();
+  await page.goto(resetUrl!);
+  await page.locator('input[type=password]').fill(newPassword);
+  await page.getByRole('button', { name: 'Set new password' }).click();
+  await expect(page.getByTestId('login-notice')).toContainText('Password updated');
+  expect(new URL(page.url()).hash).toBe('');
+  await page.locator('input[type=email]').fill(email);
+  await page.locator('input[type=password]').fill(newPassword);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
 });

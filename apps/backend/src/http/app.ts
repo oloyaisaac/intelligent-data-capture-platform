@@ -87,14 +87,14 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
   });
 
   /**
-   * Access log. One line per request, no query string and no body: paths carry resource ids, and
-   * document content must never reach a log (SECURITY.md §3).
+   * Access log. Use the route template, never raw URLs: invitation tokens appear in a path and
+   * query strings may contain credentials or document data (SECURITY.md §3).
    */
   app.addHook('onResponse', async (request, reply) => {
     const startedAt = (request as { startedAt?: number }).startedAt;
     services.logger.info('http request', {
       method: request.method,
-      path: request.url.split('?')[0],
+      path: request.routeOptions.url ?? '[unmatched]',
       status: reply.statusCode,
       durationMs: startedAt ? Date.now() - startedAt : undefined,
       requestId: request.id,
@@ -143,7 +143,7 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
         requestId,
         code: error.code,
         status: error.statusCode,
-        route: request.url,
+        route: request.routeOptions.url ?? '[unmatched]',
       });
       return reply.code(error.statusCode).send(toErrorEnvelope(error, requestId));
     }
@@ -204,7 +204,7 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
 
     services.logger.error('unhandled request error', {
       requestId,
-      route: request.url,
+      route: request.routeOptions.url ?? '[unmatched]',
       method: request.method,
       error,
     });

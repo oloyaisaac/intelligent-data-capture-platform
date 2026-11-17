@@ -153,7 +153,9 @@ export class ApiClient {
   constructor(private readonly options: ApiClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? '/api/v1').replace(/\/$/, '');
     this.storage = options.storage ?? new MemoryTokenStorage();
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    // Native browser fetch requires the Window receiver; calling an unbound function as a
+    // property of ApiClient throws "Illegal invocation" before any request is sent.
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
   /** The in-memory access token. Used to open the event stream; never persisted in the renderer. */
