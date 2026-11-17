@@ -40,6 +40,6 @@ export function registerPrivacyRoutes(
     }
 
     const result = await services.privacy.eraseAccount(actor, parsed.data);
-    return reply.send(result);
+    return reply.code(result.fileDeletionStatus === 'pending' ? 202 : 200).send(result);
   });
 }

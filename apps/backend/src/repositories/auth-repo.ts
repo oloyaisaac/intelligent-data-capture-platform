@@ -330,7 +330,8 @@ export class MembershipsRepository {
 
   findForUser(userId: string): Promise<MembershipRow | null> {
     return this.db.one<MembershipRow>(
-      'SELECT * FROM memberships WHERE user_id = ? ORDER BY created_at LIMIT 1',
+      `SELECT m.* FROM memberships m JOIN users u ON u.id = m.user_id
+        WHERE m.user_id = ? AND u.disabled_at IS NULL ORDER BY m.created_at LIMIT 1`,
       [userId],
     );
   }

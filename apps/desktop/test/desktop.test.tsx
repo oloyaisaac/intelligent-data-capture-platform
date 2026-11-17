@@ -1392,6 +1392,8 @@ describe('account page: password, sessions and privacy', () => {
       eraseAccount: jest.fn(async () => ({
         erased: true,
         anonymisedAt: '2026-10-27T08:35:00.000Z',
+        fileDeletionStatus: 'complete',
+        pendingFileCount: 0,
         retainedRecords: 'Approved records',
       })),
       ...overrides,
@@ -1509,6 +1511,31 @@ describe('account page: password, sessions and privacy', () => {
     expect(codes.textContent).toContain('CCCC-DDDD');
     expect((await screen.findByRole('status')).textContent).toContain(
       'Two-factor authentication is on',
+    );
+  });
+
+  it('warns when file removal is still pending after account anonymisation', async () => {
+    const client = accountClient({
+      eraseAccount: jest.fn(async () => ({
+        erased: true,
+        anonymisedAt: '2026-10-27T08:35:00.000Z',
+        fileDeletionStatus: 'pending',
+        pendingFileCount: 1,
+        retainedRecords: 'Approved records',
+      })),
+    });
+    const onSessionEnded = jest.fn();
+    render(<AccountPage client={client} onSessionEnded={onSessionEnded} />);
+    await screen.findAllByTestId('session-row');
+    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), {
+      target: { value: 'DELETE' },
+    });
+    fireEvent.change(screen.getByLabelText('Your password'), {
+      target: { value: 'secret passphrase' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Erase permanently' }));
+    await waitFor(() =>
+      expect(onSessionEnded).toHaveBeenCalledWith(expect.stringMatching(/awaiting deletion/i)),
     );
   });
 

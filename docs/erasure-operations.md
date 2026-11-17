@@ -1,0 +1,17 @@
+# Account erasure: operation and limitations
+
+Account erasure anonymises the user row and revokes its sessions, API keys and existing devices. It removes the database rows of identified draft documents and commits a queue of their document and page storage keys in the same transaction. After commit, deletion is attempted immediately; the maintenance scheduler retries pending keys in batches of up to 100 per run. Storage deletion must be idempotent, and keys must not be reused. A key still referenced by another document or page is retained in the queue for investigation instead of being deleted.
+
+The API returns `200` when the identified file-deletion queue is empty, and `202` when files remain pending or their count cannot be determined. `erased: true` means that the account transaction committed, **not** that all personal information has been erased. `pendingFileCount` can be null when the count is unknown. The response is a point-in-time result, not a way to track completion after sign-out. The desktop shows this result on the sign-in screen.
+
+## Operations
+
+- Enable `MAINTENANCE_ENABLED` (default true) and ensure at least one backend scheduler runs. Its default interval is daily; a backlog of more than 100 can take multiple runs. Failed deletes are retried on future runs, not continuously.
+- Monitor the number and age of rows in `erasure_file_deletions` and warnings named `erasure file deletion remains pending`; investigate storage permissions, provider health, and shared references. The queue contains sensitive storage keys and user identifiers: restrict access and do not copy keys into tickets or logs.
+- After correcting the underlying issue, wait for the next maintenance run and verify the queue drains. A permanent shared-reference conflict requires human review of data retention and ownership before taking action; do not force-delete a file still needed by another record.
+- Expired export files are handled separately by maintenance. A failed deletion retains the key and is retried on the next run; expired exports are not downloadable even before that retry.
+- A database restore can resurrect queue entries after files were deleted, or resurrect document rows whose files are missing. A storage restore can resurrect deleted files after queue entries were cleared. Coordinate and test backup/restore procedures, including replaying erasure decisions; this queue alone is not a backup-erasure solution.
+
+## Important boundaries
+
+This is not a complete legal or technical erasure guarantee. Retained approved documents, audit records, exports, organisation data and their contents can still identify a person. Existing backups and copies at connectors or external destinations are not purged by this mechanism. Work already in flight during erasure (including uploads, worker extraction and pairing) is not coordinated across processes; it may create additional rows or files or credentials after the snapshot. Existing long-lived connections may also need explicit revocation. Address these races and validate the full data inventory before claiming complete erasure. Storage-key reference checks are not a cross-process lock and depend on keys never being reused. Previously orphaned blobs are not discovered automatically. Operators need alerting and an accountable follow-up process; no user-facing completion notification is implemented.

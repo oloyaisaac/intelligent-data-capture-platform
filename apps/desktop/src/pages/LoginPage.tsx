@@ -27,9 +27,11 @@ function openLegal(slug: 'terms' | 'privacy'): void {
 export function LoginPage({
   client,
   onSignedIn,
+  initialNotice,
 }: {
   client: ApiClient;
   onSignedIn: () => void;
+  initialNotice?: string | null;
 }): React.JSX.Element {
   const initialHash = typeof window === 'undefined' ? '' : window.location.hash;
   const hashToken = resetTokenFromHash(initialHash);
@@ -44,7 +46,7 @@ export function LoginPage({
   const [token, setToken] = useState(hashToken ?? '');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(initialNotice ?? null);
   const [devResetUrl, setDevResetUrl] = useState<string | null>(null);
   const t = useTranslator();
   const [busy, setBusy] = useState(false);

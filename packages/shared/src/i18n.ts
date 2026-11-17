@@ -135,7 +135,10 @@ const en = {
   'settings.exportAudit': 'Download audit log',
   'settings.auditExported': 'Audit log downloaded.',
   'settings.auditExportFailed': 'Could not download the audit log.',
-  'account.erased': 'Your account has been erased.',
+  'account.erased':
+    'Your account details have been anonymised and the identified draft files removed. Retained records may still contain identifying information.',
+  'account.erasurePending':
+    'Your account details have been anonymised, but some identified draft files may still be awaiting deletion. The system will retry; contact support if you need an update. Retained records may still contain identifying information.',
   'account.legalTitle': 'Legal',
   'account.legalHint': 'These open in your browser.',
   'action.retry': 'Try again',
@@ -808,7 +811,10 @@ const sw: Partial<Catalogue> = {
   'settings.exportAudit': 'Pakua kumbukumbu za ukaguzi',
   'settings.auditExported': 'Kumbukumbu za ukaguzi zimepakuliwa.',
   'settings.auditExportFailed': 'Imeshindwa kupakua kumbukumbu za ukaguzi.',
-  'account.erased': 'Akaunti yako imefutwa.',
+  'account.erased':
+    'Maelezo ya akaunti yako yamefanywa bila utambulisho na faili za rasimu zilizotambuliwa zimeondolewa. Rekodi zilizohifadhiwa bado zinaweza kuwa na taarifa zinazokutambulisha.',
+  'account.erasurePending':
+    'Maelezo ya akaunti yako yamefanywa bila utambulisho, lakini baadhi ya faili za rasimu zilizotambuliwa zinaweza bado kusubiri kufutwa. Mfumo utajaribu tena; wasiliana na usaidizi kwa taarifa. Rekodi zilizohifadhiwa bado zinaweza kuwa na taarifa zinazokutambulisha.',
   'account.legalTitle': 'Kisheria',
   'account.legalHint': 'Hizi zinafunguka kwenye kivinjari chako.',
   'action.retry': 'Jaribu tena',
@@ -1486,7 +1492,10 @@ const fr: Partial<Catalogue> = {
   'settings.exportAudit': "Télécharger le journal d'audit",
   'settings.auditExported': "Journal d'audit téléchargé.",
   'settings.auditExportFailed': "Impossible de télécharger le journal d'audit.",
-  'account.erased': 'Votre compte a été effacé.',
+  'account.erased':
+    'Les informations de votre compte ont été anonymisées et les fichiers brouillons identifiés supprimés. Les documents conservés peuvent encore contenir des informations permettant de vous identifier.',
+  'account.erasurePending':
+    'Les informations de votre compte ont été anonymisées, mais certains fichiers brouillons identifiés restent peut-être à supprimer. Le système réessaiera ; contactez le support pour un suivi. Les documents conservés peuvent encore contenir des informations permettant de vous identifier.',
   'account.legalTitle': 'Mentions légales',
   'account.legalHint': 'Ces documents s’ouvrent dans votre navigateur.',
   'action.retry': 'Réessayer',

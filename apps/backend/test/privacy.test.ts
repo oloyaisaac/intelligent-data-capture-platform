@@ -5,6 +5,7 @@ import {
   uploadDocument,
   type Harness,
 } from './helpers';
+import { AuditRepository } from '../src/repositories/system-repo';
 
 /**
  * Data-subject rights: export and erasure (privacy policy §7).
@@ -96,6 +97,15 @@ describe('privacy: export and erasure', () => {
     const erased = response.json<{ erased: boolean; retainedRecords: string }>();
     expect(erased.erased).toBe(true);
     expect(erased.retainedRecords).toContain('Approved');
+    expect(response.json<{ fileDeletionStatus: string; pendingFileCount: number }>()).toMatchObject(
+      {
+        fileDeletionStatus: 'complete',
+        pendingFileCount: 0,
+      },
+    );
+    // Access tokens are also rejected immediately; revoking refresh sessions alone is insufficient.
+    const access = await harness.api.get('/api/v1/auth/me', account.accessToken);
+    expect(access.statusCode).toBe(401);
 
     const user = await harness.db.one<{
       email: string;
@@ -120,6 +130,146 @@ describe('privacy: export and erasure', () => {
       body: { email: 'erase-me@example.com', password: 'correct horse battery staple' },
     });
     expect(login.statusCode).toBe(401);
+  });
+
+  it('reports pending file removal, then retries durable work including page files', async () => {
+    const account = await registerAccount(harness, { email: 'pending-erase@example.com' });
+    const document = await uploadAs(account);
+    const stored = await harness.db.one<{ storage_key: string }>(
+      'SELECT storage_key FROM documents WHERE id = ?',
+      [document.id],
+    );
+    const originalKey = stored!.storage_key;
+    const pageKey = `org/${account.organisationId}/pages/extra.png`;
+    await harness.storage.put(pageKey, Buffer.from('extra page'));
+    await harness.db.execute(
+      'INSERT INTO document_pages (id, document_id, page_number, storage_key, created_at) VALUES (?, ?, ?, ?, ?)',
+      ['page-extra', document.id, 2, pageKey, new Date().toISOString()],
+    );
+    const deletion = jest
+      .spyOn(harness.storage, 'delete')
+      .mockRejectedValue(new Error('storage unavailable'));
+    try {
+      const response = await harness.api.json('POST', '/api/v1/me/erase', {
+        token: account.accessToken,
+        body: { password: 'correct horse battery staple', confirm: 'DELETE' },
+      });
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toMatchObject({
+        erased: true,
+        fileDeletionStatus: 'pending',
+        pendingFileCount: 2,
+      });
+      expect(await harness.storage.exists(originalKey)).toBe(true);
+      expect(await harness.storage.exists(pageKey)).toBe(true);
+      expect(
+        await harness.db.query('SELECT id FROM erasure_file_deletions WHERE user_id = ?', [
+          account.userId,
+        ]),
+      ).toHaveLength(2);
+      expect((await harness.api.get('/api/v1/auth/me', account.accessToken)).statusCode).toBe(401);
+    } finally {
+      deletion.mockRestore();
+    }
+
+    const report = await harness.services.maintenance.runOnce();
+    expect(report.erasureFilesDeleted).toBe(2);
+    expect(await harness.storage.exists(originalKey)).toBe(false);
+    expect(await harness.storage.exists(pageKey)).toBe(false);
+    expect(
+      await harness.db.query('SELECT id FROM erasure_file_deletions WHERE user_id = ?', [
+        account.userId,
+      ]),
+    ).toHaveLength(0);
+    expect((await harness.services.maintenance.runOnce()).erasureFilesDeleted).toBe(0);
+  });
+
+  it('does not delete a file still referenced by another document', async () => {
+    const account = await registerAccount(harness, { email: 'shared-erase@example.com' });
+    const other = await registerAccount(harness, { email: 'shared-other@example.com' });
+    const ownDocument = await uploadAs(account);
+    const otherDocument = await uploadAs(other);
+    const row = await harness.db.one<{ storage_key: string }>(
+      'SELECT storage_key FROM documents WHERE id = ?',
+      [ownDocument.id],
+    );
+    await harness.db.execute('UPDATE documents SET storage_key = ? WHERE id = ?', [
+      row!.storage_key,
+      otherDocument.id,
+    ]);
+    const response = await harness.api.json('POST', '/api/v1/me/erase', {
+      token: account.accessToken,
+      body: { password: 'correct horse battery staple', confirm: 'DELETE' },
+    });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({ fileDeletionStatus: 'pending', pendingFileCount: 1 });
+    expect(await harness.storage.exists(row!.storage_key)).toBe(true);
+    expect((await harness.services.maintenance.runOnce()).erasureFilesDeleted).toBe(0);
+    expect(await harness.storage.exists(row!.storage_key)).toBe(true);
+  });
+
+  it('rolls back account and deletion queue if the transaction fails', async () => {
+    const account = await registerAccount(harness, { email: 'rollback-erase@example.com' });
+    const document = await uploadAs(account);
+    const row = await harness.db.one<{ storage_key: string }>(
+      'SELECT storage_key FROM documents WHERE id = ?',
+      [document.id],
+    );
+    const originalRecord = AuditRepository.prototype.record;
+    const audit = jest.spyOn(AuditRepository.prototype, 'record').mockImplementation(function (
+      this: AuditRepository,
+      input,
+    ) {
+      if (input.action === 'privacy.account_erased') throw new Error('audit unavailable');
+      return originalRecord.call(this, input);
+    });
+    try {
+      const response = await harness.api.json('POST', '/api/v1/me/erase', {
+        token: account.accessToken,
+        body: { password: 'correct horse battery staple', confirm: 'DELETE' },
+      });
+      expect(response.statusCode).toBe(500);
+    } finally {
+      audit.mockRestore();
+    }
+    expect(await harness.storage.exists(row!.storage_key)).toBe(true);
+    expect(
+      await harness.db.one('SELECT id FROM documents WHERE id = ?', [document.id]),
+    ).not.toBeNull();
+    expect(
+      await harness.db.query('SELECT id FROM erasure_file_deletions WHERE user_id = ?', [
+        account.userId,
+      ]),
+    ).toHaveLength(0);
+    expect((await harness.api.get('/api/v1/auth/me', account.accessToken)).statusCode).toBe(200);
+  });
+
+  it('revokes API keys created by the erased account', async () => {
+    const account = await registerAccount(harness, { email: 'erase-key@example.com' });
+    const created = await harness.api.json('POST', '/api/v1/api-keys', {
+      token: account.accessToken,
+      body: { name: 'Integration', scopes: ['documents:read'] },
+    });
+    expect(created.statusCode).toBe(201);
+    const key = created.json<{ key: string }>().key;
+    expect(
+      (await harness.api.json('GET', '/api/v1/documents', { headers: { 'x-api-key': key } }))
+        .statusCode,
+    ).toBe(200);
+    const erased = await harness.api.json('POST', '/api/v1/me/erase', {
+      token: account.accessToken,
+      body: { password: 'correct horse battery staple', confirm: 'DELETE' },
+    });
+    expect(erased.statusCode).toBe(200);
+    expect(
+      (await harness.api.json('GET', '/api/v1/documents', { headers: { 'x-api-key': key } }))
+        .statusCode,
+    ).toBe(401);
+    const row = await harness.db.one<{ revoked_at: string | null }>(
+      'SELECT revoked_at FROM api_keys WHERE created_by = ?',
+      [account.userId],
+    );
+    expect(row?.revoked_at).not.toBeNull();
   });
 
   it('keeps approved records but drops the identity from them', async () => {
