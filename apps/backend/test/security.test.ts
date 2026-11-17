@@ -74,13 +74,35 @@ describe('configuration (BACK-001)', () => {
       }),
     ).toThrow(/at least 32 characters/);
 
-    expect(() => loadConfig({ NODE_ENV: 'production', JWT_SECRET: 'x'.repeat(40) })).toThrow(
-      /CORS_ORIGINS/,
-    );
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        JWT_SECRET: 'x'.repeat(40),
+        ENCRYPTION_KEY: 'y'.repeat(40),
+      }),
+    ).toThrow(/CORS_ORIGINS/);
+
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        JWT_SECRET: 'x'.repeat(40),
+        CORS_ORIGINS: 'https://app.example.com',
+      }),
+    ).toThrow(/ENCRYPTION_KEY/);
+
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        JWT_SECRET: 'x'.repeat(40),
+        ENCRYPTION_KEY: 'x'.repeat(40),
+        CORS_ORIGINS: 'https://app.example.com',
+      }),
+    ).toThrow(/distinct from JWT_SECRET/);
 
     const ok = loadConfig({
       NODE_ENV: 'production',
       JWT_SECRET: 'x'.repeat(40),
+      ENCRYPTION_KEY: 'y'.repeat(40),
       CORS_ORIGINS: 'https://app.example.com',
     });
     expect(ok.NODE_ENV).toBe('production');
@@ -175,6 +197,26 @@ describe('credential encryption (SECURITY.md §6.2)', () => {
     parts[3] = Buffer.from('tampered').toString('base64');
     expect(() => box.decrypt(parts.join(':'), 'org-1')).toThrow();
     expect(() => box.decrypt('not-a-payload', 'org-1')).toThrow(/not readable/i);
+  });
+
+  it('keeps stored credentials readable across JWT_SECRET rotation and legacy fallback (MH-09)', () => {
+    const legacyJwtBox = createSecretBox('legacy-jwt-secret-0123456789abcdef');
+    const legacyPayload = legacyJwtBox.encrypt('{"token":"legacy"}', 'org-1');
+
+    // Introducing a dedicated ENCRYPTION_KEY still decrypts legacy ciphertexts via fallback.
+    const separatedBox = createSecretBox(
+      'dedicated-encryption-key-0123456789',
+      'legacy-jwt-secret-0123456789abcdef',
+    );
+    expect(separatedBox.decrypt(legacyPayload, 'org-1')).toBe('{"token":"legacy"}');
+
+    // New ciphertexts use ENCRYPTION_KEY, so rotating JWT_SECRET later does not break decryption.
+    const freshPayload = separatedBox.encrypt('{"token":"fresh"}', 'org-1');
+    const afterJwtRotation = createSecretBox(
+      'dedicated-encryption-key-0123456789',
+      'rotated-new-jwt-secret-fedcba9876543210',
+    );
+    expect(afterJwtRotation.decrypt(freshPayload, 'org-1')).toBe('{"token":"fresh"}');
   });
 });
 

@@ -10,6 +10,7 @@ x-backend-environment: &backend-environment
   DATABASE_URL: 'postgresql://${POSTGRES_USER:-idcp}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a URL-safe random value}@db:5432/${POSTGRES_DB:-idcp}'
   DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
   JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to a unique production secret of at least 32 characters}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY to a unique production key of at least 32 characters}
   STORAGE_DRIVER: filesystem
   STORAGE_PATH: /data/documents
   LEGAL_DIR: /app/legal

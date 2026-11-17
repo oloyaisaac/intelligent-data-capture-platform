@@ -110,6 +110,7 @@ jobs:
           env_file=.env.compose.example
           export POSTGRES_PASSWORD='ci-compose-smoke-postgres-password'
           export JWT_SECRET='ci-compose-smoke-jwt-secret-with-at-least-32-characters'
+          export ENCRYPTION_KEY='ci-compose-smoke-encryption-key-with-at-least-32-chars'
           docker compose --env-file "$env_file" up --build --detach
           cleanup() {
             docker compose --env-file "$env_file" down --volumes --remove-orphans

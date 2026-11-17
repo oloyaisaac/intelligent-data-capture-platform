@@ -7,15 +7,40 @@ import {
   type DocumentType,
   type Udm,
 } from '@idcp/shared';
+import type { Logger } from '../logger';
 import { classifyDocument } from './classify';
 import { extractFromText } from './extract';
 import { CloudVisionProvider } from './providers/cloud';
 import { TesseractProvider } from './providers/tesseract';
-import type { OcrProvider } from './providers/types';
+import type { OcrProvider, OcrWord } from './providers/types';
+
+export interface PipelineInput {
+  documentId: string;
+  buffer: Buffer;
+  mimeType: string;
+  documentTypeHint?: DocumentType;
+  defaultCurrency?: string;
+  reviewThreshold?: number;
+  expectedFields?: Array<{
+    path: string;
+    label: string;
+    type: string;
+    required?: boolean;
+  }> | null;
+}
+
+export interface PipelineResult {
+  udm: Udm;
+  provider: string;
+  latencyMs: number;
+  costMicros: number;
+  ocrText: string;
+  words: OcrWord[];
+}
 
 export async function runExtractionPipeline(
   input: PipelineInput,
-  deps: { provider: OcrProvider; logger: import('../logger').Logger },
+  deps: { provider: OcrProvider; logger: Logger },
 ): Promise<PipelineResult> {
   const threshold = input.reviewThreshold ?? LIMITS.reviewConfidenceThreshold;
 
@@ -118,56 +143,4 @@ export function createProviderFactory(config: {
     }
     return new TesseractProvider(config.TESSERACT_BIN);
   };
-}
-
-/**
- * Simulated extraction pipeline for MC-08 harness testing (DASH-001 target: 2s per document)
- * 
- * Returns a mock UDM extraction result based on document content length.
- */
-export async function measureValueProposition(content: string): Promise<any> {
-  // Simulate processing time (DASH-001 target < 2s)
-  // Reduced for test environment speed (was Math.random() * 1500, 1800)
-  const simulatedLatency = Math.min(Math.random() * 100, 150); // 0-0.15s
-  await new Promise(resolve => setTimeout(resolve, simulatedLatency));
-
-  // Mock extraction result based on content
-  return {
-    type: content.includes('invoice') ? 'invoice' : 'receipt',
-    amount: content.length > 0 ? content.length * 1.5 : 0,
-  };
-}
-
-/**
- * Simulated UAT pilot execution for MC-08 harness testing
- */
-export async function runUatPilot(
-  participants: string[],
-  documentSets: any[][]
-): Promise<any[]> {
-  const results = [];
-  for (let i = 0; i < participants.length; i++) {
-    const participant = participants[i];
-    const docs = documentSets[i];
-    
-    const participantResults = await Promise.all(
-      docs.map(async (doc: any) => {
-        const start = Date.now();
-        const extraction = await measureValueProposition(doc.content);
-        const timeOnTask = (Date.now() - start) / 1000;
-        
-        return {
-          documentsProcessed: 1,
-          timeOnTaskSeconds: timeOnTask,
-          noCorrectionRate: extraction.amount > 0 ? 100 : 0,
-          accuracyScore: extraction.amount > 0 ? 100 : 0,
-          operatorCount: 1,
-        };
-      })
-    );
-    
-    results.push(...participantResults);
-  }
-  
-  return results;
 }

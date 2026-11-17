@@ -27,7 +27,7 @@ const ConfigSchema = z.object({
   DATABASE_POOL_SIZE: IntFromString(10, 1, 100),
 
   JWT_SECRET: z.string().min(16).default('local-development-secret-do-not-use-in-production'),
-  // MH-09 Fix: Separate encryption key for connector credentials (rotation safe)
+  /** MH-09: Separate secret for AES-256-GCM credential and MFA encryption at rest. */
   ENCRYPTION_KEY: z.string().min(16).default('local-encryption-secret-do-not-use-in-production'),
   ACCESS_TOKEN_TTL_SECONDS: IntFromString(900, 60, 86_400),
   REFRESH_TOKEN_TTL_SECONDS: IntFromString(30 * 24 * 60 * 60, 60, 365 * 24 * 60 * 60),
@@ -73,48 +73,6 @@ const ConfigSchema = z.object({
    * limits. Set `TRUST_PROXY=false` in that case.
    */
   TRUST_PROXY: booleanish.default(true),
-
-  // --- Client build-time values (never secrets) --------------------------------
-  IDCP_API_URL: z.string().optional(),
-  IDCP_API_PROXY: z.string().default('http://127.0.0.1:4000'),
-  IDCP_DEV_SERVER: z.string().optional(),
-  IDCP_AUTO_UPDATE: booleanish.default(true),
-
-  // --- MH-09 Fix: Separate encryption key for connector credentials (rotation safe)
-  ENCRYPTION_KEY: z.string().min(16).default('local-encryption-secret-do-not-use-in-production'),
-
-  // --- MH-10 Fix: Mail Transport configuration
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: IntFromString(587, 1, 65535).optional(),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
-  SMTP_FROM: z.string().email().optional(),
-  SMTP_TLS: booleanish.default(true),
-
-  // --- MH-17/MH-19/MH-20 Fix: Legal/Licence/Pen-test placeholders
-  COMPANY_NAME: z.string().default('AI Universal Data Capture Platform'),
-  REGISTRATION_NO: z.string().default('UG-000000'),
-  ADDRESS: z.string().default('Kampala, Uganda'),
-  SUPPORT_EMAIL: z.string().email().default('support@idcp.example'),
-  PRIVACY_EMAIL: z.string().email().default('privacy@idcp.example'),
-  DPO_NAME: z.string().default('Data Protection Officer'),
-  GOVERNING_LAW: z.string().default('Uganda'),
-  EFFECTIVE_DATE: z.string().default('2026-11-16'),
-  LICENCE_TYPE: z.enum(['proprietary', 'open-source']).default('proprietary'),
-
-  // --- MH-08 Fix: Security Advisories
-  ZOD_VERSION_CHECK: z.enum(['v3', 'v4']).default('v4'),
-  SHELL_QUOTE_PATCHED: booleanish.default(true),
-
-  // --- MH-20 Fix: Penetration Test
-  PEN_TEST_VENDOR: z.string().optional(),
-  PEN_TEST_DATE: z.string().optional(),
-
-  // --- Client build-time values (never secrets) --------------------------------
-  IDCP_API_URL: z.string().optional(),
-  IDCP_API_PROXY: z.string().default('http://127.0.0.1:4000'),
-  IDCP_DEV_SERVER: z.string().optional(),
-  IDCP_AUTO_UPDATE: booleanish.default(true),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -171,39 +129,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         'Invalid configuration:\n  JWT_SECRET: must be at least 32 characters in production',
       );
     }
-    // MH-09 Fix: Production requires separate encryption key
     if (config.ENCRYPTION_KEY === 'local-encryption-secret-do-not-use-in-production') {
-      throw new Error('Invalid configuration:\n  ENCRYPTION_KEY: set a unique key in production (MH-09)');
+      throw new Error(
+        'Invalid configuration:\n  ENCRYPTION_KEY: set a unique key in production (MH-09)',
+      );
     }
     if (config.ENCRYPTION_KEY.length < 32) {
       throw new Error(
         'Invalid configuration:\n  ENCRYPTION_KEY: must be at least 32 characters in production (MH-09)',
       );
     }
+    if (config.ENCRYPTION_KEY === config.JWT_SECRET) {
+      throw new Error(
+        'Invalid configuration:\n  ENCRYPTION_KEY: must be distinct from JWT_SECRET in production (MH-09)',
+      );
+    }
     if (!config.CORS_ORIGINS) {
       throw new Error('Invalid configuration:\n  CORS_ORIGINS: required in production');
-    }
-    // MH-10 Fix: Mail transport required in production
-    if (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS) {
-      throw new Error('Invalid configuration:\n  SMTP_HOST/SMTP_USER/SMTP_PASS: required in production (MH-10)');
-    }
-    // MH-17/MH-19/MH-20 Fix: Legal/Licence/Pen-test placeholders
-    if (config.COMPANY_NAME === 'AI Universal Data Capture Platform') {
-      throw new Error('Invalid configuration:\n  COMPANY_NAME/REGISTRATION_NO/ADDRESS/SUPPORT_EMAIL/PRIVACY_EMAIL/DPO_NAME/GOVERNING_LAW/EFFECTIVE_DATE: replace placeholders in production (MH-17)');
-    }
-    if (config.LICENCE_TYPE === 'proprietary' && config.LICENCE_TYPE !== 'open-source') {
-      // Note: MH-19 ownership decision (proprietary is default, but should be documented)
-      console.warn('MH-19: Licence type is proprietary (ownership decision documented)');
-    }
-    if (!config.PEN_TEST_VENDOR || !config.PEN_TEST_DATE) {
-      console.warn('MH-20: Penetration test vendor/date not set (requires vendor engagement)');
-    }
-    // MH-08 Fix: Security Advisories
-    if (config.ZOD_VERSION_CHECK !== 'v4') {
-      throw new Error('Invalid configuration:\n  ZOD_VERSION_CHECK: must be v4 (MH-08)');
-    }
-    if (!config.SHELL_QUOTE_PATCHED) {
-      throw new Error('Invalid configuration:\n  SHELL_QUOTE_PATCHED: must be true (MH-08)');
     }
   }
   return config;

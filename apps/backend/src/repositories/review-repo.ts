@@ -152,8 +152,14 @@ export class ReviewChangesRepository {
   /** Correction statistics used by the learning loop (REV-002). */
   async statisticsForOrganisation(
     organisationId: string,
-  ): Promise<Array<{ field_path: string; corrections: number; average_confidence: number }>> {
-    return this.db.query(
+  ): Promise<
+    Array<{ field_path: string; corrections: number; average_confidence: number | null }>
+  > {
+    const rows = await this.db.query<{
+      field_path: string;
+      corrections: number | string;
+      average_confidence: number | string | null;
+    }>(
       `SELECT rc.field_path,
               COUNT(*) AS corrections,
               AVG(rc.original_confidence) AS average_confidence
@@ -164,15 +170,24 @@ export class ReviewChangesRepository {
         ORDER BY corrections DESC`,
       [organisationId],
     );
+    return rows.map((row) => ({
+      field_path: row.field_path,
+      corrections: Number(row.corrections),
+      average_confidence: row.average_confidence === null ? null : Number(row.average_confidence),
+    }));
   }
 
   /** The same statistics split by document type, which is how extraction rules are scoped. */
   async statisticsByDocumentType(
     organisationId: string,
   ): Promise<
-    Array<{ document_type: string | null; corrections: number; average_confidence: number }>
+    Array<{ document_type: string | null; corrections: number; average_confidence: number | null }>
   > {
-    return this.db.query(
+    const rows = await this.db.query<{
+      document_type: string | null;
+      corrections: number | string;
+      average_confidence: number | string | null;
+    }>(
       `SELECT rc.document_type,
               COUNT(*) AS corrections,
               AVG(rc.original_confidence) AS average_confidence
@@ -183,6 +198,11 @@ export class ReviewChangesRepository {
         ORDER BY corrections DESC`,
       [organisationId],
     );
+    return rows.map((row) => ({
+      document_type: row.document_type,
+      corrections: Number(row.corrections),
+      average_confidence: row.average_confidence === null ? null : Number(row.average_confidence),
+    }));
   }
 
   /**

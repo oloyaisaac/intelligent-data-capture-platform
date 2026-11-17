@@ -206,9 +206,9 @@ export class OrganisationService {
     );
 
     const daily = await this.db.query<{ day: string; status: string; count: number }>(
-      `SELECT date(created_at) AS day, status, COUNT(*) AS count FROM documents
+      `SELECT SUBSTR(created_at, 1, 10) AS day, status, COUNT(*) AS count FROM documents
         WHERE organisation_id = ? AND deleted_at IS NULL AND created_at >= ?
-        GROUP BY day, status ORDER BY day`,
+        GROUP BY SUBSTR(created_at, 1, 10), status ORDER BY day`,
       [actor.organisationId, windowStart(days)],
     );
 
