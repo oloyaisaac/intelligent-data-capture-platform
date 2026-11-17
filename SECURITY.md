@@ -29,6 +29,14 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 | Insider misuse      | Employee exporting the whole database          | RBAC, audit trail, export rate limits, review of bulk actions                                 |
 | Supply chain        | Compromised npm package                        | Lockfile, dependency scanning, no postinstall scripts from unvetted packages                  |
 
+### Connector network boundary
+
+The first-party HTTP connectors have HTTPS, DNS-address and redirect restrictions. These do **not**
+protect SQL connector connections or filesystem connectors; deployments need separate egress and
+filesystem isolation before allowing untrusted tenants to configure connectors. See
+[connector network security](docs/connector-network-security.md) for the current controls,
+compatibility changes and limitations.
+
 ## 3. Secrets
 
 **MUST NOT** commit: `.env`, API keys, database passwords, JWT signing keys, OAuth client secrets, TLS private keys, connector credentials, customer documents or tokens in test fixtures.

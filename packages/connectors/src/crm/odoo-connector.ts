@@ -17,6 +17,7 @@ import type {
   ConnectorWriteResult,
 } from '../contract';
 import { requireString, validateBaseUrl } from './http';
+import { guardedFetch } from './safe-http';
 
 interface OdooConfig {
   baseUrl: string;
@@ -73,8 +74,7 @@ export class OdooConnector implements Connector {
     args: unknown[],
     kwargs: Record<string, unknown> = {},
   ): Promise<unknown> {
-    const fetchImpl = context.fetchImpl ?? fetch;
-    const response = await fetchImpl(`${config.baseUrl}/jsonrpc`, {
+    const response = await guardedFetch(context, `${config.baseUrl}/jsonrpc`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({

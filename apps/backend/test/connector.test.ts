@@ -86,6 +86,50 @@ describe('connectors (CON-001, CON-003, MAP-001, DUP-001)', () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it('rejects internal HTTP connector endpoints and revalidates credential overrides at execution', async () => {
+    const account = await registerAccount(harness);
+    const bad = await harness.api.json('POST', '/api/v1/connectors', {
+      token: account.accessToken,
+      body: {
+        type: 'hubspot',
+        name: 'Internal',
+        config: { baseUrl: 'http://127.0.0.1:1234', token: 'x' },
+      },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    // Encrypted credentials are merged after configuration validation, so a malicious override must
+    // still be rejected at execution, before any outbound request is made.
+    const created = await harness.api.json('POST', '/api/v1/connectors', {
+      token: account.accessToken,
+      body: {
+        type: 'hubspot',
+        name: 'Override',
+        config: { baseUrl: 'https://api.hubapi.com', token: 'x' },
+        credentials: { baseUrl: 'https://127.0.0.1' },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    try {
+      const tested = await harness.api.json(
+        'POST',
+        `/api/v1/connectors/${created.json<{ id: string }>().id}/test`,
+        {
+          token: account.accessToken,
+        },
+      );
+      expect(tested.statusCode).toBe(200);
+      expect(tested.json()).toMatchObject({ ok: false });
+      // The test harness uses fetch to call the local API; ensure none targeted the malicious URL.
+      expect(fetchSpy.mock.calls.every(([url]) => !String(url).includes('https://127.0.0.1'))).toBe(
+        true,
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('writes an approved record to a CSV destination end to end', async () => {
     const account = await registerAccount(harness);
     const connectorId = await createCsvConnector(account, 'invoices.csv');

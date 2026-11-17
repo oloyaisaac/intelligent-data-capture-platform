@@ -5,7 +5,9 @@
  * validation and error translation live here once. Each connector then only describes its vendor's
  * object paths and payload shape — which is also the part field mapping must not need to know about.
  */
+import { isIP } from 'node:net';
 import type { ConnectorContext, ConnectorRecord } from '../contract';
+import { guardedFetch } from './safe-http';
 
 export interface HttpConfig {
   baseUrl: string;
@@ -35,7 +37,7 @@ export function requireString(config: Record<string, unknown>, key: string, hint
   return value.trim();
 }
 
-/** Accepts https everywhere, and plain http only for a loopback host (local ERP installs, tests). */
+/** Only HTTPS DNS names are supported. DNS answers are validated again at connection time. */
 export function validateBaseUrl(value: string): string {
   let url: URL;
   try {
@@ -43,9 +45,16 @@ export function validateBaseUrl(value: string): string {
   } catch {
     throw new Error('baseUrl must be an absolute URL, for example https://api.hubapi.com.');
   }
-  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(url.hostname);
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
-    throw new Error('baseUrl must use https. Plain http is only accepted for localhost.');
+  if (url.protocol !== 'https:') throw new Error('baseUrl must use https.');
+  const hostname = url.hostname
+    .replace(/\.$/, '')
+    .replace(/^\[|\]$/g, '')
+    .toLowerCase();
+  if (isIP(hostname) || !hostname.includes('.') || hostname.endsWith('.localhost')) {
+    throw new Error('baseUrl must use a public DNS hostname, not an IP address or localhost.');
+  }
+  if (url.username || url.password || url.href.includes('?') || url.href.includes('#')) {
+    throw new Error('baseUrl must not contain credentials, a query string, or a fragment.');
   }
   return url.toString().replace(/\/$/, '');
 }
@@ -83,13 +92,13 @@ export async function jsonRequest(
   init: { method: string; body?: unknown; headers?: Record<string, string> },
   vendor: string,
 ): Promise<JsonResponse> {
-  const fetchImpl = context.fetchImpl ?? fetch;
+  const baseUrl = validateBaseUrl(config.baseUrl);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 15_000);
 
   let response: Response;
   try {
-    response = await fetchImpl(`${config.baseUrl}${path}`, {
+    response = await guardedFetch(context, `${baseUrl}${path}`, {
       method: init.method,
       headers: {
         accept: 'application/json',

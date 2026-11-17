@@ -72,8 +72,8 @@ export class HubSpotConnector implements Connector {
     config: Record<string, unknown>,
     context: ConnectorContext,
   ): Promise<{ ok: boolean; error?: string }> {
-    const resolved = this.config(config);
     try {
+      const resolved = this.config(config);
       await jsonRequest(
         context,
         resolved,
