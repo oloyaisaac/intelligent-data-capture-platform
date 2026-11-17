@@ -144,15 +144,18 @@ Rotation: Before rotating `JWT_SECRET`, follow [the offline encryption-key migra
 4. Verify health, logs and key metrics.
 5. Keep the previous image for rollback.
 
-**Backups.** There is no backup script in this repository yet; the operator owns this step, and it
-differs by driver:
+**Backups.** For single-host SQLite and filesystem storage, use the [offline backup and restore
+runbook](docs/backup-restore.md). Stop all writers for the entire snapshot, and restore the database
+and files together. The tool includes committed WAL data, checks hashes and SQLite integrity, and
+refuses to overwrite a destination. It does not encrypt, schedule or transfer backups, save secrets,
+or establish that every referenced file exists. The operator must provide those controls and test
+recovery with matching encryption keys.
 
-| Driver                               | Correct backup                                                                                                                                                             | Notes                                                                                                                                                            |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite (today)                       | `sqlite3 local-storage/idcp.db "VACUUM INTO '/backups/idcp-$(date +%F).db'"` while the server runs, or copy the `.db` **and** `-wal`/`-shm` files with the process stopped | Copying only `idcp.db` while WAL is active loses recent writes. Point-in-time recovery is not available on SQLite — take a snapshot at least daily and keep ≥ 7. |
-| PostgreSQL (Compose deployment path) | Managed snapshots plus WAL archiving (PITR) where available; for the Compose-hosted database, schedule and test `pg_dump` backups                                          | There is no backup automation here; keep database backups coordinated with the document volume.                                                                  |
+For PostgreSQL (including Compose), the SQLite tool does not apply: use tested PostgreSQL snapshots
+or `pg_dump` and a coordinated document-volume backup; use provider PITR where available. Backup
+and restore automation for that deployment remains an operator responsibility.
 
-Restores are tested quarterly and rehearsed before the first paying customer. A restore is not
+Rehearse restores at least quarterly and before the first paying customer. A restore is not
 "done" until `GET /api/v1/health` returns `ok`, a login succeeds and a document downloads from
 `STORAGE_PATH`: the database and the files must be restored together or records point at files that
 no longer exist.
@@ -232,7 +235,7 @@ none of it is a bug the code hides.
 | Gap                                | Consequence today                                                                                                                                                                                                                                                       | Fix                                                                                                                                                      |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | No image publish/deploy job or IaC | CI now builds and smoke-tests the Docker Compose stack, but no immutable image is published or deployed (§3)                                                                                                                                                            | Add tagged-image publishing and deployment automation after the hosting-provider decision                                                                |
-| No backup or restore script        | Losing the host loses the database **and** the documents; the operator must schedule `VACUUM INTO` themselves (§5)                                                                                                                                                      | Ship `npm run db:backup` + a restore test                                                                                                                |
+| Backup operations not automated    | SQLite backup/restore tooling requires stopped writers and manual execution; PostgreSQL and volume backups remain operator-managed (§5).                                                                                                                                | Schedule protected off-host backups and rehearse restores for each deployed driver.                                                                      |
 | No metrics endpoint or alerting    | Only logs and the health check; "queue depth" and "p95 latency" are not measured                                                                                                                                                                                        | `/metrics` for queue depth, job outcomes, extraction latency                                                                                             |
 | Rate limiting is in-process memory | Resets on restart and does not cover a second instance; `TRUST_PROXY` is right behind the documented proxy, and must be `false` if you expose the API directly (DEC-033)                                                                                                | Shared limiter when a queue/cache exists                                                                                                                 |
 | No MFA                             | A stolen password is a full session                                                                                                                                                                                                                                     | TOTP plus recovery codes, and an admin reset path                                                                                                        |
