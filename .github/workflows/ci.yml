@@ -29,6 +29,10 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Gate production dependency advisories; review dev-tool advisories separately.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+
       - name: Typecheck
         run: npm run typecheck
 

@@ -147,6 +147,35 @@ Total: UGX 10,000`);
     expect(header.length).toBeGreaterThan(2);
   });
 
+  it('round-trips ExcelJS extended conditional formatting with generated UUIDs', async () => {
+    // ExcelJS uses uuid.v4 when serializing extended data-bar rules. The scoped
+    // uuid override must remain compatible even though normal exports do not use this path.
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Formatting');
+    sheet.getCell('A1').value = 42;
+    // ExcelJS's TypeScript declarations omit color and the generated x14Id.
+    const rule: ExcelJS.DataBarRuleType & { color: { argb: string }; x14Id?: string } = {
+      type: 'dataBar',
+      priority: 1,
+      gradient: false,
+      cfvo: [{ type: 'min' }, { type: 'max' }],
+      color: { argb: 'FF638EC6' },
+    };
+    sheet.addConditionalFormatting({ ref: 'A1:A2', rules: [rule] });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const id = rule.x14Id;
+    expect(id).toMatch(/^\{[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}\}$/);
+    const loaded = new ExcelJS.Workbook();
+    await loaded.xlsx.load(buffer);
+    const restored = loaded.getWorksheet('Formatting')!;
+    expect(restored.getCell('A1').value).toBe(42);
+    const formatting = restored as unknown as {
+      conditionalFormattings: Array<{ rules: Array<{ type: string }> }>;
+    };
+    expect(formatting.conditionalFormattings[0]!.rules[0]!.type).toBe('dataBar');
+  });
+
   it('produces a headers-only file when nothing matches', async () => {
     const account = await registerAccount(harness);
     const created = await harness.api.json('POST', '/api/v1/exports', {
