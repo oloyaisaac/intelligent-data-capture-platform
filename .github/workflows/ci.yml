@@ -123,7 +123,7 @@ jobs:
             done
             exit 1
           fi
-          if ! curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:4000/api/v1/health 2>&1 | tee /tmp/compose-health.log; then
+          if ! curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 http://127.0.0.1:4000/api/v1/health 2>&1 | tee /tmp/compose-health.log; then
             docker compose --env-file "$env_file" logs --no-color | tee /tmp/compose-services.log
             echo '::error::Compose health check failed; see service logs.'
             cat /tmp/compose-health.log | while IFS= read -r line; do
