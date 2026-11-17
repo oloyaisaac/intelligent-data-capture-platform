@@ -111,13 +111,21 @@ jobs:
           export POSTGRES_PASSWORD='ci-compose-smoke-postgres-password'
           export JWT_SECRET='ci-compose-smoke-jwt-secret-with-at-least-32-characters'
           export ENCRYPTION_KEY='ci-compose-smoke-encryption-key-with-at-least-32-chars'
-          docker compose --env-file "$env_file" up --build --detach
           cleanup() {
             docker compose --env-file "$env_file" down --volumes --remove-orphans
           }
           trap cleanup EXIT
+          if ! docker compose --env-file "$env_file" up --build --detach 2>&1 | tee /tmp/compose-build.log; then
+            docker compose --env-file "$env_file" logs --no-color || true
+            # Keep the end of the build output visible as annotations when the job fails.
+            tail -n 12 /tmp/compose-build.log | while IFS= read -r line; do
+              echo "::error::${line//%/%25}"
+            done
+            exit 1
+          fi
           if ! curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:4000/api/v1/health; then
             docker compose --env-file "$env_file" logs --no-color
+            echo '::error::Compose health check failed; see service logs.'
             exit 1
           fi
 

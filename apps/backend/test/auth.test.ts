@@ -1,3 +1,4 @@
+import { SessionsRepository } from '../src/repositories/auth-repo';
 import { createHarness, registerAccount, type Harness } from './helpers';
 
 describe('authentication', () => {
@@ -32,6 +33,38 @@ describe('authentication', () => {
     expect(body.user.organisationName).toBe('Acme Trading Ltd');
     expect(body.expiresIn).toBe(900);
     expect(body.accessToken.split('.')).toHaveLength(3);
+  });
+
+  it('rolls back registration and its audit record if creating the session fails', async () => {
+    const sessionCreate = jest
+      .spyOn(SessionsRepository.prototype, 'create')
+      .mockRejectedValueOnce(new Error('simulated session failure'));
+    try {
+      const response = await harness.api.json('POST', '/api/v1/auth/register', {
+        body: {
+          email: 'rollback@example.com',
+          password: 'a-very-good-password',
+          displayName: 'Rollback',
+          organisationName: 'Rollback Test Company',
+          acceptTerms: true,
+        },
+      });
+      expect(response.statusCode).toBe(500);
+      expect(
+        await harness.db.one('SELECT id FROM users WHERE email = ?', ['rollback@example.com']),
+      ).toBeNull();
+      expect(
+        await harness.db.one('SELECT id FROM organisations WHERE slug = ?', [
+          'rollback-test-company',
+        ]),
+      ).toBeNull();
+      const audit = await harness.db.one<{ count: string | number }>(
+        "SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'auth.register' AND organisation_id NOT IN (SELECT id FROM organisations)",
+      );
+      expect(Number(audit?.count)).toBe(0);
+    } finally {
+      sessionCreate.mockRestore();
+    }
   });
 
   it('stores passwords as Argon2id hashes, never plaintext', async () => {
