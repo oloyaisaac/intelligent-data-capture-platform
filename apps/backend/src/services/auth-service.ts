@@ -226,7 +226,9 @@ export class AuthService {
 
     // The password was right; that is half of what MFA asks for (DEC-034). No tokens yet: a
     // challenge token proves *this* password check and expires in five minutes.
-    if (user.mfa_enabled_at && user.mfa_secret_enc) {
+    // An enabled factor must never silently fall back to password-only login, even if its
+    // encrypted secret is missing or unreadable. Recovery codes can still be used in the challenge.
+    if (user.mfa_enabled_at) {
       await this.audit.record({
         organisationId: membership.organisation_id,
         actorType: 'user',
@@ -265,8 +267,8 @@ export class AuthService {
     try {
       return this.secrets.decrypt(user.mfa_secret_enc, this.mfaContext(user.id));
     } catch {
-      // A secret encrypted with an older application secret cannot be recovered; the account is
-      // told to enrol again rather than being locked out (DEC-034).
+      // The factor stays enabled: a recovery code can still be used, or support must help the
+      // user recover access. Never silently downgrade an enabled factor to password-only login.
       this.logger.warn('stored MFA secret could not be decrypted', { userId: user.id });
       return null;
     }

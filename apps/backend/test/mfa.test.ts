@@ -125,6 +125,33 @@ describe('multi-factor authentication', () => {
     expect(verified.json<{ accessToken: string }>().accessToken).toBeTruthy();
   });
 
+  it.each([null, 'corrupted-ciphertext'])(
+    'never bypasses an enabled factor when its encrypted secret is %s',
+    async (storedSecret) => {
+      const account = await registerAccount(harness);
+      const { recoveryCodes } = await enrol(account);
+      await harness.db.execute('UPDATE users SET mfa_secret_enc = ? WHERE id = ?', [
+        storedSecret,
+        account.userId,
+      ]);
+      const login = await harness.api.json('POST', '/api/v1/auth/login', {
+        body: { email: account.email, password },
+      });
+      expect(login.statusCode).toBe(200);
+      const challenge = login.json<{
+        mfaRequired: boolean;
+        challengeToken: string;
+        accessToken?: string;
+      }>();
+      expect(challenge.mfaRequired).toBe(true);
+      expect(challenge.accessToken).toBeUndefined();
+      const recovery = await harness.api.json('POST', '/api/v1/auth/mfa/verify', {
+        body: { challengeToken: challenge.challengeToken, code: recoveryCodes[0] },
+      });
+      expect(recovery.statusCode).toBe(200);
+    },
+  );
+
   it('rejects a challenge token that was not issued for MFA', async () => {
     const account = await registerAccount(harness);
     const response = await harness.api.json('POST', '/api/v1/auth/mfa/verify', {
