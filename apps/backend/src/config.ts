@@ -38,6 +38,9 @@ const ConfigSchema = z.object({
   JWT_SECRET: z.string().min(16).default('local-development-secret-do-not-use-in-production'),
   /** MH-09: Separate secret for AES-256-GCM credential and MFA encryption at rest. */
   ENCRYPTION_KEY: z.string().min(16).default('local-encryption-secret-do-not-use-in-production'),
+  /** Optional offline-signed marketplace catalogue and publisher public key (both required together). */
+  MARKETPLACE_CATALOGUE_PATH: optionalNonEmpty,
+  MARKETPLACE_PUBLIC_KEY_PATH: optionalNonEmpty,
   ACCESS_TOKEN_TTL_SECONDS: IntFromString(900, 60, 86_400),
   REFRESH_TOKEN_TTL_SECONDS: IntFromString(30 * 24 * 60 * 60, 60, 365 * 24 * 60 * 60),
   PAIRING_TOKEN_TTL_SECONDS: IntFromString(120, 30, 600),
@@ -117,6 +120,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const config = parsed.data;
 
   // Cross-field rules that zod cannot express cleanly.
+  if (Boolean(config.MARKETPLACE_CATALOGUE_PATH) !== Boolean(config.MARKETPLACE_PUBLIC_KEY_PATH)) {
+    throw new Error(
+      'Invalid configuration:\n  MARKETPLACE_CATALOGUE_PATH and MARKETPLACE_PUBLIC_KEY_PATH must be set together',
+    );
+  }
   if (config.MAIL_TRANSPORT === 'smtp') {
     if (!config.SMTP_HOST || !config.MAIL_FROM) {
       throw new Error('Invalid configuration:\n  SMTP_HOST and MAIL_FROM are required for SMTP');

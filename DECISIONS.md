@@ -432,13 +432,13 @@ one2many writes) are not exposed yet; the contract's `values` map is flat by des
 
 **Date:** 2026-10-26 · **Status:** Accepted
 
-**Decision:** Catalogue entries are manifests: `{id, type, version, permissions, …}` plus an
-HMAC-SHA256 over those fields. `type` must already exist in the connector registry — installing a
-package does not download or execute anything. Every install is an admin action that records the
-permissions it grants, and a package that was never signed, or whose permissions were edited after
-signing, is refused. Withdrawn packages stay in the catalogue with the vendor's reason. Rolling back
-retires the current install row and reactivates the one before it (ordered by a per-organisation
-install counter, not by clock), leaving the connector itself untouched.
+**Decision:** Catalogue entries are manifests: `{id, type, version, permissions, …}`, not code.
+`type` must already exist in the connector registry. The original runtime HMAC design was replaced
+with offline Ed25519 signatures over the complete manifest, verified using a deployment-supplied
+public key. The bundled informational catalogue is unsigned and cannot be installed until an
+operator provisions a trusted, signed catalogue. Each install requires admin permission and records
+its disclosed permissions. Rollback reactivates a previous version only if the current catalogue
+still trusts it. See `docs/marketplace-signing.md` for provisioning and limitations.
 
 **Reason:** Code distribution is a different risk class from configuration. By keeping packages to
 manifests, an install can be reviewed, audited and undone by a person, and a compromised catalogue

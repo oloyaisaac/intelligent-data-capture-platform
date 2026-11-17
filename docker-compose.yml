@@ -11,6 +11,8 @@ x-backend-environment: &backend-environment
   DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
   JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to a unique production secret of at least 32 characters}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY to a unique production key of at least 32 characters}
+  MARKETPLACE_CATALOGUE_PATH: ${MARKETPLACE_CATALOGUE_PATH:-}
+  MARKETPLACE_PUBLIC_KEY_PATH: ${MARKETPLACE_PUBLIC_KEY_PATH:-}
   MAIL_TRANSPORT: ${MAIL_TRANSPORT:-disabled}
   MAIL_FROM: ${MAIL_FROM:-}
   SMTP_HOST: ${SMTP_HOST:-}

@@ -23,6 +23,7 @@ import { OrganisationService } from './organisation-service';
 import { TemplateService } from './template-service';
 import { ApiKeyService } from './api-key-service';
 import { MarketplaceService } from './marketplace-service';
+import { loadMarketplaceTrust } from '../marketplace/load-catalogue';
 import { WorkflowService } from './workflow-service';
 import { Worker } from './worker';
 import { PrivacyService } from './privacy-service';
@@ -103,7 +104,13 @@ export function buildServices(options: BuildServicesOptions): Services {
   const reviews = new ReviewService(db, hub, logger);
   const exports = new ExportService(db, config, storage, hub, logger);
   const connectors = new ConnectorService(db, registry, secretBox, hub, logger);
-  const marketplace = new MarketplaceService(db, logger);
+  const marketplaceTrust = loadMarketplaceTrust(config);
+  const marketplace = new MarketplaceService(
+    db,
+    logger,
+    marketplaceTrust.catalogue,
+    marketplaceTrust.publicKey,
+  );
   const workflows = new WorkflowService(db, logger);
   const organisation = new OrganisationService(db);
   const templates = new TemplateService(db, logger);
