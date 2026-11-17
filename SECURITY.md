@@ -69,8 +69,8 @@ compatibility changes and limitations.
   - Enrolment (`POST /auth/mfa/enrol`) confirms the password and returns a secret plus an
     `otpauth://` URI; nothing is switched on until the first code is confirmed.
   - The secret is 160 bits of base32, encrypted at rest with AES-256-GCM and AAD `mfa:<userId>`, and
-    is never returned again. An undecryptable secret is treated as _not enrolled_ rather than a
-    lockout — the person re-enrols.
+    is never returned again. An enabled factor is never bypassed if its secret is missing or
+    undecryptable; a recovery code or a controlled support recovery is required.
   - `POST /auth/login` returns a five-minute `challengeToken` (JWT, `aud: idcp-mfa`) instead of a
     session. Only `POST /auth/mfa/verify` accepts it; it grants no refresh token on its own.
   - Codes are compared in constant time within ±1 time step. Verification is rate limited per client

@@ -126,7 +126,7 @@ before boot), so a restart is safe — the document returns to the queue instead
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime        | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                                  |
 | Database       | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                               |
-| Auth           | `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`                   |
+| Auth           | `JWT_SECRET`, `ENCRYPTION_KEY`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS` |
 | Storage        | `STORAGE_DRIVER` (`filesystem` today), `STORAGE_PATH`                                                                                          |
 | AI             | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`     |
 | Google         | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                                                                              |
@@ -134,7 +134,7 @@ before boot), so a restart is safe — the document returns to the queue instead
 | Exports, jobs  | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                             |
 | Mobile/desktop | `API_BASE_URL` baked into each release artefact (public URL, never a secret); production `CORS_ORIGINS` must include `app://idcp` for Electron |
 
-Rotation: JWT signing keys and provider keys rotate on a schedule and immediately on suspected exposure. Rotating the JWT key invalidates access tokens; users re-authenticate or refresh.
+Rotation: Before rotating `JWT_SECRET`, follow [the offline encryption-key migration runbook](docs/encryption-key-migration.md) and verify no connector credentials or MFA secrets still depend on the old JWT key. Rotating it too early can make those records unreadable. Rotation invalidates access tokens; users re-authenticate or refresh. Provider keys also require a managed rotation process.
 
 ## 5. Database deployment
 

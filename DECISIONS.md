@@ -719,8 +719,8 @@ that has no enrolled owner until an operator edits the database). Storing the se
 
 **Consequences:**
 
-- An undecryptable secret is treated as _not enrolled_: the server logs a warning and the person
-  re-enrols, rather than being locked out of their own account.
+- An enabled factor is still required when its secret is missing or undecryptable. A recovery code
+  or controlled support recovery is needed; password-only fallback is not allowed.
 - The challenge is deliberately short-lived (5 minutes) and carries no refresh token, so a
   half-finished sign-in grants nothing.
 - Recovery codes are the only bypass, so they are shown once, hashed at rest, consumed on use and
