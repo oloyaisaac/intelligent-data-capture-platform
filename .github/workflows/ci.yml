@@ -53,6 +53,9 @@ jobs:
       - name: Legal pack
         run: npm run test:legal
 
+      - name: Backup and restore tool tests
+        run: npm run test:backup
+
       - name: Tests
         run: npm test -- --ci --reporters=default
 
