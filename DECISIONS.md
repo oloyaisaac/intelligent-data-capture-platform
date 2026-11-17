@@ -409,9 +409,10 @@ outline; the capture screen then simply sends the full frame, and the review ste
 
 **Date:** 2026-10-26 · **Status:** Accepted
 
-**Decision:** HubSpot, Odoo and QuickBooks each get their own adapter, but share one transport:
-URL validation (https, loopback excepted), timeouts, JSON envelope handling and error translation in
-`packages/connectors/src/crm/http.ts`. Each adapter implements `create`, `read`, `search` and
+**Decision:** HubSpot, Odoo and QuickBooks each get their own adapter. HTTP URL validation and
+JSON error translation live in `packages/connectors/src/crm/http.ts`. The original loopback exception
+has since been removed; see `docs/connector-network-security.md` for current network controls and
+limitations. Each adapter implements `create`, `read`, `search` and
 `update`, and the duplicate lookup prefers `search` when a connector exposes it.
 
 **Reason:** The vendors differ in ways that matter (HubSpot wraps properties, QuickBooks has no REST

@@ -388,6 +388,7 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
     handler: (recorded: Recorded) => { status: number; body: unknown },
   ): Promise<{
     baseUrl: string;
+    fetchImpl: typeof fetch;
     calls: Recorded[];
     close: () => Promise<void>;
   }> {
@@ -414,7 +415,12 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
     return {
-      baseUrl: `http://127.0.0.1:${port}`,
+      baseUrl: 'https://connector.example',
+      fetchImpl: ((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (!url.startsWith('https://connector.example/')) throw new Error('Unexpected test URL');
+        return fetch(url.replace('https://connector.example', `http://127.0.0.1:${port}`), init);
+      }) as typeof fetch,
       calls,
       close: () =>
         new Promise<void>((resolve, reject) => {
@@ -448,7 +454,7 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
       const created = await hubspot.create(
         [{ values: { invoice_number: 'INV-1', total: 120 } }],
         config,
-        context,
+        { ...context, fetchImpl: stub.fetchImpl },
       );
       expect(created.created).toBe(1);
       expect(stub.calls[0]!.body).toEqual({
@@ -456,7 +462,10 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
       });
       expect(stub.calls[0]!.auth).toBe('Bearer secret-token');
 
-      const found = await hubspot.search({ where: { invoice_number: 'INV-1' } }, config, context);
+      const found = await hubspot.search({ where: { invoice_number: 'INV-1' } }, config, {
+        ...context,
+        fetchImpl: stub.fetchImpl,
+      });
       expect(found[0]!.values).toMatchObject({ id: '42', invoice_number: 'INV-1' });
       const searchCall = stub.calls.find((call) => call.url.includes('/search'));
       expect(searchCall!.body).toMatchObject({
@@ -465,12 +474,10 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
         ],
       });
 
-      const updated = await hubspot.update(
-        [{ values: { id: '42', total: 130 } }],
-        ['id'],
-        config,
-        context,
-      );
+      const updated = await hubspot.update([{ values: { id: '42', total: 130 } }], ['id'], config, {
+        ...context,
+        fetchImpl: stub.fetchImpl,
+      });
       expect(updated.updated).toBe(1);
       const patch = stub.calls.find((call) => call.method === 'PATCH');
       expect(patch!.url).toContain('/crm/v3/objects/invoices/42');
@@ -491,7 +498,7 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
         hubspot.create(
           [{ values: { invoice_number: 'INV-1' } }],
           { baseUrl: stub.baseUrl, token: 'bad', object: 'invoices' },
-          context,
+          { ...context, fetchImpl: stub.fetchImpl },
         ),
       ).rejects.toThrow(/rejected the credential.*write access/i);
     } finally {
@@ -518,7 +525,10 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
       };
       quickbooks.validateConfig(config);
 
-      const found = await quickbooks.search({ where: { DocNumber: "INV-1'2" } }, config, context);
+      const found = await quickbooks.search({ where: { DocNumber: "INV-1'2" } }, config, {
+        ...context,
+        fetchImpl: stub.fetchImpl,
+      });
       expect(found[0]!.values).toMatchObject({ Id: '9' });
       expect(stub.calls[0]!.url).toContain('/v3/company/934145/query?query=');
       expect(decodeURIComponent(stub.calls[0]!.url)).toContain("DocNumber = 'INV-1\\'2'");
@@ -527,7 +537,7 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
         [{ values: { Id: '9', TotalAmt: 55 } }],
         ['Id'],
         config,
-        context,
+        { ...context, fetchImpl: stub.fetchImpl },
       );
       expect(updated.updated).toBe(1);
       const post = stub.calls.find((call) => call.method === 'POST');
@@ -565,21 +575,23 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
       };
       odoo.validateConfig(config);
 
-      const created = await odoo.create(
-        [{ values: { name: 'INV-1', amount_total: 99 } }],
-        config,
-        context,
-      );
+      const created = await odoo.create([{ values: { name: 'INV-1', amount_total: 99 } }], config, {
+        ...context,
+        fetchImpl: stub.fetchImpl,
+      });
       expect(created.created).toBe(1);
 
-      const found = await odoo.search({ where: { name: 'INV-1' } }, config, context);
+      const found = await odoo.search({ where: { name: 'INV-1' } }, config, {
+        ...context,
+        fetchImpl: stub.fetchImpl,
+      });
       expect(found[0]!.values).toMatchObject({ id: 31 });
 
       const updated = await odoo.update(
         [{ values: { id: 31, amount_total: 100 } }],
         ['id'],
         config,
-        context,
+        { ...context, fetchImpl: stub.fetchImpl },
       );
       expect(updated.updated).toBe(1);
 
@@ -602,7 +614,7 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
     }
   });
 
-  it('refuses plain http except for localhost, and requires a realm id', () => {
+  it('refuses plain http and requires a realm id', () => {
     expect(() =>
       new HubSpotConnector().validateConfig({ baseUrl: 'http://crm.example.com', token: 't' }),
     ).toThrow(/https/i);

@@ -6,6 +6,7 @@ import type {
   ConnectorRecord,
   ConnectorWriteResult,
 } from './contract';
+import { guardedFetch } from './crm/safe-http';
 
 /**
  * Google Sheets connector (CON-002).
@@ -58,8 +59,8 @@ export class GoogleSheetsConnector implements Connector {
   ): Promise<ConnectorDestinationSchema> {
     this.validateConfig(config);
     const parsed = config as unknown as GoogleSheetsConfig;
-    const fetchImpl = context.fetchImpl ?? fetch;
-    const response = await fetchImpl(
+    const response = await guardedFetch(
+      context,
       this.url(parsed, `values/${encodeURIComponent(`${parsed.sheetName}!1:1`)}`),
       { headers: this.headers(parsed) },
     );
@@ -93,7 +94,6 @@ export class GoogleSheetsConnector implements Connector {
   ): Promise<ConnectorWriteResult> {
     this.validateConfig(config);
     const parsed = config as unknown as GoogleSheetsConfig;
-    const fetchImpl = context.fetchImpl ?? fetch;
 
     // Discover existing headers so new columns never silently shift old data.
     let headers: string[] = [];
@@ -106,7 +106,8 @@ export class GoogleSheetsConnector implements Connector {
     if (headers.length === 0) {
       headers = records.length > 0 ? Object.keys(records[0]!.values) : [];
       if (headers.length > 0) {
-        const headerResponse = await fetchImpl(
+        const headerResponse = await guardedFetch(
+          context,
           this.url(
             parsed,
             `values/${encodeURIComponent(`${parsed.sheetName}!A1`)}?valueInputOption=RAW`,
@@ -131,7 +132,8 @@ export class GoogleSheetsConnector implements Connector {
     }
 
     const values = records.map((record) => headers.map((header) => record.values[header] ?? ''));
-    const response = await fetchImpl(
+    const response = await guardedFetch(
+      context,
       this.url(
         parsed,
         `values/${encodeURIComponent(`${parsed.sheetName}!A1`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
@@ -161,8 +163,8 @@ export class GoogleSheetsConnector implements Connector {
   ): Promise<ConnectorRecord[]> {
     this.validateConfig(config);
     const parsed = config as unknown as GoogleSheetsConfig;
-    const fetchImpl = context.fetchImpl ?? fetch;
-    const response = await fetchImpl(
+    const response = await guardedFetch(
+      context,
       this.url(parsed, `values/${encodeURIComponent(parsed.sheetName)}`),
       { headers: this.headers(parsed) },
     );
