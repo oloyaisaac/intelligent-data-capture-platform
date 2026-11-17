@@ -19,7 +19,7 @@ export function AccountPage({
   onSessionEnded,
 }: {
   client: ApiClient;
-  onSessionEnded: () => void;
+  onSessionEnded: (message?: string) => void;
 }): React.JSX.Element {
   const t = useTranslator();
   const { locale } = useLocale();
@@ -163,10 +163,12 @@ export function AccountPage({
     setErasing(true);
     setPrivacyError(null);
     try {
-      await client.eraseAccount({ password: erasePassword });
-      setPrivacyNotice(t('account.erased'));
-      // The session is gone with the account: send the shell back to the sign-in screen.
-      onSessionEnded();
+      const result = await client.eraseAccount({ password: erasePassword });
+      // The session is gone with the account. Preserve the outcome on the sign-in screen, including
+      // a clear warning when physical file deletion remains queued for retry.
+      onSessionEnded(
+        t(result.fileDeletionStatus === 'pending' ? 'account.erasurePending' : 'account.erased'),
+      );
     } catch (caught) {
       setPrivacyError(caught instanceof ApiError ? caught.message : t('login.networkError'));
     } finally {

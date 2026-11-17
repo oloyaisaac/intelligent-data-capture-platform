@@ -436,15 +436,30 @@ paths:
                 confirm: { type: string, const: DELETE }
       responses:
         '200':
-          description: Erased
+          description: Account anonymised and draft files removed
           content:
             application/json:
-              schema:
+              schema: &EraseAccountResult
                 type: object
+                required:
+                  [erased, anonymisedAt, fileDeletionStatus, pendingFileCount, retainedRecords]
                 properties:
-                  erased: { type: boolean, const: true }
+                  erased:
+                    { type: boolean, const: true, description: Account anonymisation completed }
                   anonymisedAt: { type: string, format: date-time }
+                  fileDeletionStatus: { type: string, enum: [complete, pending] }
+                  pendingFileCount:
+                    {
+                      type: [integer, 'null'],
+                      minimum: 0,
+                      description: Null when the count could not be determined,
+                    }
                   retainedRecords: { type: string }
+        '202':
+          description: Account anonymised; one or more draft files are pending deletion and will be retried
+          content:
+            application/json:
+              schema: *EraseAccountResult
         '400': { description: Confirmation missing }
         '401': { description: Wrong password }
         '409': { description: Still one of several owners }

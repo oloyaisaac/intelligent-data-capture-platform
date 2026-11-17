@@ -519,6 +519,23 @@ export const MIGRATIONS: Migration[] = [
       'ALTER TABLE users ADD COLUMN terms_version TEXT',
     ],
   },
+  {
+    // An erasure and its pending file deletions must commit together. Keep these records until
+    // the storage adapter confirms deletion so interrupted or failed work can be retried.
+    id: '011_erasure_file_deletions',
+    sql: [
+      `CREATE TABLE erasure_file_deletions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        storage_key TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_attempt_at TEXT,
+        UNIQUE (user_id, storage_key)
+      )`,
+      'CREATE INDEX idx_erasure_file_deletions_created ON erasure_file_deletions(created_at)',
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {

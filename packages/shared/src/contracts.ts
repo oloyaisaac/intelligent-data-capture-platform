@@ -271,6 +271,10 @@ export type EraseAccountRequest = z.infer<typeof EraseAccountRequestSchema>;
 export const EraseAccountResponseSchema = z.object({
   erased: z.literal(true),
   anonymisedAt: z.string(),
+  /** Account anonymisation is complete; file removal can remain pending for retry. */
+  fileDeletionStatus: z.enum(['complete', 'pending']),
+  /** Null means the count could not be determined; deletion must still be treated as pending. */
+  pendingFileCount: z.number().int().nonnegative().nullable(),
   retainedRecords: z.string(),
 });
 export type EraseAccountResponse = z.infer<typeof EraseAccountResponseSchema>;

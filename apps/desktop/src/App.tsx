@@ -200,6 +200,7 @@ function AppShell({
   const [user, setUser] = useState<UserSummary | null>(null);
   const [booted, setBooted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signInNotice, setSignInNotice] = useState<string | null>(null);
   const { t, direction } = useLocale();
   // The client is created once; the callback reads the current translator through a ref so a
   // language change does not recreate the API client (and drop the session).
@@ -268,9 +269,11 @@ function AppShell({
     return (
       <LoginPage
         client={client}
+        initialNotice={signInNotice}
         onSignedIn={async () => {
           try {
             setUser(await client.me());
+            setSignInNotice(null);
             setError(null);
           } catch (caught) {
             setError(caught instanceof Error ? caught.message : t('app.couldNotLoadAccount'));
@@ -385,7 +388,13 @@ function AppShell({
             />
           )}
           {route.name === 'account' && (
-            <AccountPage client={client} onSessionEnded={() => setUser(null)} />
+            <AccountPage
+              client={client}
+              onSessionEnded={(message) => {
+                setSignInNotice(message ?? null);
+                setUser(null);
+              }}
+            />
           )}
         </div>
       </div>

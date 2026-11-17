@@ -3,6 +3,7 @@ import type { Database } from '../db/database';
 import type { Logger } from '../logger';
 import type { Storage } from '../storage';
 import { JobsRepository } from '../repositories/system-repo';
+import { processErasureFiles } from './erasure-files';
 
 export interface MaintenanceReport {
   retentionJobsEnqueued: number;
@@ -10,6 +11,7 @@ export interface MaintenanceReport {
   pairingSessionsExpired: number;
   sessionsDeleted: number;
   resetTokensDeleted: number;
+  erasureFilesDeleted: number;
 }
 
 /**
@@ -46,6 +48,7 @@ export class MaintenanceService {
       pairingSessionsExpired: 0,
       sessionsDeleted: 0,
       resetTokensDeleted: 0,
+      erasureFilesDeleted: 0,
     };
 
     const step = async <K extends keyof MaintenanceReport>(key: K, run: () => Promise<number>) => {
@@ -59,6 +62,9 @@ export class MaintenanceService {
       }
     };
 
+    await step('erasureFilesDeleted', () =>
+      processErasureFiles(this.db, this.storage, this.logger),
+    );
     await step('retentionJobsEnqueued', () => this.enqueueRetentionPurges(now));
     await step('exportsExpired', () => this.expireExports(now));
     await step('pairingSessionsExpired', () => this.expirePairingSessions(now));
@@ -104,21 +110,27 @@ export class MaintenanceService {
         WHERE expires_at IS NOT NULL AND expires_at <= ? AND status <> 'expired'`,
       [now.toISOString()],
     );
+    let completed = 0;
     for (const row of expired) {
       if (row.storage_key) {
-        await this.storage.delete(row.storage_key).catch((error: unknown) => {
-          this.logger.warn('could not delete an expired export file', {
+        try {
+          await this.storage.delete(row.storage_key);
+        } catch {
+          // Keep the key and original status so the next sweep can retry. Do not log storage
+          // error details, which may contain a filesystem path or other sensitive data.
+          this.logger.warn('could not delete an expired export file; retry pending', {
             exportId: row.id,
-            error: (error as Error).message,
           });
-        });
+          continue;
+        }
       }
       await this.db.execute(
         `UPDATE exports SET status = 'expired', storage_key = NULL WHERE id = ?`,
         [row.id],
       );
+      completed += 1;
     }
-    return expired.length;
+    return completed;
   }
 
   private async expirePairingSessions(now: Date): Promise<number> {

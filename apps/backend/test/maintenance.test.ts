@@ -79,6 +79,39 @@ describe('maintenance scheduler', () => {
     expect(row?.storage_key).toBeNull();
   });
 
+  it('keeps the key of an expired export when deletion fails and retries later', async () => {
+    const account = await registerAccount(harness, { email: 'retry-export@example.com' });
+    const key = `org/${account.organisationId}/exports/retry.csv`;
+    await harness.storage.put(key, Buffer.from('private'));
+    await harness.db.execute(
+      `INSERT INTO exports (id, organisation_id, requested_by, format, filter, row_count, storage_key, status, expires_at, created_at)
+       VALUES (?, ?, ?, 'csv', '{}', 1, ?, 'ready', ?, ?)`,
+      [
+        'export-retry',
+        account.organisationId,
+        account.userId,
+        key,
+        new Date(Date.now() - 60_000).toISOString(),
+        new Date().toISOString(),
+      ],
+    );
+    const deletion = jest
+      .spyOn(harness.storage, 'delete')
+      .mockRejectedValue(new Error('storage unavailable'));
+    try {
+      expect((await maintenance().runOnce()).exportsExpired).toBe(0);
+      expect(
+        await harness.db.one('SELECT status, storage_key FROM exports WHERE id = ?', [
+          'export-retry',
+        ]),
+      ).toEqual({ status: 'ready', storage_key: key });
+    } finally {
+      deletion.mockRestore();
+    }
+    expect((await maintenance().runOnce()).exportsExpired).toBe(1);
+    expect(await harness.storage.exists(key)).toBe(false);
+  });
+
   it('leaves a live export alone', async () => {
     const account = await registerAccount(harness, { email: 'live-export@example.com' });
     const key = `org/${account.organisationId}/exports/live.csv`;

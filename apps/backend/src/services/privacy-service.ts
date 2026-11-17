@@ -1,4 +1,5 @@
 import { AppError, type DataExport, type EraseAccountResponse } from '@idcp/shared';
+import { randomUUID } from 'node:crypto';
 import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
@@ -7,6 +8,7 @@ import { AuditRepository } from '../repositories/system-repo';
 import { UsersRepository } from '../repositories/auth-repo';
 import type { PasswordHasher } from '../auth/password';
 import type { AuthenticatedActor } from './auth-service';
+import { processErasureFiles } from './erasure-files';
 
 /**
  * Data-subject rights (privacy policy §7, Uganda DPPA s.24–25, GDPR art. 15/17).
@@ -162,14 +164,31 @@ export class PrivacyService {
       }
     }
 
-    const drafts = await this.db.query<{ id: string; storage_key: string }>(
-      `SELECT id, storage_key FROM documents
-        WHERE uploaded_by = ?
-          AND status IN ('uploaded', 'queued', 'processing', 'needs_review', 'failed')`,
-      [actor.userId],
-    );
-
-    await this.db.transaction(async (tx) => {
+    const anonymisedAt = nowIso();
+    const draftsRemoved = await this.db.transaction(async (tx) => {
+      // Lock selected rows on PostgreSQL so they cannot become approved while erasure is deleting
+      // them. SQLite serialises the write transaction with BEGIN IMMEDIATE.
+      const drafts = await tx.query<{ id: string; storage_key: string }>(
+        `SELECT id, storage_key FROM documents
+          WHERE uploaded_by = ?
+            AND status IN ('uploaded', 'queued', 'processing', 'needs_review', 'failed')${tx.driver === 'postgres' ? ' FOR UPDATE' : ''}`,
+        [actor.userId],
+      );
+      const fileKeys = new Set(drafts.map((row) => row.storage_key));
+      for (const draft of drafts) {
+        const pages = await tx.query<{ storage_key: string }>(
+          'SELECT storage_key FROM document_pages WHERE document_id = ?',
+          [draft.id],
+        );
+        for (const page of pages) fileKeys.add(page.storage_key);
+      }
+      for (const key of fileKeys) {
+        await tx.execute(
+          `INSERT INTO erasure_file_deletions (id, user_id, storage_key, created_at)
+           VALUES (?, ?, ?, ?) ON CONFLICT (user_id, storage_key) DO NOTHING`,
+          [randomUUID(), actor.userId, key, anonymisedAt],
+        );
+      }
       await tx.execute(
         'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL',
         [nowIso(), actor.userId],
@@ -179,14 +198,26 @@ export class PrivacyService {
         [nowIso(), nowIso(), actor.userId],
       );
       await tx.execute('DELETE FROM password_resets WHERE user_id = ?', [actor.userId]);
-      if (drafts.length > 0) {
-        await tx.execute(
-          `DELETE FROM documents WHERE uploaded_by = ? AND id IN (${drafts.map(() => '?').join(', ')})`,
-          [actor.userId, ...drafts.map((row) => row.id)],
-        );
+      await tx.execute(
+        'UPDATE api_keys SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL',
+        [anonymisedAt, actor.userId],
+      );
+      await tx.execute(
+        "UPDATE pairing_sessions SET status = 'expired' WHERE created_by = ? AND status = 'pending'",
+        [actor.userId],
+      );
+      await tx.execute(
+        'UPDATE invitations SET email = ?, used_at = COALESCE(used_at, ?) WHERE user_id = ?',
+        [`deleted-${actor.userId}@erased.invalid`, anonymisedAt, actor.userId],
+      );
+      for (const draft of drafts) {
+        await tx.execute('DELETE FROM documents WHERE id = ? AND uploaded_by = ?', [
+          draft.id,
+          actor.userId,
+        ]);
       }
       await tx.execute(
-        'UPDATE users SET email = ?, display_name = ?, password_hash = NULL, disabled_at = ?, updated_at = ? WHERE id = ?',
+        'UPDATE users SET email = ?, display_name = ?, password_hash = NULL, mfa_secret_enc = NULL, mfa_enabled_at = NULL, mfa_recovery_hashes = NULL, disabled_at = ?, updated_at = ? WHERE id = ?',
         [
           `deleted-${actor.userId}@erased.invalid`,
           'Erased account',
@@ -213,28 +244,36 @@ export class PrivacyService {
         targetId: actor.userId,
         metadata: { draftingDocumentsRemoved: drafts.length },
       });
+      return drafts.length;
     });
 
-    // Files go after the rows: a failure here leaves an orphan blob, never a dangling record.
-    for (const document of drafts) {
-      await this.storage.delete(document.storage_key).catch((error: unknown) => {
-        this.logger.warn('could not delete a draft document during erasure', {
-          documentId: document.id,
-          error: (error as Error).message,
-        });
-      });
+    // The durable queue was committed alongside the account change. An interrupted process or
+    // failed delete leaves its row for the maintenance scheduler, not an untracked orphan.
+    let pendingFileCount: number | null = null;
+    try {
+      await processErasureFiles(this.db, this.storage, this.logger, { userId: actor.userId });
+      const pending = await this.db.one<{ count: string | number }>(
+        'SELECT COUNT(*) AS count FROM erasure_file_deletions WHERE user_id = ?',
+        [actor.userId],
+      );
+      if (pending) pendingFileCount = Number(pending.count);
+    } catch {
+      this.logger.error('could not check pending erasure file deletions', { userId: actor.userId });
     }
 
-    this.logger.info('account erased', {
+    this.logger.info('account anonymised', {
       userId: actor.userId,
-      draftsRemoved: drafts.length,
+      draftsRemoved,
+      pendingFileCount,
     });
 
     return {
       erased: true,
-      anonymisedAt: nowIso(),
+      anonymisedAt,
+      fileDeletionStatus: pendingFileCount === 0 ? 'complete' : 'pending',
+      pendingFileCount,
       retainedRecords:
-        'Approved and reviewed documents stay with the organisation, as do audit records; they no longer identify you.',
+        'Approved documents and audit records remain with the organisation and may contain identifying information.',
     };
   }
 }
