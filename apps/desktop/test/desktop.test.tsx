@@ -1053,6 +1053,28 @@ describe('connector marketplace (MARKET-001)', () => {
     expect(screen.getAllByText('signature verified').length).toBe(2);
   });
 
+  it('shows that unverified packages cannot be installed', async () => {
+    const { client } = marketplaceClient({
+      listMarketplace: async () => ({
+        items: [
+          {
+            ...hubspot,
+            signature: null,
+            signatureVerified: false,
+            installable: false,
+            blocker: 'HubSpot CRM is not signed by a trusted publisher, so it cannot be installed.',
+          },
+        ],
+      }),
+    });
+    render(<MarketplacePage client={client} />);
+    expect(await screen.findByText('signature unverified')).toBeTruthy();
+    expect(screen.getByText(/not signed by a trusted publisher/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Install' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
   it('keeps a withdrawn package visible and refuses to install it', async () => {
     const { client } = marketplaceClient();
     render(<MarketplacePage client={client} />);

@@ -1,4 +1,5 @@
 import { AppError, roleAtLeast } from '@idcp/shared';
+import type { KeyObject } from 'node:crypto';
 import type { Database } from '../db/database';
 import type { Logger } from '../logger';
 import { ConnectorsRepository } from '../repositories/connector-repo';
@@ -32,6 +33,7 @@ export class MarketplaceService {
     db: Database,
     private readonly logger: Logger,
     private readonly catalogue: MarketplacePackage[] = FIRST_PARTY_CATALOGUE,
+    private readonly publicKey: KeyObject | null = null,
   ) {
     this.installs = new MarketplaceRepository(db);
     this.connectors = new ConnectorsRepository(db);
@@ -68,10 +70,10 @@ export class MarketplaceService {
         const active = installs.find(
           (install) => install.package_id === pkg.id && install.status === 'active',
         );
-        const blocker = installBlocker(pkg, activeVersions);
+        const blocker = installBlocker(pkg, activeVersions, this.publicKey);
         return {
           ...pkg,
-          signatureVerified: verifyPackageSignature(pkg),
+          signatureVerified: verifyPackageSignature(pkg, this.publicKey),
           installedVersions: versions,
           /** Every version this catalogue knows about, newest first. */
           availableVersions: this.catalogue
@@ -130,7 +132,7 @@ export class MarketplaceService {
     const installedVersions = (await this.installs.listForOrganisation(actor.organisationId))
       .filter((install) => install.package_id === pkg.id && install.status === 'active')
       .map((install) => install.package_version);
-    const blocker = installBlocker(pkg, installedVersions);
+    const blocker = installBlocker(pkg, installedVersions, this.publicKey);
     if (blocker) throw new AppError('CONFLICT', blocker);
 
     const install = await this.installs.create({
@@ -197,6 +199,25 @@ export class MarketplaceService {
           entry.install_seq < install.install_seq,
       )
       .sort((left, right) => right.install_seq - left.install_seq)[0];
+
+    // Old records may predate the current trust key, catalogue or signature scheme. Never
+    // reactivate a withdrawn, missing, tampered or differently permissioned historical package.
+    if (previous) {
+      const manifest = this.catalogue.find(
+        (pkg) => pkg.id === previous.package_id && pkg.version === previous.package_version,
+      );
+      if (
+        !manifest ||
+        installBlocker(manifest, [], this.publicKey) !== null ||
+        manifest.type !== previous.connector_type ||
+        JSON.stringify(manifest.permissions) !== previous.permissions
+      ) {
+        throw new AppError(
+          'CONFLICT',
+          'The previous package version is not currently trusted; rollback cannot reactivate it.',
+        );
+      }
+    }
 
     await this.installs.markRolledBack(install.id);
     if (previous) await this.installs.reactivate(previous.id);

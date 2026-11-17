@@ -1217,7 +1217,8 @@ paths:
   /marketplace:
     get:
       tags: [Marketplace]
-      summary: The reviewed connector catalogue with this organisation's install state
+      summary: The connector catalogue with this organisation's install state
+      description: Bundled entries are informational and not installable unless a trusted signed catalogue and public key are configured.
       operationId: listMarketplace
       responses:
         '200':
@@ -1255,7 +1256,10 @@ paths:
             description: '`rolledBack`, `activeVersion` (null when nothing preceded it), `message`',
           }
         '403': { description: Admin role required }
-        '409': { description: That installation was already rolled back }
+        '409':
+          {
+            description: Installation already rolled back or the previous version is no longer trusted,
+          }
   /review/corrections:
     get:
       tags: [Review]
