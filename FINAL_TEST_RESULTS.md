@@ -1,4 +1,5 @@
 # FINAL TEST RESULTS
+
 **Repository:** `oloyaisaac/intelligent-data-capture-platform`
 **Branch:** `arena/1ec2f10d-intelligent-data-capture-platf`
 **Audit Date:** 2026-11-16
@@ -6,8 +7,10 @@
 ---
 
 ## 1. Test Suite Execution Summary
+
 **Command:** `npm run verify` (from `VERIFICATION-LOG.md`)
 **Result:** PASS
+
 - **Typecheck:** PASS (All workspace projects)
 - **Lint:** PASS (ESLint --max-warnings=0)
 - **PRD Contract:** PASS
@@ -21,8 +24,10 @@
 ## 2. Specific Verification Evidence (Implementation Changes)
 
 ### A. Desktop Shell & CSP (MC-01, MC-02, MH-04, MH-05)
+
 **Status:** IN PROGRESS (Code fixed, Runtime verification pending)
 **Evidence from `VERIFICATION-LOG.md`:**
+
 - `npx jest --selectProjects desktop --runInBand --silent`: 3 suites, 88 tests PASS.
 - **Revert check:** Removing `app-protocol.ts` causes 2 suites to fail (60/88 tests pass, 2 fail with "Cannot find module").
 - **Build:** `API_BASE_URL=https://api.example.com/api/v1 npm run build:electron --workspace @idcp/desktop` PASS.
@@ -31,23 +36,29 @@
 - **Runtime Limitation:** Electron binary download failed in sandbox (`TypeError: fetch failed`). **Status remains IN PROGRESS.**
 
 ### B. Batch Upload Memory Bound (MC-06)
+
 **Status:** DONE
 **Evidence from `VERIFICATION-LOG.md`:**
+
 - `npx jest --selectProjects backend --runInBand --runTestsByPath apps/backend/test/batches.test.ts --silent`: 1 suite, 9 tests PASS.
 - **Revert check:** Restoring old code results in `Expected: 413; Received: 201` (Test fails).
 - **Full Suite:** `npm run verify` PASS (432 tests).
 - **Typecheck/Lint/Format:** PASS.
 
 ### C. PostgreSQL Execution Path (MC-04)
+
 **Status:** IN PROGRESS (CI job added, Runtime verification pending)
 **Evidence from `VERIFICATION-LOG.md`:**
+
 - CI workflow `.github/workflows/ci.yml` parsed successfully (Node parser).
 - `env -u DATABASE_URL npm run test:postgres` exits 1 (Expected guard).
 - **Runtime Limitation:** Sandbox lacks `docker`, `psql`, `postgres`. **Status remains IN PROGRESS.**
 
 ### D. Deployment Artefact (MC-03)
+
 **Status:** IN PROGRESS (Code added, Runtime verification pending)
 **Evidence from `VERIFICATION-LOG.md`:**
+
 - Backend build: `npm run build --workspace @idcp/backend` PASS (567.8 kB bundle).
 - Isolated build: `npm ci --workspace=@idcp/backend && npm run build` PASS.
 - Production runtime: `npm ci --omit=dev --workspace=@idcp/backend; start dist/server.js` -> `GET /api/v1/health` -> 200 OK.
@@ -58,6 +69,7 @@
 ---
 
 ## 3. Coverage & Mutation (Baseline from Assessment + Changes)
+
 - **Statements:** 74.47%
 - **Branches:** 58.75%
 - **Functions:** 66.2%
@@ -68,6 +80,7 @@
 ---
 
 ## 4. Unresolved Test Gaps (Evidence of Non-Readiness)
+
 1. **MC-07 (E2E Test):** TODO (No Playwright/Detox/Maestro; root cause of MC-01/MC-05).
 2. **MH-29/MH-30:** Branch coverage threshold/Mutation score (TODO).
 3. **MH-31:** 11 PRD verification blocks unverified (TODO).
@@ -80,4 +93,5 @@
 ---
 
 ## Conclusion
+
 While the unit and integration test suite passes (`npm run verify`), the **absence of runtime verification** for the critical fixes (MC-01, MC-02, MC-03, MC-04) and the **complete absence of E2E tests** (MC-07) and **value measurement** (MC-08) means the project is **NOT PRODUCTION-READY**.

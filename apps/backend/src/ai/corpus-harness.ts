@@ -1,21 +1,27 @@
-import { measureValueProposition, runUatPilot } from './pipeline';
-import { Database } from '../../db/database';
-import { Config } from '../../config';
-import { Logger } from '../../logger';
+import type { DocumentType } from '@idcp/shared';
+import type { Config } from '../config';
+import type { Database } from '../db/database';
+import type { Logger } from '../logger';
+import { runExtractionPipeline } from './pipeline';
+import type { OcrInput, OcrProvider, OcrResult } from './providers/types';
 
 /**
- * Corpus Measurement Harness (MC-08)
- * Reviewer: R22 (UAT Commercial Readiness Review)
- * Finding: MC-08 — Value proposition never measured (CRITICAL/BLOCKED)
- * Status: DONE (Harness implemented; runtime measurement pending operators/corpus)
- * Date: 2026-11-16
+ * Corpus & UAT Measurement Harness (MC-08 / AI-002).
+ *
+ * Evaluates the real `runExtractionPipeline` (classification, field extraction, UDM schema
+ * validation, and review-threshold routing) against a labelled document set and reports
+ * per-document latency, field accuracy, and no-correction rate.
  */
+
+export type ExpectedFieldValue = string | number | boolean | null;
 
 export interface CorpusDocument {
   id: string;
   content: string;
   operatorId: string;
-  expectedExtraction: any;
+  mimeType?: string;
+  expectedDocumentType?: DocumentType;
+  expectedFields?: Record<string, ExpectedFieldValue>;
 }
 
 export interface MeasurementResult {
@@ -26,109 +32,128 @@ export interface MeasurementResult {
   operatorCount: number;
 }
 
-/**
- * Harness to measure value proposition (DASH-001 target: 2s per document)
- * 
- * 1. Loads corpus (5 operators × 20 documents = 100 documents)
- * 2. Measures extraction time and accuracy
- * 3. Calculates no-correction rate
- */
+class CorpusTextOcrProvider implements OcrProvider {
+  readonly name = 'corpus-text-ocr';
+  readonly isLocal = true;
+
+  async ocr(input: OcrInput): Promise<OcrResult> {
+    const text = input.buffer.toString('utf8');
+    return {
+      text,
+      words: text
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((word) => ({ text: word, confidence: 0.96 })),
+      provider: this.name,
+      latencyMs: 1,
+      costMicros: 0,
+    };
+  }
+}
+
 export async function executeCorpusHarness(
-  db: Database,
+  _db: Database,
   config: Config,
   logger: Logger,
-  corpus: CorpusDocument[]
+  corpus: CorpusDocument[],
+  options: { provider?: OcrProvider } = {},
 ): Promise<MeasurementResult> {
-  logger.info(`Starting corpus measurement harness: ${corpus.length} documents`);
-
-  const startTime = Date.now();
-  let corrections = 0;
-  let accurateExtractions = 0;
-
-  // Simulate operator processing (5 operators)
-  const operators = Array.from(new Set(corpus.map(doc => doc.operatorId)));
-  logger.info(`Operators involved: ${operators.length}`);
-
-  // If corpus is empty, simulate a failure for revert check
   if (corpus.length === 0) {
-    throw new Error('Pipeline implementation removed (revert check)');
+    throw new Error('Corpus must contain at least one labelled document.');
   }
+
+  const provider = options.provider ?? new CorpusTextOcrProvider();
+  const operators = new Set(corpus.map((doc) => doc.operatorId));
+  const startTime = Date.now();
+
+  let zeroCorrectionDocs = 0;
+  let totalChecks = 0;
+  let passedChecks = 0;
 
   for (const doc of corpus) {
     const startDoc = Date.now();
-    
-    // Execute extraction pipeline (simulated)
-    const result = await measureValueProposition(doc.content);
-    
-    const timeOnTask = (Date.now() - startDoc) / 1000;
-    
-    // Verify against expected
-    const isAccurate = JSON.stringify(result) === JSON.stringify(doc.expectedExtraction);
-    if (isAccurate) accurateExtractions += 1;
-    else corrections += 1;
+    const result = await runExtractionPipeline(
+      {
+        documentId: doc.id,
+        buffer: Buffer.from(doc.content, 'utf8'),
+        mimeType: doc.mimeType ?? 'image/png',
+        reviewThreshold: config.AI_REVIEW_CONFIDENCE_THRESHOLD,
+      },
+      { provider, logger },
+    );
+    const elapsedSeconds = (Date.now() - startDoc) / 1000;
 
-    logger.debug(`Document ${doc.id}: ${isAccurate ? 'accurate' : 'corrected'}, ${timeOnTask.toFixed(2)}s`);
+    let docAccurate = true;
+
+    if (doc.expectedDocumentType !== undefined) {
+      totalChecks += 1;
+      if (result.udm.documentType === doc.expectedDocumentType) {
+        passedChecks += 1;
+      } else {
+        docAccurate = false;
+      }
+    }
+
+    if (doc.expectedFields) {
+      for (const [path, expectedValue] of Object.entries(doc.expectedFields)) {
+        totalChecks += 1;
+        const actualValue = result.udm.fields[path]?.value ?? null;
+        if (actualValue === expectedValue) {
+          passedChecks += 1;
+        } else {
+          docAccurate = false;
+        }
+      }
+    }
+
+    if (docAccurate) {
+      zeroCorrectionDocs += 1;
+    }
+
+    logger.debug('corpus document evaluated', {
+      documentId: doc.id,
+      accurate: docAccurate,
+      elapsedSeconds: Number(elapsedSeconds.toFixed(4)),
+    });
   }
 
-  const totalTime = (Date.now() - startTime) / 1000;
-  const noCorrectionRate = corpus.length > 0 ? (accurateExtractions / corpus.length) * 100 : 0;
-  const accuracyScore = noCorrectionRate; // Simplified for harness
-  const timePerDoc = corpus.length > 0 ? totalTime / corpus.length : 0;
+  const totalTime = Math.max((Date.now() - startTime) / 1000, 0.001);
+  const noCorrectionRate = (zeroCorrectionDocs / corpus.length) * 100;
+  const accuracyScore = totalChecks > 0 ? (passedChecks / totalChecks) * 100 : noCorrectionRate;
 
-  const result: MeasurementResult = {
+  logger.info('corpus measurement complete', {
+    documentsProcessed: corpus.length,
+    operatorCount: operators.size,
+    noCorrectionRate: Number(noCorrectionRate.toFixed(2)),
+    accuracyScore: Number(accuracyScore.toFixed(2)),
+    secondsPerDocument: Number((totalTime / corpus.length).toFixed(4)),
+  });
+
+  return {
     documentsProcessed: corpus.length,
     timeOnTaskSeconds: totalTime,
     noCorrectionRate,
     accuracyScore,
-    operatorCount: operators.length,
+    operatorCount: operators.size,
   };
-
-  logger.info(`Measurement complete: ${noCorrectionRate.toFixed(2)}% no-correction, ${timePerDoc.toFixed(2)}s/doc`);
-  
-  // Verification: DASH-001 target < 2s
-  if (timePerDoc < 2.0) {
-    logger.info('✅ DASH-001 target met (< 2s per document)');
-  } else {
-    logger.warn(`⚠️ DASH-001 target missed (${timePerDoc.toFixed(2)}s/doc)`);
-  }
-
-  return result;
 }
 
-/**
- * UAT Pilot Framework (MC-08 extension)
- * Executes pilot with real operators and documents
- */
 export async function executeUatPilot(
   db: Database,
   config: Config,
   logger: Logger,
-  pilotParticipants: string[], // 5 operators
-  documentSets: CorpusDocument[][] // 20 docs per operator
+  pilotParticipants: string[],
+  documentSets: CorpusDocument[][],
 ): Promise<MeasurementResult[]> {
-  logger.info(`Starting UAT Pilot: ${pilotParticipants.length} operators, ${documentSets.flat().length} documents`);
+  if (pilotParticipants.length === 0 || pilotParticipants.length !== documentSets.length) {
+    throw new Error('Pilot participants and document sets must be non-empty and aligned.');
+  }
 
   const results: MeasurementResult[] = [];
-
-  for (let i = 0; i < pilotParticipants.length; i++) {
-    const operator = pilotParticipants[i];
-    const docs = documentSets[i];
-    
-    logger.info(`Operator ${operator} processing ${docs.length} documents`);
-    
+  for (let index = 0; index < pilotParticipants.length; index += 1) {
+    const docs = documentSets[index]!;
     const result = await executeCorpusHarness(db, config, logger, docs);
     results.push(result);
   }
-
-  // Aggregate results
-  const totalDocs = results.reduce((sum, r) => sum + r.documentsProcessed, 0);
-  const avgTime = results.reduce((sum, r) => sum + r.timeOnTaskSeconds, 0) / totalDocs;
-  const avgAccuracy = results.reduce((sum, r) => sum + r.accuracyScore, 0) / results.length;
-
-  logger.info(`UAT Pilot Complete: ${totalDocs} docs, ${avgTime.toFixed(2)}s/doc avg, ${avgAccuracy.toFixed(2)}% accuracy`);
-
   return results;
 }
-
-// Export for test harness
-export { executeCorpusHarness, executeUatPilot };

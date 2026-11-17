@@ -45,6 +45,19 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     );
     expect(persisted?.name).toBe('Postgres smoke');
 
+    const auditId = randomUUID();
+    await harness.db.execute(
+      `INSERT INTO audit_logs (id, organisation_id, actor_type, actor_id, action, metadata, created_at)
+       VALUES (?, ?, 'system', NULL, 'postgres.smoke', '{}', ?)`,
+      [auditId, organisationId, timestamp],
+    );
+    await expect(
+      harness.db.execute("UPDATE audit_logs SET action = 'tampered' WHERE id = ?", [auditId]),
+    ).rejects.toThrow(/append-only/i);
+    await expect(
+      harness.db.execute('DELETE FROM audit_logs WHERE id = ?', [auditId]),
+    ).rejects.toThrow(/append-only/i);
+
     const health = await harness.api.json('GET', '/api/v1/health');
     expect(health.statusCode).toBe(200);
     expect(health.json<{ status: string; dependencies: { db?: string } }>()).toMatchObject({

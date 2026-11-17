@@ -99,8 +99,9 @@ export class AuthService {
     },
     membership: { organisation_id: string; role: Role },
     context: RequestContext,
+    db: Database = this.db,
   ): Promise<TokenPair> {
-    const organisation = await this.orgs.findById(membership.organisation_id);
+    const organisation = await new OrganisationsRepository(db).findById(membership.organisation_id);
     const accessToken = this.tokens.signAccessToken({
       sub: user.id,
       org: membership.organisation_id,
@@ -111,7 +112,7 @@ export class AuthService {
       Date.now() + this.config.REFRESH_TOKEN_TTL_SECONDS * 1000,
     ).toISOString();
 
-    const session = await this.sessions.create({
+    const session = await new SessionsRepository(db).create({
       userId: user.id,
       organisationId: membership.organisation_id,
       refreshTokenHash: refresh.hash,
@@ -176,7 +177,7 @@ export class AuthService {
         role: 'owner',
       });
 
-      await this.audit.record({
+      await new AuditRepository(tx).record({
         organisationId: organisation.id,
         actorType: 'user',
         actorId: user.id,
@@ -186,7 +187,7 @@ export class AuthService {
         metadata: { termsVersion: LEGAL_VERSION },
       });
 
-      return this.issueTokens(user, membership, context);
+      return this.issueTokens(user, membership, context, tx);
     });
   }
 

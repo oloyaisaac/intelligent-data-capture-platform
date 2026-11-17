@@ -6,9 +6,16 @@
  * Never edit a migration that has shipped — add a new one.
  */
 
+export type MigrationStatement =
+  | string
+  | {
+      sqlite: string[];
+      postgres: string[];
+    };
+
 export interface Migration {
   id: string;
-  sql: string[];
+  sql: MigrationStatement[];
 }
 
 export const MIGRATIONS: Migration[] = [
@@ -272,10 +279,25 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX idx_audit_org_time ON audit_logs(organisation_id, created_at DESC)`,
       `CREATE INDEX idx_audit_actor ON audit_logs(actor_id, created_at DESC)`,
       // Audit records must never be rewritten. Enforced in the database, not just in code.
-      `CREATE TRIGGER audit_logs_no_update BEFORE UPDATE ON audit_logs
-        BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END`,
-      `CREATE TRIGGER audit_logs_no_delete BEFORE DELETE ON audit_logs
-        BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END`,
+      {
+        sqlite: [
+          `CREATE TRIGGER audit_logs_no_update BEFORE UPDATE ON audit_logs
+            BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END`,
+          `CREATE TRIGGER audit_logs_no_delete BEFORE DELETE ON audit_logs
+            BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END`,
+        ],
+        postgres: [
+          `CREATE OR REPLACE FUNCTION audit_logs_append_only() RETURNS TRIGGER AS $$
+            BEGIN
+              RAISE EXCEPTION 'audit_logs is append-only';
+            END;
+          $$ LANGUAGE plpgsql`,
+          `CREATE TRIGGER audit_logs_no_update BEFORE UPDATE ON audit_logs
+            FOR EACH ROW EXECUTE FUNCTION audit_logs_append_only()`,
+          `CREATE TRIGGER audit_logs_no_delete BEFORE DELETE ON audit_logs
+            FOR EACH ROW EXECUTE FUNCTION audit_logs_append_only()`,
+        ],
+      },
     ],
   },
   {
@@ -500,6 +522,7 @@ export const MIGRATIONS: Migration[] = [
 ];
 
 export async function applyMigrations(db: {
+  readonly driver?: 'sqlite' | 'postgres';
   execute(sql: string, params?: unknown[]): Promise<void>;
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
 }): Promise<string[]> {
@@ -515,8 +538,16 @@ export async function applyMigrations(db: {
 
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.id)) continue;
-    for (const statement of migration.sql) {
-      await db.execute(statement);
+    for (const entry of migration.sql) {
+      const statements =
+        typeof entry === 'string'
+          ? [entry]
+          : db.driver === 'postgres'
+            ? entry.postgres
+            : entry.sqlite;
+      for (const statement of statements) {
+        await db.execute(statement);
+      }
     }
     await db.execute('INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)', [
       migration.id,
