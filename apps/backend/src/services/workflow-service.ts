@@ -1,13 +1,12 @@
 import { AppError, roleAtLeast, type DocumentType } from '@idcp/shared';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
-import { DocumentsRepository, ExtractionsRepository } from '../repositories/document-repo';
-import { AuditRepository } from '../repositories/system-repo';
-import {
+import type { DocumentsRepository, ExtractionsRepository } from '../repositories/document-repo';
+import type { AuditRepository } from '../repositories/system-repo';
+import type {
   WorkflowRunsRepository,
   WorkflowsRepository,
-  type WorkflowRow,
-  type WorkflowRunRow,
+  WorkflowRow,
+  WorkflowRunRow,
 } from '../repositories/workflow-repo';
 import {
   planWorkflow,
@@ -27,22 +26,36 @@ import type { AuthenticatedActor } from './auth-service';
  *   2. Every evaluation is logged — including the ones that did not match — so "why did this not
  *      fire?" is answerable without reading code.
  */
+export interface WorkflowServiceRepositories {
+  workflows: Pick<
+    WorkflowsRepository,
+    'list' | 'create' | 'setEnabled' | 'delete' | 'findById' | 'candidates'
+  >;
+  runs: Pick<
+    WorkflowRunsRepository,
+    'create' | 'findById' | 'list' | 'markApproved' | 'markFailed' | 'recordOutputs'
+  >;
+  documents: Pick<DocumentsRepository, 'findById' | 'softDelete'>;
+  extractions: Pick<ExtractionsRepository, 'findLatestForDocument'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
 export class WorkflowService {
-  private readonly workflows: WorkflowsRepository;
-  private readonly runs: WorkflowRunsRepository;
-  private readonly documents: DocumentsRepository;
-  private readonly extractions: ExtractionsRepository;
-  private readonly audit: AuditRepository;
+  private readonly workflows: WorkflowServiceRepositories['workflows'];
+  private readonly runs: WorkflowServiceRepositories['runs'];
+  private readonly documents: WorkflowServiceRepositories['documents'];
+  private readonly extractions: WorkflowServiceRepositories['extractions'];
+  private readonly audit: WorkflowServiceRepositories['audit'];
 
   constructor(
-    db: Database,
+    repositories: WorkflowServiceRepositories,
     private readonly logger: Logger,
   ) {
-    this.workflows = new WorkflowsRepository(db);
-    this.runs = new WorkflowRunsRepository(db);
-    this.documents = new DocumentsRepository(db);
-    this.extractions = new ExtractionsRepository(db);
-    this.audit = new AuditRepository(db);
+    this.workflows = repositories.workflows;
+    this.runs = repositories.runs;
+    this.documents = repositories.documents;
+    this.extractions = repositories.extractions;
+    this.audit = repositories.audit;
   }
 
   async list(actor: AuthenticatedActor) {

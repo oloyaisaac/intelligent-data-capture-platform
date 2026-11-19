@@ -13,21 +13,38 @@ remain `done`; its 11 existing, unverified verification blocks remain explicitly
 The original briefs in `docs/reviewers/` and historical reports in `REVIEWS/` are preserved.
 The historical review reports are not reviewer-completion declarations for the current codebase.
 
-| Reviewer                 | Status                                         | Progress and remaining work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------ | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R01 — Software Architect | **IN PROGRESS; G1 not approved**               | Corrected architecture drift and misleading source comments, bounded process-local limiter state, and added regression coverage. P1's SQL relocation is implemented: literal SQL scans and a regression test find no statements outside `db/` and `repositories/`; the test does not prove the absence of dynamically assembled SQL. P2 is addressed by centralized configuration for the API and offline CLIs. P5 is partially addressed: project and template repositories are injected at the composition root, but many services still construct repositories. P6 is unmet: startup recovery can reclaim another worker's active job; a lease/heartbeat, safe multi-worker behavior and the required two-process test are still needed. Privacy erasure checks ownership before its transaction, leaving a concurrent membership-change race to address. The full checklist, dependency-cycle and runtime exercises, evidence artefacts, and other passing conditions have not been completed or independently verified. |
-| R02–R22                  | **NOT STARTED under this completion protocol** | The original briefs contain extensive checklist, source, evidence and runtime work. Do not infer completion from older reports or prior merged fixes. R22 additionally requires real operators, documents, deployment and pilot evidence; legal, signing, native-tooling and vendor access require their respective external owners.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Reviewer                 | Status                                         | Progress and remaining work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R01 — Software Architect | **IN PROGRESS; G1 not approved**               | Corrected architecture drift and misleading source comments, bounded process-local limiter state, and added regression coverage. P1's SQL relocation is implemented: literal SQL scans and a regression test find no statements outside `db/` and `repositories/`; the test does not prove the absence of dynamically assembled SQL. P2 is addressed by centralized configuration for the API and offline CLIs. P5 is partially addressed: project, template, worker, API-key and workflow repositories are injected at the composition root, but many services still construct repositories. P6 is unmet: startup recovery can reclaim another worker's active job; a lease/heartbeat, safe multi-worker behavior and the required two-process test are still needed. Privacy erasure checks ownership before its transaction, leaving a concurrent membership-change race to address. The full checklist, dependency-cycle and runtime exercises, evidence artefacts, and other passing conditions have not been completed or independently verified. |
+| R02–R22                  | **NOT STARTED under this completion protocol** | The original briefs contain extensive checklist, source, evidence and runtime work. Do not infer completion from older reports or prior merged fixes. R22 additionally requires real operators, documents, deployment and pilot evidence; legal, signing, native-tooling and vendor access require their respective external owners.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 No reviewer completion file has been created. The protocol requires every assigned item and test to
 be completed before one can be written. Existing programme gates remain unapproved until their
-required evidence and sign-offs are complete. The R01 cycle scan reported no cycles in 202 processed
-files but skipped `@idcp/shared/ids`; this is not proof that the complete import graph is cycle-free.
+required evidence and sign-offs are complete. The R01 Madge scan using `tsconfig.base.json`
+reported no cycles in 217 processed files and no skipped-file warnings; it supersedes the earlier
+scan that skipped `@idcp/shared/ids`. The declared internal dependency edges are acyclic; interim
+evidence is recorded in `docs/reviewers/evidence/R01/dependency-graph.md`. These results do not prove
+that dynamic imports, external packages or undeclared cross-workspace dependencies have been fully
+assessed.
 The job claim update now rechecks queued/runnable state after acquiring the target row's write lock,
 so a waiting claimant cannot claim the same already-updated row. Recovery now counts rows actually
 requeued, but it still models a stale active job being reclaimed. A two-subprocess SQLite test
 claims 20 synthetic jobs, not 20 documents processed by two backend instances; it does not exercise
-worker side effects, recovery or audits. A PostgreSQL lock-contention regression was added but has
-not been run because PostgreSQL and Docker are unavailable locally. P6 remains unmet.
+worker side effects, recovery or audits. The PostgreSQL lock-contention regression passed in
+[PR #26 CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44514864382/job/135528120126);
+PostgreSQL and Docker are unavailable locally, and this branch's composition changes have not been
+exercised against PostgreSQL. P6 remains unmet.
+
+A registered test connector's rejected create, read and update operations produce a recorded failed
+run and actionable HTTP response while the API remains responsive (`apps/backend/test/connector-throw.test.ts`).
+The send path replaces connector-thrown details with a safe message in new run records, logs and
+responses, while retaining its own duplicate-policy conflict. Validation, health-check, schema and
+duplicate-preview failures now use safe messages; connector-supplied text and context passed through
+the provided logger are discarded. Secret-bearing regressions failed before these corrections and
+pass afterward. This sacrifices detailed connector diagnostics and does not sanitize old records,
+successful connector outputs or logs written outside the provided logger. It covers ordinary T-05
+errors, not P8: in-process code can still terminate or compromise the host. An incomplete R01 findings
+register, with no assigned named owners or exceptions, is in `docs/reviewers/evidence/R01/findings.md`.
 
 ### Additional open security and runtime gaps
 
@@ -82,17 +99,18 @@ the new privileged renderer origin must not retain an unrestricted navigation pa
 
 ## Current verification baseline
 
-On the current R01 worktree, `npm run format:check`, the backend and desktop renderer builds, and
-`npm run verify` passed:
-44 Jest suites and 558 tests passed, with one suite and two tests skipped, plus four backup-tool
-tests, typecheck, lint and contract checks. Focused coverage includes membership-scoped credentials,
+On the current R01 worktree, `npm run format:check`, the backend build and `npm run verify` passed:
+46 Jest suites and 563 tests passed, with one suite and two tests skipped, plus four backup-tool
+tests, typecheck, lint and contract checks. A focused connector-boundary/connector-throw/connector
+run passed 3 suites and 15 tests. Focused coverage includes membership-scoped credentials,
 MFA invitation acceptance, recovery-code concurrency and rollback, SQLite transaction isolation,
 synthetic SQLite job claims from two processes, composition test doubles, dashboard isolation and
-privacy erasure rollback. Transaction-scoping and lock-ordering checks use PostgreSQL test doubles;
-they are not PostgreSQL integration tests. The new PostgreSQL claim-contention test was skipped. The built offline encryption-migration CLI passed check, apply and a second check
-against an empty, newly migrated synthetic SQLite database; encrypted-record migration and rollback
-are covered by the Jest integration tests. `npm ci` skipped the Electron binary download. The test
-run emitted existing React `act` and jsdom navigation warnings; the renderer build reported Rollup
-annotation and bundle-size warnings. This is not evidence of a packaged desktop launch, a deployed PostgreSQL installation, an APK, an iOS build, or completion of
-reviewer-specific runtime tests. PostgreSQL and Compose CI passed on PR #25, not on this unpushed
-worktree.
+privacy erasure rollback. Local transaction-scoping and lock-ordering checks use PostgreSQL test
+doubles; they are not PostgreSQL integration tests. The PostgreSQL claim-contention test was skipped
+locally, but passed in PR #26 CI before this branch's composition changes. On the earlier
+worktree, the built offline encryption-migration CLI passed check, apply and a second check against an
+empty, newly migrated synthetic SQLite database; encrypted-record migration and rollback are covered
+by Jest integration tests. `npm ci` skipped the Electron binary download. The test run emitted
+existing React `act` and jsdom navigation warnings. This is not evidence of a packaged desktop launch,
+a deployed PostgreSQL installation, an APK, an iOS build, or completion of reviewer-specific runtime
+tests. PostgreSQL and Compose CI passed on PR #26, not on this unpushed worktree.

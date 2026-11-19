@@ -30,8 +30,15 @@ import { PrivacyService } from './privacy-service';
 import { MaintenanceService } from './maintenance-service';
 import { ProjectsRepository } from '../repositories/project-repo';
 import { TemplatesRepository } from '../repositories/template-repo';
-import { ExtractionsRepository } from '../repositories/document-repo';
-import { AuditRepository } from '../repositories/system-repo';
+import {
+  DocumentPagesRepository,
+  DocumentsRepository,
+  ExtractionsRepository,
+} from '../repositories/document-repo';
+import { AuditRepository, JobsRepository } from '../repositories/system-repo';
+import { MembershipsRepository, OrganisationsRepository } from '../repositories/auth-repo';
+import { ApiKeysRepository } from '../repositories/apikey-repo';
+import { WorkflowRunsRepository, WorkflowsRepository } from '../repositories/workflow-repo';
 
 export interface Services {
   config: Config;
@@ -71,6 +78,7 @@ export interface BuildServicesOptions {
   storage?: Storage;
   hub?: RealtimeHub;
   provider?: OcrProvider;
+  registry?: ConnectorRegistry;
   hasher?: PasswordHasher;
   /** Optional override for credential encryption secret (defaults to `config.ENCRYPTION_KEY`). */
   encryptionKey?: string;
@@ -97,7 +105,7 @@ export function buildServices(options: BuildServicesOptions): Services {
   const encryptionSecret = options.encryptionKey ?? config.ENCRYPTION_KEY;
   const secretBox = createSecretBox(encryptionSecret, config.JWT_SECRET);
 
-  const registry = new ConnectorRegistry();
+  const registry = options.registry ?? new ConnectorRegistry();
 
   const mailer = options.mailer === undefined ? createMailer(config) : options.mailer;
   const auth = new AuthService(db, config, tokens, hasher, logger, secretBox, mailer);
@@ -118,7 +126,16 @@ export function buildServices(options: BuildServicesOptions): Services {
     marketplaceTrust.catalogue,
     marketplaceTrust.publicKey,
   );
-  const workflows = new WorkflowService(db, logger);
+  const workflows = new WorkflowService(
+    {
+      workflows: new WorkflowsRepository(db),
+      runs: new WorkflowRunsRepository(db),
+      documents: new DocumentsRepository(db),
+      extractions: new ExtractionsRepository(db),
+      audit: new AuditRepository(db),
+    },
+    logger,
+  );
   const organisation = new OrganisationService(db);
   const templates = new TemplateService(
     {
@@ -128,8 +145,30 @@ export function buildServices(options: BuildServicesOptions): Services {
     },
     logger,
   );
-  const apiKeys = new ApiKeyService(db, logger);
-  const worker = new Worker(db, config, storage, provider, hub, documents, logger, templates);
+  const apiKeys = new ApiKeyService(
+    {
+      keys: new ApiKeysRepository(db),
+      memberships: new MembershipsRepository(db),
+      audit: new AuditRepository(db),
+    },
+    logger,
+  );
+  const worker = new Worker(
+    {
+      jobs: new JobsRepository(db),
+      documents: new DocumentsRepository(db),
+      extractions: new ExtractionsRepository(db),
+      pages: new DocumentPagesRepository(db),
+      orgs: new OrganisationsRepository(db),
+    },
+    config,
+    storage,
+    provider,
+    hub,
+    documents,
+    logger,
+    templates,
+  );
   const privacy = new PrivacyService(db, storage, hasher, logger);
   const maintenance = new MaintenanceService(db, config, storage, logger);
 

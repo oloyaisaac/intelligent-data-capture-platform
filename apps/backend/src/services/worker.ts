@@ -1,14 +1,13 @@
 import { parseUdm, requiresReview } from '@idcp/shared';
 import type { Config } from '../config';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
-import {
+import type {
   DocumentPagesRepository,
   DocumentsRepository,
   ExtractionsRepository,
 } from '../repositories/document-repo';
-import { JobsRepository } from '../repositories/system-repo';
-import { MembershipsRepository, OrganisationsRepository } from '../repositories/auth-repo';
+import type { JobsRepository } from '../repositories/system-repo';
+import type { OrganisationsRepository } from '../repositories/auth-repo';
 import type { JobRow } from '../repositories/types';
 import type { Storage } from '../storage';
 import { runExtractionPipeline } from '../ai/pipeline';
@@ -31,33 +30,43 @@ import type { TemplateService } from './template-service';
  */
 export const RECOVERY_GRACE_MS = 30_000;
 
+/** Repository operations used by the worker, supplied by the composition root. */
+export interface WorkerRepositories {
+  jobs: Pick<
+    JobsRepository,
+    'claimNext' | 'requeueStale' | 'markSucceeded' | 'markFailed' | 'findById'
+  >;
+  documents: Pick<DocumentsRepository, 'findById' | 'updateStatus'>;
+  extractions: Pick<ExtractionsRepository, 'create' | 'replaceFields'>;
+  pages: Pick<DocumentPagesRepository, 'upsertOcr'>;
+  orgs: Pick<OrganisationsRepository, 'findById'>;
+}
+
 export class Worker {
-  private readonly jobs: JobsRepository;
-  private readonly documents: DocumentsRepository;
-  private readonly extractions: ExtractionsRepository;
-  private readonly pages: DocumentPagesRepository;
-  private readonly orgs: OrganisationsRepository;
-  private readonly memberships: MembershipsRepository;
+  private readonly jobs: WorkerRepositories['jobs'];
+  private readonly documents: WorkerRepositories['documents'];
+  private readonly extractions: WorkerRepositories['extractions'];
+  private readonly pages: WorkerRepositories['pages'];
+  private readonly orgs: WorkerRepositories['orgs'];
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
 
   constructor(
-    db: Database,
+    repositories: WorkerRepositories,
     private readonly config: Config,
     private readonly storage: Storage,
     private readonly provider: OcrProvider,
     private readonly hub: RealtimeHub,
-    private readonly documentService: DocumentService,
+    private readonly documentService: Pick<DocumentService, 'purgeExpired'>,
     private readonly logger: Logger,
-    private readonly templates?: TemplateService,
+    private readonly templates?: Pick<TemplateService, 'extractionFields'>,
   ) {
-    this.jobs = new JobsRepository(db);
-    this.documents = new DocumentsRepository(db);
-    this.extractions = new ExtractionsRepository(db);
-    this.pages = new DocumentPagesRepository(db);
-    this.orgs = new OrganisationsRepository(db);
-    this.memberships = new MembershipsRepository(db);
+    this.jobs = repositories.jobs;
+    this.documents = repositories.documents;
+    this.extractions = repositories.extractions;
+    this.pages = repositories.pages;
+    this.orgs = repositories.orgs;
   }
 
   /**
@@ -255,7 +264,6 @@ export class Worker {
     }
 
     void organisation;
-    void this.memberships;
     this.logger.info('document extracted', {
       documentId,
       provider: result.provider,

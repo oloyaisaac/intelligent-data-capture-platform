@@ -5,8 +5,9 @@ import { parseDocumentDate, type DocumentType } from '@idcp/shared';
  * Connector contract (CON-001 / DEC-004).
  *
  * A connector only ever receives UDM-shaped records with a mapping applied. It must declare what
- * it can do, describe its destination schema, and expose a health check. Connectors are isolated:
- * a thrown error is reported as a failed run, never allowed to crash the caller.
+ * it can do, describe its destination schema, and expose a health check. Connectors run inside the
+ * backend process, not a sandbox. The send path records ordinary thrown errors as failed runs, but
+ * this does not prevent a connector from crashing or compromising the host process.
  */
 
 export const CONNECTOR_CAPABILITIES = ['create', 'read', 'update', 'search'] as const;
