@@ -153,11 +153,11 @@ role/tenant checks; see `apps/backend/src/http/guards.ts` and the individual rou
 that every action has the same guard or audit behavior from this overview.
 
 Workers execute inside the backend process; connectors are not sandboxed and do not receive a
-separate short-lived internal service credential as an isolation mechanism. Values explicitly supplied
-in the connector `credentials` field are encrypted with a legacy migration path, but secrets in
-`config` are stored and returned as plaintext. HubSpot's config-only validation currently encourages
-this exposure (ARC-023); do not assume all connector credentials are encrypted. TLS termination and filesystem or
-backup encryption at rest must be supplied by deployment operators; uploaded files are not made
+separate short-lived internal service credential as an isolation mechanism. New and replaced connector
+configuration and credentials are encrypted together and omitted from DTOs, but existing plaintext
+configuration requires an offline migration; old files and backups may retain copies (ARC-023).
+TLS termination and filesystem or backup encryption at rest must be supplied by deployment
+operators; uploaded files are not made
 encrypted merely by storing them under `STORAGE_PATH`. See `SECURITY.md` and the key-migration,
 connector-network and erasure runbooks for scope and limitations.
 

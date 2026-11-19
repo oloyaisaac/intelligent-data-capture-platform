@@ -12,13 +12,14 @@ import { guardedFetch } from './crm/safe-http';
  * Google Sheets connector (CON-002).
  *
  * Talks to the Sheets v4 REST API with an OAuth access token supplied by the caller (refreshing
- * is the backend's job — tokens are stored encrypted there, never here). Appends respect existing
+ * is the backend's job). Legacy backend configuration can still contain plaintext tokens.
+ * Appends respect existing
  * headers and never rewrite unrelated columns.
  */
 export interface GoogleSheetsConfig {
   spreadsheetId: string;
   sheetName: string;
-  /** OAuth bearer token, injected by the backend at run time. Never persisted in `config`. */
+  /** OAuth bearer token supplied at runtime; legacy backend config may contain plaintext. */
   accessToken?: string;
 }
 

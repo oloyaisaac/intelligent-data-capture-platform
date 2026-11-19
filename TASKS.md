@@ -207,3 +207,10 @@ characterization test reproduces the exposure; it is not a fix. Review existing 
 credential rotation, and design a connector-specific secret contract and migration before production
 use. Successful connector write results now discard untrusted summary text and validate counts, but
 schema/preview output, historical records and in-process connector isolation remain open.
+
+ARC-023 partial remediation now encrypts all newly created or replaced connector settings, returns
+empty config objects, validates merged settings and provides an offline legacy migration. Local
+synthetic tests cover migration rollback, key rotation and CLI gating. This is a compatibility change
+for consumers and old binaries; migration requires stopped writers and a verified backup. Existing
+plaintext, historical copies, downstream outputs and production migration/rotation evidence remain
+open; see `docs/connector-config-migration.md` and the finding, not a claim of closure.

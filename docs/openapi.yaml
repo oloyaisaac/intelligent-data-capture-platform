@@ -1364,13 +1364,14 @@ paths:
     get:
       tags: [Connectors]
       summary: Configured connectors
-      description: The encrypted credentials field is not returned, but secrets placed in config are stored and returned as plaintext; see SECURITY.md and R01 ARC-023.
+      description: Config and credentials are write-only; responses contain an empty config object. Legacy plaintext rows require offline migration; see SECURITY.md and R01 ARC-023.
       operationId: listConnectors
       responses:
         '200': { description: Connectors }
     post:
       tags: [Connectors]
       summary: Add a connector
+      description: Config and credentials are encrypted together; credentials override matching config keys and the merged settings are validated. Responses do not return settings.
       operationId: createConnector
       responses:
         '201': { description: Created }
@@ -1379,6 +1380,7 @@ paths:
     patch:
       tags: [Connectors]
       summary: Update a connector
+      description: Config, if provided, replaces the complete configuration; existing credentials are preserved and override matching keys. Credentials cannot currently be changed through PATCH.
       operationId: updateConnector
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }

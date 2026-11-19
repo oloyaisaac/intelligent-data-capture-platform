@@ -492,3 +492,24 @@ $ npm run verify
 Test Suites: 1 skipped, 55 passed, 55 of 56 total
 Tests:       4 skipped, 619 passed, 623 total
 [exit 0; local PostgreSQL suite skipped; verification is not R01 sign-off]
+
+# Connector configuration encryption and offline migration (current worktree)
+$ npm run typecheck --workspace @idcp/backend
+[exit 0]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-config-risk.test.ts apps/backend/test/connector.test.ts apps/backend/test/connector-boundary.test.ts apps/backend/test/encryption-migration.test.ts
+Test Suites: 4 passed, 4 total; Tests: 23 passed, 23 total
+[exit 0]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-config-migration.test.ts
+Test Suites: 1 passed, 1 total; Tests: 4 passed, 4 total
+[exit 0]
+$ npm run verify
+Test Suites: 1 skipped, 56 passed, 56 of 57 total
+Tests:       4 skipped, 624 passed, 628 total
+[exit 0; PostgreSQL skipped locally; synthetic tests do not prove production migration]
+$ npm run build --workspace @idcp/backend
+[exit 0; includes connector-config-migration.js]
+$ npm run format:check
+[exit 0]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-config-risk.test.ts
+Test Suites: 1 passed, 1 total; Tests: 2 passed, 2 total
+[exit 0; additional config-only credential case]

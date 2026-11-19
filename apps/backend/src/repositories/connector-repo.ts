@@ -66,22 +66,40 @@ export class ConnectorsRepository {
     patch: {
       name?: string;
       config?: unknown;
+      credentialsEncrypted?: string | null;
       status?: ConnectorRow['status'];
       lastError?: string | null;
     },
   ): Promise<ConnectorRow | null> {
-    const current = await this.findById(organisationId, id);
-    if (!current) return null;
+    // Only update supplied fields: a name/status change must not overwrite a concurrently
+    // encrypted configuration with a stale plaintext snapshot (or vice versa).
+    const assignments: string[] = [];
+    const values: unknown[] = [];
+    if (patch.name !== undefined) {
+      assignments.push('name = ?');
+      values.push(patch.name);
+    }
+    if (patch.config !== undefined) {
+      assignments.push('config = ?');
+      values.push(JSON.stringify(patch.config));
+    }
+    if (patch.credentialsEncrypted !== undefined) {
+      assignments.push('credentials_encrypted = ?');
+      values.push(patch.credentialsEncrypted);
+    }
+    if (patch.status !== undefined) {
+      assignments.push('status = ?');
+      values.push(patch.status);
+    }
+    if (patch.lastError !== undefined) {
+      assignments.push('last_error = ?');
+      values.push(patch.lastError);
+    }
+    assignments.push('updated_at = ?');
+    values.push(nowIso(), organisationId, id);
     await this.db.execute(
-      `UPDATE connectors SET name = ?, config = ?, status = ?, last_error = ?, updated_at = ? WHERE id = ?`,
-      [
-        patch.name ?? current.name,
-        patch.config === undefined ? current.config : JSON.stringify(patch.config),
-        patch.status ?? current.status,
-        patch.lastError === undefined ? current.last_error : patch.lastError,
-        nowIso(),
-        id,
-      ],
+      `UPDATE connectors SET ${assignments.join(', ')} WHERE organisation_id = ? AND id = ?`,
+      values,
     );
     return this.findById(organisationId, id);
   }

@@ -72,3 +72,21 @@ the merged effective config, secure create and patch semantics, an atomic migrat
 plan for existing rows, consistent precedence, and tests for old and new records and all connector
 types. Merely changing documentation, hiding some DTO keys or encrypting the separate credentials
 field does not resolve this exposure. Owner: unassigned; backend security and connector owners.
+
+### ARC-023 update — encryption of new settings and offline migration
+
+New connector creates and configuration replacements now encrypt the complete config and credentials
+together, and DTOs return an empty config even for legacy rows. Validation uses the merged effective
+settings, with credentials retaining precedence; replacing config preserves existing credentials.
+An offline, single-transaction migration can check and migrate existing rows with a stopped-writer
+acknowledgement, preserving both objects. `connector-config-risk.test.ts` covers arbitrary nested
+secret values, credentials-only HubSpot validation, legacy DTO redaction and replacement;
+`connector-config-migration.test.ts` covers synthetic SQLite check/apply, rollback, key rotation and
+CLI gating. This changes the response contents and storage format; old binaries cannot safely run
+against migrated rows. `docs/connector-config-migration.md` details downtime, backups and rollback.
+
+This is partial remediation, not a blanket guarantee. Existing databases are still plaintext until
+operators execute and verify migration; old database pages, WAL, replicas, backups, logs, historical
+errors and other connector outputs may retain secrets. Key-rotation and migration tests are synthetic,
+not a production rollout. Direct in-process connectors are still not isolated. Independent security
+review, production migration evidence and incident/rotation assessment remain open. P8 is unmet.
