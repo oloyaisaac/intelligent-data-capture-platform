@@ -9,8 +9,9 @@ import { documentTypeLabel } from '../lib/labels';
 /**
  * CON-001..003 / MAP-001 — connectors and field mappings.
  *
- * Credentials are write-only: the server never returns them, so the form is the only place they
- * exist outside the encrypted store. Testing a connector performs a real health check.
+ * New connector configuration and credentials are write-only and encrypted at rest. Legacy rows
+ * require offline migration, and credentials can also exist in backups or connector processes.
+ * Testing a connector performs a real health check.
  */
 export function ConnectorsPage({ client }: { client: ApiClient }): React.JSX.Element {
   const t = useTranslator();

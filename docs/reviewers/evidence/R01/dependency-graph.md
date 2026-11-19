@@ -36,3 +36,9 @@ No skipped-file warnings were emitted. An earlier JSON graph inspection confirme
 skipped in the earlier scan without `--ts-config`. Madge's static graph is not proof about all
 runtime or dynamic dependencies, external package internals, or deployment-time resolution. This
 result is not a substitute for the remaining R01 cross-workspace boundary review.
+
+Subsequent worktree scans processed 235 files without `--warning`, then 237 files after adding the
+fatal-connector subprocess test using `npx --yes madge@8 --circular --extensions ts,tsx --ts-config
+tsconfig.base.json --warning apps packages`. Both reported no cycles; the latter emitted no skipped-file
+warnings. See `commands.log` for commands and scope. Static scans do not prove dynamic dependencies
+or runtime isolation.

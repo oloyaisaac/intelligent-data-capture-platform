@@ -1,15 +1,8 @@
 import { createHarness, registerAccount, type Harness } from './helpers';
-import { RECOVERY_GRACE_MS } from '../src/services/worker';
 import { JobsRepository } from '../src/repositories/system-repo';
 import { ExtractionsRepository } from '../src/repositories/document-repo';
 
-/**
- * Stale job recovery (DEC-029).
- *
- * Startup recovery requeues claims older than its grace period. It can reclaim a live job and it
- * does not revisit fresh claims later. Attempt guards protect the job row from stale completion,
- * but they do not fence extraction writes or prevent duplicate execution.
- */
+/** Attempt guards and explicit recovery; offline safety depends on operator actions. */
 describe('worker recovery of interrupted jobs', () => {
   let harness: Harness;
 
@@ -55,7 +48,7 @@ describe('worker recovery of interrupted jobs', () => {
     return row?.status ?? 'missing';
   }
 
-  it('re-queues a job a previous process left running, then completes it', async () => {
+  it('leaves an interrupted claim running until explicitly requeued, then completes it', async () => {
     const account = await registerAccount(harness);
     // Claimed ten minutes ago by a process that is no longer alive.
     const stale = await insertJob({
@@ -68,12 +61,16 @@ describe('worker recovery of interrupted jobs', () => {
     await harness.services.worker.start();
     await harness.services.worker.stop();
 
+    expect(await statusOf(stale)).toBe('running');
+    const repository = new JobsRepository(harness.db);
+    expect(await repository.requeueInterrupted(stale, 2)).toBe(false);
+    expect(await repository.requeueInterrupted(stale, 1)).toBe(true);
     expect(await statusOf(stale)).toBe('queued');
     const recovered = await harness.db.one<{ last_error: string }>(
       'SELECT last_error FROM jobs WHERE id = ?',
       [stale],
     );
-    expect(recovered?.last_error).toContain('interrupted');
+    expect(recovered?.last_error).toContain('operator');
 
     await harness.services.worker.drain();
     expect(await statusOf(stale)).toBe('succeeded');
@@ -84,7 +81,7 @@ describe('worker recovery of interrupted jobs', () => {
     const fresh = await insertJob({
       organisationId: account.organisationId,
       status: 'running',
-      startedAt: new Date(Date.now() - Math.floor(RECOVERY_GRACE_MS / 2)).toISOString(),
+      startedAt: new Date(Date.now() - 15_000).toISOString(),
     });
 
     await harness.services.worker.start();
@@ -93,21 +90,18 @@ describe('worker recovery of interrupted jobs', () => {
     expect(await statusOf(fresh)).toBe('running');
   });
 
-  it('documents that another worker can reclaim an active job older than the grace period', async () => {
+  it('does not reclaim an old running claim at startup', async () => {
     const account = await registerAccount(harness);
     // Model a still-running worker holding an old job: there is no ownership or heartbeat field.
     const active = await insertJob({
       organisationId: account.organisationId,
       status: 'running',
-      startedAt: new Date(Date.now() - RECOVERY_GRACE_MS - 1000).toISOString(),
+      startedAt: new Date(Date.now() - 30_000 - 1000).toISOString(),
     });
     await harness.services.worker.start();
     await harness.services.worker.stop();
-    expect(await statusOf(active)).toBe('queued');
-    const reclaimed = await new JobsRepository(harness.db).claimNext();
-    expect(reclaimed?.id).toBe(active);
-    expect(reclaimed?.status).toBe('running');
-    expect(reclaimed?.attempts).toBe(2);
+    expect(await statusOf(active)).toBe('running');
+    expect(await new JobsRepository(harness.db).claimNext()).toBeNull();
   });
 
   it('rejects completion and failure reports from an old claim after recovery or reclaim', async () => {
@@ -119,9 +113,7 @@ describe('worker recovery of interrupted jobs', () => {
       attempts: 1,
     });
     const repository = new JobsRepository(harness.db);
-    expect(
-      await repository.requeueStale(new Date(Date.now() - RECOVERY_GRACE_MS).toISOString()),
-    ).toBe(1);
+    expect(await repository.requeueInterrupted(id, 1)).toBe(true);
 
     // A stale worker cannot finish while recovery has left its claim queued.
     expect(await repository.markSucceeded(id, 1)).toBe(false);
@@ -152,7 +144,7 @@ describe('worker recovery of interrupted jobs', () => {
     const original = harness.db.one.bind(harness.db);
     const select = jest.spyOn(harness.db, 'one').mockImplementationOnce(async (sql, params) => {
       const row = await original(sql, params);
-      await repository.requeueStale(new Date(Date.now() - RECOVERY_GRACE_MS).toISOString());
+      await repository.requeueInterrupted(id, 1);
       return row as never;
     });
     try {
@@ -214,7 +206,7 @@ describe('worker recovery of interrupted jobs', () => {
       expect(old.attempts).toBe(1);
       // Model a second process starting after this live claim is considered stale. Its recovery
       // and processing use the real repository and worker, with deterministic fake OCR.
-      expect(await repository.requeueStale(new Date(Date.now() + 1000).toISOString())).toBe(1);
+      expect(await repository.requeueInterrupted(old.id, old.attempts)).toBe(true);
       const second = await repository.claimNext();
       expect(second?.id).toBe(old.id);
       expect(second?.attempts).toBe(2);
@@ -434,7 +426,7 @@ describe('worker recovery of interrupted jobs', () => {
     const ready = new Promise<void>((resolve) => {
       locked = resolve;
     });
-    let recovered: Promise<number> | undefined;
+    let recovered: Promise<boolean> | undefined;
     const finishing = harness.db.transaction(async (tx) => {
       expect(await new JobsRepository(tx).markSucceeded(id, 1)).toBe(true);
       locked();
@@ -443,17 +435,15 @@ describe('worker recovery of interrupted jobs', () => {
     try {
       await ready;
       let settled = false;
-      recovered = new JobsRepository(harness.db)
-        .requeueStale(new Date().toISOString())
-        .then((count) => {
-          settled = true;
-          return count;
-        });
+      recovered = new JobsRepository(harness.db).requeueInterrupted(id, 1).then((count) => {
+        settled = true;
+        return count;
+      });
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(settled).toBe(false);
       release();
       await finishing;
-      expect(await recovered).toBe(0);
+      expect(await recovered).toBe(false);
       expect(await statusOf(id)).toBe('succeeded');
     } finally {
       release();
@@ -469,13 +459,12 @@ describe('worker recovery of interrupted jobs', () => {
       status: 'running',
       startedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
     });
-    const cutoff = new Date(Date.now() - RECOVERY_GRACE_MS).toISOString();
     const repository = new JobsRepository(harness.db);
     const counts = await Promise.all([
-      repository.requeueStale(cutoff),
-      repository.requeueStale(cutoff),
+      repository.requeueInterrupted(stale, 1),
+      repository.requeueInterrupted(stale, 1),
     ]);
-    expect(counts.sort()).toEqual([0, 1]);
+    expect(counts.sort()).toEqual([false, true]);
     expect(await statusOf(stale)).toBe('queued');
   });
 

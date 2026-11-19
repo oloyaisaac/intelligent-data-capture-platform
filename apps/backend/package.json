@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/server.js",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=../../tsconfig.base.json --external:@fastify/cors --external:@fastify/multipart --external:@fastify/rate-limit --external:@node-rs/argon2 --external:exceljs --external:fastify --external:jsonwebtoken --external:nodemailer --external:mysql2 --external:pg --external:zod --outfile=dist/server.js && esbuild src/db/migrate-cli.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=../../tsconfig.base.json --external:@fastify/cors --external:@fastify/multipart --external:@fastify/rate-limit --external:@node-rs/argon2 --external:exceljs --external:fastify --external:jsonwebtoken --external:nodemailer --external:mysql2 --external:pg --external:zod --outfile=dist/migrate.js && esbuild src/db/encryption-migration-cli.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=../../tsconfig.base.json --external:pg --external:zod --outfile=dist/encryption-migration.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=../../tsconfig.base.json --external:@fastify/cors --external:@fastify/multipart --external:@fastify/rate-limit --external:@node-rs/argon2 --external:exceljs --external:fastify --external:jsonwebtoken --external:nodemailer --external:mysql2 --external:pg --external:zod --outfile=dist/server.js && esbuild src/db/migrate-cli.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=../../tsconfig.base.json --external:@fastify/cors --external:@fastify/multipart --external:@fastify/rate-limit --external:@node-rs/argon2 --external:exceljs --external:fastify --external:jsonwebtoken --external:nodemailer --external:mysql2 --external:pg --external:zod --outfile=dist/migrate.js && esbuild src/db/encryption-migration-cli.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=../../tsconfig.base.json --external:pg --external:zod --outfile=dist/encryption-migration.js && esbuild src/db/connector-config-migration-cli.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=../../tsconfig.base.json --external:pg --external:zod --outfile=dist/connector-config-migration.js && esbuild src/db/worker-recovery-cli.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=../../tsconfig.base.json --external:pg --external:zod --outfile=dist/worker-recovery.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:migrate": "tsx src/db/migrate-cli.ts",
     "db:seed": "tsx src/db/seed-cli.ts",
-    "db:encryption": "tsx src/db/encryption-migration-cli.ts"
+    "db:encryption": "tsx src/db/encryption-migration-cli.ts",
+    "db:connector-config": "tsx src/db/connector-config-migration-cli.ts",
+    "db:worker-recovery": "tsx src/db/worker-recovery-cli.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

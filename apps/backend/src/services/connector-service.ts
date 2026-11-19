@@ -31,6 +31,22 @@ import type { ConnectorRow, MappingProfileRow } from '../repositories/types';
 import type { AuthenticatedActor } from './auth-service';
 import type { SecretBox } from './crypto';
 import type { RealtimeHub } from '../realtime/hub';
+import { z } from 'zod';
+import { decodeConnectorConfig, encodeConnectorConfig } from './connector-config';
+
+// Strip non-contract properties from untrusted connector output. Contract strings remain
+// destination-supplied and may themselves contain sensitive data; this is not a sandbox.
+const DestinationSchema = z.object({
+  container: z.string(),
+  fields: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      type: z.enum(['string', 'number', 'date', 'boolean']),
+      required: z.boolean().optional(),
+    }),
+  ),
+});
 
 export function toConnectorDto(row: ConnectorRow) {
   return {
@@ -38,9 +54,14 @@ export function toConnectorDto(row: ConnectorRow) {
     type: row.type,
     name: row.name,
     status: row.status,
-    config: JSON.parse(row.config) as Record<string, unknown>,
+    // Arbitrary connector config can contain credentials; it is write-only, including legacy rows.
+    config: {},
     lastHealthCheckAt: row.last_health_check_at,
-    lastError: row.last_error,
+    // Historical errors may contain connector-supplied secrets. Never trust persisted free text.
+    lastError:
+      row.last_error === null
+        ? null
+        : 'Connection check failed. Review the destination and connection settings.',
     createdAt: row.created_at,
   };
 }
@@ -95,23 +116,19 @@ export class ConnectorService {
     } catch (error) {
       throw badRequest((error as Error).message);
     }
+    const parts = { config: input.config, credentials: input.credentials ?? {} };
     try {
-      connector.validateConfig(input.config);
+      connector.validateConfig({ ...parts.config, ...parts.credentials });
     } catch {
       throw badRequest('Connector configuration is invalid. Review the connection settings.');
     }
 
-    const encrypted =
-      input.credentials && Object.keys(input.credentials).length > 0
-        ? this.secretBox.encrypt(JSON.stringify(input.credentials), actor.organisationId)
-        : null;
-
+    const encoded = encodeConnectorConfig(this.secretBox, actor.organisationId, parts);
     const row = await this.connectors.create({
       organisationId: actor.organisationId,
       type: input.type,
       name: input.name,
-      config: input.config,
-      credentialsEncrypted: encrypted,
+      ...encoded,
     });
 
     await this.audit.record({
@@ -133,15 +150,27 @@ export class ConnectorService {
   ) {
     const current = await this.connectors.findById(actor.organisationId, id);
     if (!current) throw new AppError('NOT_FOUND', 'Connector not found.');
-    if (patch.config) {
+    let encoded: ReturnType<typeof encodeConnectorConfig> | undefined;
+    if (patch.config !== undefined) {
+      if (!patch.config || Array.isArray(patch.config)) {
+        throw badRequest('Connector configuration is invalid. Review the connection settings.');
+      }
+      const { credentials } = decodeConnectorConfig(this.secretBox, current);
       try {
-        this.registry.get(current.type).validateConfig(patch.config);
+        this.registry.get(current.type).validateConfig({ ...patch.config, ...credentials });
       } catch {
         throw badRequest('Connector configuration is invalid. Review the connection settings.');
       }
+      encoded = encodeConnectorConfig(this.secretBox, actor.organisationId, {
+        config: patch.config,
+        credentials,
+      });
     }
 
-    const updated = await this.connectors.update(actor.organisationId, id, patch);
+    const updated = await this.connectors.update(actor.organisationId, id, {
+      ...patch,
+      ...encoded,
+    });
     await this.audit.record({
       organisationId: actor.organisationId,
       actorType: actor.actorType,
@@ -192,9 +221,10 @@ export class ConnectorService {
     const row = await this.connectors.findById(actor.organisationId, id);
     if (!row) throw new AppError('NOT_FOUND', 'Connector not found.');
     try {
-      return await this.registry
+      const schema = await this.registry
         .get(row.type)
         .describeSchema(this.resolveConfig(row), this.context(actor));
+      return DestinationSchema.parse(schema);
     } catch {
       throw new AppError(
         'UNPROCESSABLE',
@@ -547,19 +577,19 @@ export class ConnectorService {
       documentId: row.document_id,
       operation: row.operation,
       status: row.status,
-      error: row.error,
+      // Older runs may contain raw connector exceptions, including credentials or record data.
+      error:
+        row.error === null
+          ? null
+          : 'Connector request failed. Check the destination for changes and review connection settings before retrying.',
       durationMs: row.duration_ms,
       createdAt: row.created_at,
     }));
   }
 
-  /** Merges non-secret config with decrypted credentials, for the connector call only. */
+  /** Credentials retain precedence over configuration for connector calls. */
   private resolveConfig(row: ConnectorRow): Record<string, unknown> {
-    const config = JSON.parse(row.config) as Record<string, unknown>;
-    if (!row.credentials_encrypted) return config;
-    const credentials = JSON.parse(
-      this.secretBox.decrypt(row.credentials_encrypted, row.organisation_id),
-    ) as Record<string, unknown>;
+    const { config, credentials } = decodeConnectorConfig(this.secretBox, row);
     return { ...config, ...credentials };
   }
 

@@ -116,28 +116,36 @@ export class JobsRepository {
     return this.db.one<JobRow>('SELECT * FROM jobs WHERE id = ?', [id]);
   }
 
-  /**
-   * Re-queue jobs that a dead process left in `running` (DEC-029).
-   *
-   * `claimNext` flips a job to `running` and nothing else ever moves it out of that state, so a
-   * crash, a `kill -9` or a deploy that stops the container mid-extraction used to strand the job
-   * — and its document in `processing` — forever. This startup heuristic retries old work while
-   * preserving the attempt count, but side effects are not guaranteed to be idempotent.
-   *
-   * It is only usable with one worker process. A second process can requeue a live job. Safe
-   * recovery across instances needs ownership, leases, fencing and idempotent side effects.
-   */
-  async requeueStale(startedBefore: string): Promise<number> {
-    const requeued = await this.db.query<{ id: string }>(
-      `UPDATE jobs SET status = 'queued', run_after = ?, last_error = ?
-        WHERE status = 'running' AND (started_at IS NULL OR started_at <= ?) RETURNING id`,
-      [
-        nowIso(),
-        'Recovered after an interrupted run (the process stopped mid-job).',
-        startedBefore,
-      ],
+  async countRunning(): Promise<number> {
+    const row = await this.db.one<{ count: number | string }>(
+      "SELECT COUNT(*) AS count FROM jobs WHERE status = 'running'",
     );
-    return requeued.length;
+    return Number(row?.count ?? 0);
+  }
+
+  /** Limited metadata for an offline operator; never include payload or error text. */
+  listRunningForRecovery(): Promise<
+    Array<
+      Pick<JobRow, 'id' | 'organisation_id' | 'document_id' | 'type' | 'attempts' | 'started_at'>
+    >
+  > {
+    return this.db.query(
+      `SELECT id, organisation_id, document_id, type, attempts, started_at
+       FROM jobs WHERE status = 'running' ORDER BY created_at, id LIMIT 1000`,
+    );
+  }
+
+  /**
+   * Operator-directed recovery only, after all workers are stopped and external effects reviewed.
+   * Neither the attempt guard nor a database transaction proves a previous process is dead.
+   */
+  async requeueInterrupted(id: string, attempt: number): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      `UPDATE jobs SET status = 'queued', run_after = ?, last_error = ?
+       WHERE id = ? AND status = 'running' AND attempts = ? RETURNING id`,
+      [nowIso(), 'Requeued by operator after offline review.', id, attempt],
+    );
+    return row !== null;
   }
 
   /** Check after locking the document; reprocess enqueues under that same document lock. */

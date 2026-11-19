@@ -16,6 +16,20 @@ session's stated date; it is recorded as the runner's clock, not used as a revie
   source-only census and decomposition notes.
 - The citation check uses tracked Markdown rather than recursively searching installed dependencies;
   no cited `DEC-###` was missing from `DECISIONS.md` in that scope.
+- A focused Odoo stub regression first failed on the prior instance-lifetime UID cache when a remote
+  user ID changed. After removing the cross-operation cache, the focused connector suite verifies
+  fresh authentication, credential changes, batch reuse and empty batches. This does not exercise a
+  real Odoo server or establish atomic remote writes.
+- The two-subprocess SQLite live-claim regression failed on the prior age-based startup recovery:
+  the second process entered OCR while the first was paused. After removing automatic requeue it
+  passes with one attempt. The SIGKILL regression now needs explicit requeue; the offline CLI
+  regression checks confirmation flags, attempt matching and limited output on synthetic SQLite data.
+  Local `npm run verify` passed 61 suites and 636 tests, with four PostgreSQL tests skipped. This
+  does not prove offline controls, idempotent external effects or production recovery. For commit
+  `f75a772`, [CI run 44598906112](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44598906112)
+  passed Verify, PostgreSQL and browser checks; the container build initially failed during `npm ci`
+  with its underlying error unavailable in the accessible annotations. The failed container job
+  passed on rerun. The cause of the initial failure remains unknown.
 - Local PostgreSQL and Docker were unavailable. PostgreSQL, Compose and browser jobs passed at
   `7dc278c` in [CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44548570287).
   That is not production validation.

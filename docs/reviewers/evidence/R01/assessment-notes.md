@@ -13,21 +13,23 @@ remain incomplete.
    release compatibility and the broad `Services` object still require engineering judgement.
 2. **Only one composition root?** No. `services/container.ts` assembles most service dependencies,
    but `index.ts` calls the database and HTTP factories, `db/index.ts` selects and constructs
-   database adapters, `ai/pipeline.ts` constructs OCR providers, and the offline encryption-migration
-   CLI composes its own transaction repository. The realtime route now uses an optional port
-   capability instead of casting to the in-memory hub; service-level repository injection is also
-   progress, but neither establishes P5.
+   database adapters, and the offline migration CLIs compose their own transaction repositories.
+   OCR provider construction has moved from `ai/pipeline.ts` to `services/container.ts`; the pipeline
+   now receives only the provider port. The realtime route uses an optional port capability rather
+   than casting to the in-memory hub. These improvements do not by themselves establish P5.
 3. **Ten API replicas?** There is no validated order of failure under load; likely first-visible
    divergences depend on traffic routing. With process-local storage, a replica may not find a file
    uploaded elsewhere. Even on shared filesystem storage, SSE reaches only the emitting process's
    subscribers and login/pairing attempt limits are per process. Enabling multiple workers adds
-   unsafe age-only recovery and unfenced side effects; independent maintenance loops add duplicate
+   unfenced side effects and unsupported concurrent execution; independent maintenance loops add duplicate
    scheduling risk. Database pool counts and aggregate memory also multiply. The specific two-API
    demonstration and its limits are in `state-inventory.md`. A shared database and storage alone
    do not make ten replicas supported.
 4. **Largest architectural risk?** For scaling the capture loop, DEC-029's single-process runtime
-   coupled to age-only recovery is the most immediate architectural risk in this review: normal
-   claims are atomic, but stale recovery can reclaim active work and writes have no fencing. Reversal
+   and its recovery/effects model is the most immediate architectural risk in this review: normal
+   claims are atomic and extraction publication is attempt-guarded. Age-only startup recovery has
+   been removed, but manual recovery depends on operator controls and external effects remain
+   unfenced. Reversal
    requires coordinated ownership/leases, fencing and idempotent effects, shared realtime and rate
    limiting, shared storage, coordinated maintenance and failure-injection/operational tests. This
    is a qualitative assessment, not an estimate of effort or an owner-approved migration plan.

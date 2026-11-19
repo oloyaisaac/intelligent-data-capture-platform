@@ -53,6 +53,31 @@ new OtherRepository(connection);`;
     expect(repositoryConstructions('// new UsersRepository(db)', 'sample.ts')).toEqual([]);
   });
 
+  it('keeps SMTP library imports out of service modules', () => {
+    const directory = join(__dirname, '../src/services');
+    const violations: string[] = [];
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
+      const path = join(directory, entry.name);
+      const source = ts.createSourceFile(
+        path,
+        readFileSync(path, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      for (const statement of source.statements) {
+        if (
+          ts.isImportDeclaration(statement) &&
+          ts.isStringLiteral(statement.moduleSpecifier) &&
+          statement.moduleSpecifier.text === 'nodemailer'
+        ) {
+          violations.push(entry.name);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
   it('keeps direct repository construction out of service modules except the composition root', () => {
     const directory = join(__dirname, '../src/services');
     const violations: string[] = [];

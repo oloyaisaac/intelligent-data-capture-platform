@@ -125,11 +125,12 @@ without TLS. `docker compose down` preserves the named database and document vol
 
 On `SIGTERM`/`SIGINT`, shutdown waits for active maintenance and claimed worker work before
 closing the HTTP server and database. There is no application shutdown deadline; configure the
-supervisor's grace period accordingly. A forced kill may interrupt work. At startup, recovery
-requeues jobs whose claim is older than 30 seconds, but does not revisit newer claims later in the
-same run. Recovery is age-based and unfenced: overlapping workers can reclaim still-live work and
-repeat effects. Do not run overlapping replicas, and do not assume crash recovery or exactly-once
-execution. See `ARCHITECTURE.md` and R01 findings ARC-013/ARC-021.
+supervisor's grace period accordingly. A forced kill may interrupt work. Startup no longer requeues
+running jobs automatically: interrupted claims remain running until an operator reviews and requeues
+them with every worker stopped. Follow `docs/worker-recovery.md`. Old binaries retain the unsafe
+age-only behavior, so do not allow them to restart. Offline retry can repeat external effects; do not
+run overlapping replicas or assume automatic recovery or exactly-once execution. See
+`ARCHITECTURE.md` and R01 findings ARC-013/ARC-021.
 
 | Group         | Keys (see `.env.example`)                                                                                                                      |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |

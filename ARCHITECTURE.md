@@ -82,11 +82,12 @@ claim attempt; page OCR, extraction and field rows, final document status and jo
 one database transaction. Failed extraction status is guarded in its failure transaction. The API
 rejects new reprocess requests while another extraction is queued or running. These guards do not
 prevent duplicate OCR calls or costs, guarantee delivery of events, protect retention purge, or
-establish safe handling of pre-existing overlapping jobs. On startup, a running job older than 30
-seconds can be requeued without a lease or heartbeat even if another process is still processing it
-(`services/worker.ts`, `repositories/system-repo.ts`). Only one worker process is supported. On
-normal shutdown the worker waits for startup recovery and a currently claimed job to finish before
-the database closes; overlapping drain calls on that worker share one loop. This wait has no global
+establish safe handling of pre-existing overlapping jobs. Startup no longer automatically requeues
+running claims based on age: a crashed job remains running until an operator reviews and requeues it
+with all workers offline. See `docs/worker-recovery.md`; retries can still repeat external effects,
+and old binaries must not be started. Only one worker process is supported. On normal shutdown the
+worker waits for its startup check and a currently claimed job to finish before the database closes;
+overlapping drain calls on that worker share one loop. This wait has no global
 shutdown deadline, and a forced termination can still interrupt work. Normal shutdown also waits
 for active maintenance sweeps; neither behavior makes multi-replica scheduling safe.
 
@@ -153,11 +154,11 @@ role/tenant checks; see `apps/backend/src/http/guards.ts` and the individual rou
 that every action has the same guard or audit behavior from this overview.
 
 Workers execute inside the backend process; connectors are not sandboxed and do not receive a
-separate short-lived internal service credential as an isolation mechanism. Values explicitly supplied
-in the connector `credentials` field are encrypted with a legacy migration path, but secrets in
-`config` are stored and returned as plaintext. HubSpot's config-only validation currently encourages
-this exposure (ARC-023); do not assume all connector credentials are encrypted. TLS termination and filesystem or
-backup encryption at rest must be supplied by deployment operators; uploaded files are not made
+separate short-lived internal service credential as an isolation mechanism. New and replaced connector
+configuration and credentials are encrypted together and omitted from DTOs, but existing plaintext
+configuration requires an offline migration; old files and backups may retain copies (ARC-023).
+TLS termination and filesystem or backup encryption at rest must be supplied by deployment
+operators; uploaded files are not made
 encrypted merely by storing them under `STORAGE_PATH`. See `SECURITY.md` and the key-migration,
 connector-network and erasure runbooks for scope and limitations.
 

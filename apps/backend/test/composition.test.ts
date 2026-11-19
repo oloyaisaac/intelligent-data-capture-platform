@@ -116,7 +116,7 @@ it('runs and handles failed jobs with injected worker repositories and no databa
   const repositories: WorkerRepositories = {
     jobs: {
       claimNext: jest.fn().mockResolvedValueOnce(job).mockResolvedValueOnce(null),
-      requeueStale: jest.fn().mockResolvedValue(0),
+      countRunning: jest.fn().mockResolvedValue(0),
       markSucceeded: jest.fn().mockResolvedValue(true),
       markFailed: jest.fn().mockResolvedValue('queued'),
     },

@@ -47,13 +47,13 @@ compatibility changes and limitations.
 - Secrets must not be logged, returned by the API or included in error messages. This is a security
   requirement, **not an established guarantee**; see the connector configuration exception below
   and R01 findings ARC-016, ARC-017 and ARC-023.
-- Values supplied in the connector `credentials` field are encrypted in
-  `connectors.credentials_encrypted` and decrypted in the backend when used. **Known gap:** values
-  supplied in `config` are stored as plaintext and returned to authenticated organisation users.
-  HubSpot validation currently requires its token in `config` even if it is supplied in
-  `credentials`. Do not configure real HubSpot tokens through this path until fixed. Review access
-  to connector listings and database backups, and assess rotation of any exposed credentials.
-  Other connector config fields, including database connection strings, require the same review.
+- New or replaced connector configurations and credentials are encrypted together in
+  `connectors.credentials_encrypted`, decrypted in the backend for use, and not returned by the
+  connector DTO. **Existing rows can still contain plaintext** until the offline configuration
+  migration is run and verified; database files, logs, replicas and backups may retain old copies.
+  Review access and rotation of any previously exposed credentials. This is not process isolation,
+  and historical error fields or other connector outputs may contain sensitive data. See
+  `docs/connector-config-migration.md` and R01 findings ARC-016, ARC-017 and ARC-023.
 - If a secret is committed by mistake: rotate it immediately, purge it from history, and record the incident.
 
 ## 4. Authentication

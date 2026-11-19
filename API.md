@@ -286,7 +286,7 @@ Every change is stored in `review_changes` with the actor and the previous value
 | POST     | `/exports`               | Create an export job (`format`: `xlsx` \| `csv`, plus filters) |
 | GET      | `/exports/:id`           | Status + expiring download URL                                 |
 | GET      | `/exports`               | Export history                                                 |
-| GET      | `/connectors`            | List connectors (config is returned; see security warning)     |
+| GET      | `/connectors`            | List connectors (config is write-only)                         |
 | POST     | `/connectors`            | Create connector                                               |
 | PATCH    | `/connectors/:id`        | Update or disable                                              |
 | DELETE   | `/connectors/:id`        | Remove connector and its credentials                           |
@@ -296,10 +296,13 @@ Every change is stored in `review_changes` with the actor and the previous value
 | PATCH    | `/mapping-profiles/:id`  | Update mapping, duplicate policy                               |
 | POST     | `/documents/:id/send`    | Send an approved record through a connector                    |
 
-**Connector security warning:** `config` is stored and returned as plaintext. The separate
-`credentials` field is encrypted and omitted from responses, but connector validation currently
-examines only `config`; HubSpot therefore requires its token there. Do not configure real HubSpot
-tokens through this path until the issue is fixed. See `SECURITY.md` and R01 finding ARC-023.
+**Connector configuration:** `config` and `credentials` are write-only. Responses include an empty
+`config` object for compatibility with the response shape, rather than returning stored settings.
+Creating or replacing configuration encrypts both objects; credentials override matching config
+keys and the merged settings are validated. PATCH `config` replaces the complete configuration
+object while preserving existing credentials; PATCH does not update credentials. Existing plaintext
+rows require the offline migration in `docs/connector-config-migration.md`, and prior copies may
+need rotation or secure disposal. See `SECURITY.md` and R01 finding ARC-023.
 
 `POST /documents/:id/send`
 

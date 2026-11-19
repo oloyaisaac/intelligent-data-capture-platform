@@ -51,6 +51,15 @@ it('protects validation and health-check responses, persistence and logs from co
 
     describeSchema.mockRejectedValueOnce(new AppError('FORBIDDEN', `schema ${secret}`));
     describeSchema.mockResolvedValueOnce({ container: 'test', fields: [] });
+    describeSchema.mockResolvedValueOnce({
+      container: 'test',
+      extra: secret,
+      fields: [{ key: 'invoice', label: 'Invoice', type: 'string', extra: secret }],
+    });
+    describeSchema.mockResolvedValueOnce({
+      container: 'test',
+      fields: [{ key: secret, label: 'x', type: 'unknown' }],
+    });
     const schemaFailure = await harness.api.get(
       `/api/v1/connectors/${connectorId}/schema`,
       account.accessToken,
@@ -63,6 +72,22 @@ it('protects validation and health-check responses, persistence and logs from co
     );
     expect(schemaSuccess.statusCode).toBe(200);
     expect(schemaSuccess.json()).toEqual({ container: 'test', fields: [] });
+    const schemaExtra = await harness.api.get(
+      `/api/v1/connectors/${connectorId}/schema`,
+      account.accessToken,
+    );
+    expect(schemaExtra.statusCode).toBe(200);
+    expect(schemaExtra.body).not.toContain(secret);
+    expect(schemaExtra.json()).toEqual({
+      container: 'test',
+      fields: [{ key: 'invoice', label: 'Invoice', type: 'string' }],
+    });
+    const malformed = await harness.api.get(
+      `/api/v1/connectors/${connectorId}/schema`,
+      account.accessToken,
+    );
+    expect(malformed.statusCode).toBe(422);
+    expect(malformed.body).not.toContain(secret);
 
     healthCheck.mockImplementationOnce(async (_config: unknown, context: ConnectorContext) => {
       context.logger.info(`message ${secret}`, { data: secret });

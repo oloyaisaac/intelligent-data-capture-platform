@@ -547,7 +547,7 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
     }
   });
 
-  it('authenticates once and writes through Odoo JSON-RPC', async () => {
+  it('authenticates once per Odoo operation and reuses the id within a batch', async () => {
     const stub = await stubServer((recorded) => {
       const body = recorded.body as { params: { method: string; args: unknown[] } };
       if (body.params.method === 'login')
@@ -575,11 +575,12 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
       };
       odoo.validateConfig(config);
 
-      const created = await odoo.create([{ values: { name: 'INV-1', amount_total: 99 } }], config, {
-        ...context,
-        fetchImpl: stub.fetchImpl,
-      });
-      expect(created.created).toBe(1);
+      const created = await odoo.create(
+        [{ values: { name: 'INV-1', amount_total: 99 } }, { values: { name: 'INV-2' } }],
+        config,
+        { ...context, fetchImpl: stub.fetchImpl },
+      );
+      expect(created.created).toBe(2);
 
       const found = await odoo.search({ where: { name: 'INV-1' } }, config, {
         ...context,
@@ -588,18 +589,18 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
       expect(found[0]!.values).toMatchObject({ id: 31 });
 
       const updated = await odoo.update(
-        [{ values: { id: 31, amount_total: 100 } }],
+        [{ values: { id: 31, amount_total: 100 } }, { values: { id: 32, amount_total: 50 } }],
         ['id'],
         config,
         { ...context, fetchImpl: stub.fetchImpl },
       );
-      expect(updated.updated).toBe(1);
+      expect(updated.updated).toBe(2);
 
-      // The uid is cached: one login for three calls.
+      // Two batch operations and one search authenticate separately; each batch logs in once.
       const logins = stub.calls.filter(
         (call) => (call.body as { params?: { method?: string } }).params?.method === 'login',
       );
-      expect(logins).toHaveLength(1);
+      expect(logins).toHaveLength(3);
 
       const write = stub.calls.find((call) => {
         const args = (call.body as { params?: { args?: unknown[] } }).params?.args;
@@ -609,6 +610,82 @@ describe('CRM, ERP and accounting connectors (CRM-001)', () => {
         [31],
         { id: 31, amount_total: 100 },
       ]);
+    } finally {
+      await stub.close();
+    }
+  });
+
+  it('reauthenticates between Odoo operations when the remote user id changes', async () => {
+    let remoteUid = 7;
+    const stub = await stubServer((recorded) => {
+      const body = recorded.body as { params: { method: string; args: unknown[] } };
+      if (body.params.method === 'login') return { status: 200, body: { result: remoteUid } };
+      if (body.params.args[1] !== remoteUid)
+        return { status: 200, body: { error: { message: 'stale user id' } } };
+      return { status: 200, body: { result: 0 } };
+    });
+    try {
+      const connector = new OdooConnector();
+      const config = {
+        baseUrl: stub.baseUrl,
+        database: 'acme',
+        username: 'integration',
+        apiKey: 'synthetic-key',
+      };
+      const ctx = { ...context, fetchImpl: stub.fetchImpl };
+      expect(await connector.healthCheck(config, ctx)).toEqual({ ok: true });
+      remoteUid = 8;
+      expect(await connector.healthCheck(config, ctx)).toEqual({ ok: true });
+      const logins = stub.calls.filter(
+        (call) => (call.body as { params: { method: string } }).params.method === 'login',
+      );
+      expect(logins).toHaveLength(2);
+    } finally {
+      await stub.close();
+    }
+  });
+
+  it('checks changed Odoo credentials rather than reusing a previous login', async () => {
+    const stub = await stubServer((recorded) => {
+      const body = recorded.body as { params: { method: string; args: unknown[] } };
+      if (body.params.method === 'login')
+        return { status: 200, body: { result: body.params.args[2] === 'valid-key' ? 7 : false } };
+      return { status: 200, body: { result: 0 } };
+    });
+    try {
+      const connector = new OdooConnector();
+      const config = {
+        baseUrl: stub.baseUrl,
+        database: 'acme',
+        username: 'integration',
+        apiKey: 'valid-key',
+      };
+      const ctx = { ...context, fetchImpl: stub.fetchImpl };
+      expect(await connector.healthCheck(config, ctx)).toEqual({ ok: true });
+      expect(await connector.healthCheck({ ...config, apiKey: 'invalid-key' }, ctx)).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('refused the credentials'),
+      });
+      expect(stub.calls).toHaveLength(3);
+    } finally {
+      await stub.close();
+    }
+  });
+
+  it('does not contact Odoo for empty create or update batches', async () => {
+    const stub = await stubServer(() => ({ status: 200, body: { result: 7 } }));
+    try {
+      const connector = new OdooConnector();
+      const config = {
+        baseUrl: stub.baseUrl,
+        database: 'acme',
+        username: 'integration',
+        apiKey: 'synthetic-key',
+      };
+      const ctx = { ...context, fetchImpl: stub.fetchImpl };
+      expect(await connector.create([], config, ctx)).toMatchObject({ created: 0 });
+      expect(await connector.update([], ['id'], config, ctx)).toMatchObject({ updated: 0 });
+      expect(stub.calls).toHaveLength(0);
     } finally {
       await stub.close();
     }

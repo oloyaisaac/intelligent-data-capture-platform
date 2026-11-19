@@ -1,7 +1,8 @@
 import { SMTPServer } from 'smtp-server';
 import { loadConfig } from '../src/config';
 import { createLogger } from '../src/logger';
-import { createMailer, type Mailer } from '../src/services/mailer';
+import { createMailer } from '../src/adapters/smtp-mailer';
+import type { Mailer } from '../src/services/mailer';
 import { createHarness, registerAccount, type Harness } from './helpers';
 
 describe('account email delivery', () => {

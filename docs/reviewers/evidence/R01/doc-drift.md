@@ -27,9 +27,9 @@ explain the current implementation without silently changing the original decisi
 
 - The Compose smoke passed in CI on `fcc6206`; earlier text still said it was pending. The target
   diagram is aspirational and the hosted deployment remains unverified.
-- The earlier SIGTERM/restart guidance claimed interrupted jobs were safely requeued. Startup
-  recovery is age-based and only runs at boot, without ownership fencing; shutdown now waits for
-  active work but has no deadline. See ARC-013 and ARC-021.
+- The earlier SIGTERM/restart guidance claimed interrupted jobs were safely requeued. Startup no
+  longer requeues by age; offline operator recovery is required and may repeat external effects.
+  Shutdown waits for active work but has no deadline. See ARC-013 and ARC-021.
 - Cost guidance and `cloud.ts` called `AI_MAX_COST_MICROS_PER_DOC` a hard cap; the implementation
   only warns after a rough estimate. Corrected guidance and added regression evidence; actual
   spending enforcement remains open (ARC-022).
