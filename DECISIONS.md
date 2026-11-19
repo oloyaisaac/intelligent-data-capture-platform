@@ -111,8 +111,10 @@ established by this decision.
 **Consequences (historical):** Need a queue (Redis-backed), job status transitions, and per-item status visible in mobile and desktop. Every job status change is bounded by the states in `DATABASE.md`.
 
 **Implementation note:** The shipped queue uses the database jobs table, not Redis (DEC-029).
-Upload idempotency and atomic job claims do not establish exactly-once job effects; stale recovery
-can requeue live work and multiple workers are not supported.
+Upload idempotency and atomic job claims do not establish exactly-once job effects. Age-only startup
+recovery was removed; interrupted claims require offline operator review and explicit retry (see
+`docs/worker-recovery.md`). External effects can repeat, old binaries can still reclaim live work,
+and multiple workers remain unsupported.
 
 ---
 
@@ -615,6 +617,11 @@ run with more than one replica: two workers would be safe (jobs are claimed tran
 carry idempotency keys) but two SQLite writers are not. `ARCHITECTURE.md` §4, `DEPLOYMENT.md` §3 and
 `REQUIREMENTS.md` §6 describe the target architecture and now point here; `ENVIRONMENT.md` describes
 what actually runs today.
+
+**Implementation note:** The statement that two workers are safe is not established. Claims and
+publication have guards, but distinct jobs, external effects, purge and old binaries still present
+risks. Current startup does not requeue running jobs automatically; offline operator recovery is
+required as described in `docs/worker-recovery.md`. The supported deployment remains one worker.
 
 ---
 

@@ -8,8 +8,8 @@ import { OrganisationsRepository } from '../src/repositories/auth-repo';
 import { DocumentPagesRepository, DocumentsRepository } from '../src/repositories/document-repo';
 import { JobsRepository } from '../src/repositories/system-repo';
 
-/** Characterizes an unsafe recovery boundary; this is not a passing multi-worker guarantee. */
-it('a second real worker can reclaim a live artificially aged SQLite claim and repeat OCR', async () => {
+/** Narrow safety test: startup must not reclaim a still-live claim based on age alone. */
+it('a second worker does not reclaim a live artificially aged SQLite claim at startup', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'idcp-stale-live-worker-'));
   const path = join(directory, 'db.sqlite');
   const db = new SqliteDatabase({ path });
@@ -101,12 +101,13 @@ it('a second real worker can reclaim a live artificially aged SQLite claim and r
     await wait(1, 'ready');
     second.send?.('start');
     await wait(1, 'finished');
-    expect(events[1]).toContain('ocr-entered');
-    expect((await jobs.findById(job.id))?.attempts).toBe(2);
-    expect((await jobs.findById(job.id))?.status).toBe('succeeded');
+    expect(events[1]).not.toContain('ocr-entered');
+    expect((await jobs.findById(job.id))?.attempts).toBe(1);
+    expect((await jobs.findById(job.id))?.status).toBe('running');
     first.send?.('resume');
     await wait(0, 'finished');
     expect(events[0]).toContain('ocr-entered');
+    expect((await jobs.findById(job.id))?.status).toBe('succeeded');
     expect(
       await db.query('SELECT id FROM extractions WHERE document_id = ?', [document!.id]),
     ).toHaveLength(1);

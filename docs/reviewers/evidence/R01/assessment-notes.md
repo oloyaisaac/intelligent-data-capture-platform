@@ -21,14 +21,15 @@ remain incomplete.
    divergences depend on traffic routing. With process-local storage, a replica may not find a file
    uploaded elsewhere. Even on shared filesystem storage, SSE reaches only the emitting process's
    subscribers and login/pairing attempt limits are per process. Enabling multiple workers adds
-   unsafe age-only recovery and unfenced side effects; independent maintenance loops add duplicate
+   unfenced side effects and unsupported concurrent execution; independent maintenance loops add duplicate
    scheduling risk. Database pool counts and aggregate memory also multiply. The specific two-API
    demonstration and its limits are in `state-inventory.md`. A shared database and storage alone
    do not make ten replicas supported.
 4. **Largest architectural risk?** For scaling the capture loop, DEC-029's single-process runtime
-   coupled to age-only recovery is the most immediate architectural risk in this review: normal
-   claims are atomic and extraction publication is attempt-guarded, but stale recovery can reclaim
-   active work and external effects remain unfenced. Reversal
+   and its recovery/effects model is the most immediate architectural risk in this review: normal
+   claims are atomic and extraction publication is attempt-guarded. Age-only startup recovery has
+   been removed, but manual recovery depends on operator controls and external effects remain
+   unfenced. Reversal
    requires coordinated ownership/leases, fencing and idempotent effects, shared realtime and rate
    limiting, shared storage, coordinated maintenance and failure-injection/operational tests. This
    is a qualitative assessment, not an estimate of effort or an owner-approved migration plan.

@@ -5,9 +5,11 @@ See ARC-013 and ARC-021 in `findings.md`. P6 remains unmet.
 
 ## Observed failure boundary
 
-`claimNext` atomically claims a queued job and increments its attempt. At startup,
-`requeueStale` uses only claim age; it cannot tell a long-running live worker from a dead one.
-A recent crashed claim is not revisited in the same process. The extraction start validates the
+`claimNext` atomically claims a queued job and increments its attempt. Previously startup requeued
+claims based only on age, unable to tell a live worker from a dead one. Startup no longer does so:
+crashed claims remain running until individually reviewed and requeued with all workers stopped
+(`docs/worker-recovery.md`). This operational mitigation sacrifices automatic availability and
+cannot prevent an incorrect operator decision or repeated external effects. The extraction start validates the
 attempt under a job lock; the publication transaction guards job success and commits page text,
 extraction, field and final document status together. Guarded final failure and document status also
 commit together. Reprocess requests now lock the document, reject active extraction jobs, and
@@ -24,9 +26,10 @@ worker died, and old-binary or out-of-band writers that ignore the lock are not 
 
 `worker-crash-process.test.ts` kills a real worker subprocess with SIGKILL after it enters the
 SQLite publication transaction, then checks that page text, extraction and final status rolled
-back. A fresh startup leaves the interrupted claim running; the test artificially ages its timestamp
-and restarts again to recover it. This covers one controlled crash point and a synthetic OCR
-provider, not real elapsed-time recovery, PostgreSQL process crashes, external OCR cost, event
+back. Startup leaves the interrupted claim running even after its timestamp is artificially aged;
+the test explicitly requeues the attempt after the killed process exits. This covers one controlled
+crash point and a synthetic OCR provider, not production operator controls, PostgreSQL process
+crashes, external OCR cost, event
 persistence or all possible crash boundaries.
 
 ## Necessary design decisions before claiming P6
@@ -59,7 +62,8 @@ semantics. None of the above constitutes an owner-approved exception or independ
 
 `worker-stale-process.test.ts` uses two actual SQLite worker subprocesses and a paused synthetic OCR
 provider. After the test artificially ages the first process's still-running job, the second worker's
-startup recovery reclaims it and performs OCR; resuming the first produces no second durable
-extraction due to the publication guard, but two OCR calls and attempts occurred. This is a
-characterization of unsafe recovery, not a safety test or a PostgreSQL/real-provider result. It does
-not prove real wall-clock expiry, billing behavior or general crash safety.
+startup formerly reclaimed it and performed OCR, causing two OCR calls and attempts. With age-only
+recovery removed, the second worker no longer reclaims the claim; after the first resumes, the test
+observes one extraction and one attempt. This focused safety regression does not establish safe
+manual recovery, multi-worker operation, PostgreSQL behavior, real-provider billing, or general
+crash safety. Running an old binary or requeueing a live job manually still bypasses the mitigation.

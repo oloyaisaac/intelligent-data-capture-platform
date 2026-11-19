@@ -23,13 +23,6 @@ import type { TemplateService } from './template-service';
  * exponential backoff. Poison jobs end in `dead` with an actionable error, never an infinite loop.
  */
 
-/**
- * Grace period before a `running` job is presumed abandoned. A job claimed milliseconds before
- * this process booted may still be finishing in a sibling process, so it is left alone; anything
- * older is re-queued. See `JobsRepository.requeueStale`.
- */
-export const RECOVERY_GRACE_MS = 30_000;
-
 /** Repository operations used by the worker, supplied by the composition root. */
 export interface WorkerTransactionRepositories {
   jobs: Pick<JobsRepository, 'lockRunning' | 'markSucceeded' | 'markFailed'>;
@@ -39,7 +32,7 @@ export interface WorkerTransactionRepositories {
 }
 
 export interface WorkerRepositories {
-  jobs: Pick<JobsRepository, 'claimNext' | 'requeueStale' | 'markSucceeded' | 'markFailed'>;
+  jobs: Pick<JobsRepository, 'claimNext' | 'countRunning' | 'markSucceeded' | 'markFailed'>;
   orgs: Pick<OrganisationsRepository, 'findById'>;
   transaction<T>(run: (repositories: WorkerTransactionRepositories) => Promise<T>): Promise<T>;
 }
@@ -74,9 +67,8 @@ export class Worker {
   /**
    * Start the poll loop.
    *
-   * Before the first tick, old `running` jobs are requeued using an age-only heuristic. This
-   * assumes the supported single-instance topology; a second worker can still be active. Fresh
-   * interrupted claims are not revisited during this run, and side effects are not fenced.
+   * Running claims are not automatically recovered: their age cannot establish that an owner is
+   * dead. An operator must investigate and explicitly recover interrupted work offline.
    */
   async start(): Promise<void> {
     if (this.stopping) await this.stopping;
@@ -95,16 +87,17 @@ export class Worker {
 
   private async startLoop(generation: number): Promise<void> {
     try {
-      const claimCutoff = new Date(Date.now() - RECOVERY_GRACE_MS).toISOString();
-      const recovered = await this.jobs.requeueStale(claimCutoff);
-      if (recovered > 0) {
-        this.logger.warn('requeued jobs interrupted by a previous process', { count: recovered });
+      const running = await this.jobs.countRunning();
+      if (running > 0) {
+        this.logger.warn('running jobs require investigation; no automatic recovery performed', {
+          count: running,
+        });
       }
     } catch (error) {
       if (this.generation === generation) this.running = false;
       throw error;
     }
-    // Shutdown may have begun while recovery was waiting for the database.
+    // Shutdown may have begun while the startup check was waiting for the database.
     if (!this.running || this.generation !== generation) return;
 
     const tick = async () => {
@@ -135,7 +128,7 @@ export class Worker {
     const draining = this.draining;
     const stopping = (async () => {
       // The caller of start still observes a startup failure. Shutdown must nevertheless wait for
-      // its DB operation to finish, and should continue closing resources if recovery failed.
+      // its DB operation to finish, and should continue closing resources if the check failed.
       if (starting) await starting.catch(() => undefined);
       if (draining) {
         await draining.catch((error: unknown) => {

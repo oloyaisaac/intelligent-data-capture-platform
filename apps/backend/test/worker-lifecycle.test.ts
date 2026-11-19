@@ -36,7 +36,7 @@ function job(id: string): JobRow {
 function setup() {
   const jobs = {
     claimNext: jest.fn<Promise<JobRow | null>, []>(),
-    requeueStale: jest.fn().mockResolvedValue(0),
+    countRunning: jest.fn().mockResolvedValue(0),
     markSucceeded: jest.fn().mockResolvedValue(true),
     markFailed: jest.fn().mockResolvedValue('queued'),
   };
@@ -111,11 +111,11 @@ it('finishes a job whose claim was already in flight when stop began', async () 
   expect(jobs.claimNext).toHaveBeenCalledTimes(1);
 });
 
-it('waits for recovery during stop and never starts a timer after shutdown', async () => {
+it('waits for the startup check during stop and never starts a timer after shutdown', async () => {
   jest.useFakeTimers();
   const { worker, jobs } = setup();
   const recovery = deferred<number>();
-  jobs.requeueStale.mockReturnValueOnce(recovery.promise);
+  jobs.countRunning.mockReturnValueOnce(recovery.promise);
   try {
     const starting = worker.start();
     let stopped = false;
@@ -136,7 +136,7 @@ it('waits for recovery during stop and never starts a timer after shutdown', asy
   }
 });
 
-it('does not restart recovery until the previous stop has finished its active job', async () => {
+it('does not restart the startup check until the previous stop has finished its active job', async () => {
   const { worker, jobs, purge } = setup();
   const begun = deferred<void>();
   const finish = deferred<number>();
@@ -150,20 +150,20 @@ it('does not restart recovery until the previous stop has finished its active jo
   const stopping = worker.stop();
   const restarting = worker.start();
   await Promise.resolve();
-  expect(jobs.requeueStale).not.toHaveBeenCalled();
+  expect(jobs.countRunning).not.toHaveBeenCalled();
   finish.resolve(0);
   await draining;
   await stopping;
   await restarting;
   expect(jobs.markSucceeded).toHaveBeenCalledWith('active', 1);
-  expect(jobs.requeueStale).toHaveBeenCalledTimes(1);
+  expect(jobs.countRunning).toHaveBeenCalledTimes(1);
   await worker.stop();
 });
 
 it('does not fail a document or emit a failure event when the job claim is obsolete', async () => {
   const jobs = {
     claimNext: jest.fn(),
-    requeueStale: jest.fn(),
+    countRunning: jest.fn(),
     markSucceeded: jest.fn(),
     markFailed: jest.fn().mockResolvedValue(null),
   };
@@ -205,11 +205,11 @@ it('waits for a failed drain without preventing shutdown cleanup', async () => {
   await expect(stopping).resolves.toBeUndefined();
 });
 
-it('allows startup to be retried after recovery fails', async () => {
+it('allows startup to be retried after the check fails', async () => {
   const { worker, jobs } = setup();
-  jobs.requeueStale.mockRejectedValueOnce(new Error('database unavailable'));
+  jobs.countRunning.mockRejectedValueOnce(new Error('database unavailable'));
   await expect(worker.start()).rejects.toThrow('database unavailable');
   await worker.start();
-  expect(jobs.requeueStale).toHaveBeenCalledTimes(2);
+  expect(jobs.countRunning).toHaveBeenCalledTimes(2);
   await worker.stop();
 });

@@ -82,11 +82,12 @@ claim attempt; page OCR, extraction and field rows, final document status and jo
 one database transaction. Failed extraction status is guarded in its failure transaction. The API
 rejects new reprocess requests while another extraction is queued or running. These guards do not
 prevent duplicate OCR calls or costs, guarantee delivery of events, protect retention purge, or
-establish safe handling of pre-existing overlapping jobs. On startup, a running job older than 30
-seconds can be requeued without a lease or heartbeat even if another process is still processing it
-(`services/worker.ts`, `repositories/system-repo.ts`). Only one worker process is supported. On
-normal shutdown the worker waits for startup recovery and a currently claimed job to finish before
-the database closes; overlapping drain calls on that worker share one loop. This wait has no global
+establish safe handling of pre-existing overlapping jobs. Startup no longer automatically requeues
+running claims based on age: a crashed job remains running until an operator reviews and requeues it
+with all workers offline. See `docs/worker-recovery.md`; retries can still repeat external effects,
+and old binaries must not be started. Only one worker process is supported. On normal shutdown the
+worker waits for its startup check and a currently claimed job to finish before the database closes;
+overlapping drain calls on that worker share one loop. This wait has no global
 shutdown deadline, and a forced termination can still interrupt work. Normal shutdown also waits
 for active maintenance sweeps; neither behavior makes multi-replica scheduling safe.
 

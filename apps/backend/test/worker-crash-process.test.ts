@@ -13,7 +13,7 @@ import { silentLogger } from '../src/logger';
 import { FakeOcrProvider, testConfig } from './helpers';
 
 /** Crash inside the real SQLite publication transaction, with a deterministic in-process OCR fake. */
-it('rolls back publication on SIGKILL, then recovers after the startup grace period', async () => {
+it('rolls back publication on SIGKILL and requires explicit recovery before retry', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'idcp-worker-crash-'));
   const path = join(directory, 'db.sqlite');
   const db = new SqliteDatabase({ path });
@@ -112,7 +112,7 @@ it('rolls back publication on SIGKILL, then recovers after the startup grace per
     });
     await services.worker.start();
     await services.worker.stop();
-    // Recovery is only attempted at startup, and a fresh interrupted claim remains running.
+    // A crashed claim stays running at startup; age does not prove the process is dead.
     expect((await jobs.findById(job.id))?.status).toBe('running');
     await db.execute('UPDATE jobs SET started_at = ? WHERE id = ?', [
       new Date(Date.now() - 60_000).toISOString(),
@@ -120,7 +120,9 @@ it('rolls back publication on SIGKILL, then recovers after the startup grace per
     ]);
     await services.worker.start();
     await services.worker.stop();
-    expect((await jobs.findById(job.id))?.status).toBe('queued');
+    expect((await jobs.findById(job.id))?.status).toBe('running');
+    // The killed process is gone; a real operator must also review possible external effects.
+    expect(await jobs.requeueInterrupted(job.id, 1)).toBe(true);
     await services.worker.drain();
     expect((await jobs.findById(job.id))?.status).toBe('succeeded');
     expect(
