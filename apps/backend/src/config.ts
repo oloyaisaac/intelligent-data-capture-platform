@@ -169,7 +169,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
     if (config.AI_MAX_COST_MICROS_PER_DOC <= 0) {
       throw new Error(
-        'Invalid configuration:\n  AI_MAX_COST_MICROS_PER_DOC: set a spend cap before enabling cloud AI (PRD.json Q-001)',
+        'Invalid configuration:\n  AI_MAX_COST_MICROS_PER_DOC: set a cost warning threshold before enabling cloud AI (PRD.json Q-001)',
       );
     }
   }

@@ -1,5 +1,7 @@
 import { MaintenanceRepository } from '../src/repositories/maintenance-repo';
 import { createHarness, registerAccount, type Harness } from './helpers';
+import { MaintenanceService } from '../src/services/maintenance-service';
+import { silentLogger } from '../src/logger';
 
 /**
  * Daily housekeeping (DEC-031).
@@ -76,23 +78,46 @@ describe('maintenance scheduler', () => {
     >((resolve) => {
       release = resolve;
     });
-    const query = jest
-      .spyOn(MaintenanceRepository.prototype, 'organisationsWithRetention')
-      .mockReturnValue(pending);
+    // Keep this timer test independent of real database I/O. Fake timers can block the
+    // PostgreSQL driver's network scheduling before the retention step is reached.
+    const query = jest.fn().mockReturnValue(pending);
+    const scheduler = new MaintenanceService(
+      {
+        jobs: { enqueue: jest.fn() },
+        maintenance: {
+          organisationsWithRetention: query,
+          findPendingPurge: jest.fn(),
+          expiredExports: jest.fn().mockResolvedValue([]),
+          markExportExpired: jest.fn(),
+          expirePairingSessions: jest.fn().mockResolvedValue(0),
+          deleteExpiredSessions: jest.fn().mockResolvedValue(0),
+          deleteSpentResetTokens: jest.fn().mockResolvedValue(0),
+        },
+        erasureFiles: {
+          listPending: jest.fn().mockResolvedValue([]),
+          isReferenced: jest.fn(),
+          complete: jest.fn(),
+          recordFailedAttempt: jest.fn(),
+        },
+      },
+      harness.config,
+      harness.storage,
+      silentLogger,
+    );
     try {
-      maintenance().start(1);
+      scheduler.start(1);
       await jest.advanceTimersByTimeAsync(1);
       expect(query).toHaveBeenCalledTimes(1);
-      const stopping = maintenance().stop();
+      const stopping = scheduler.stop();
       release([]);
       await stopping;
       await jest.advanceTimersByTimeAsync(60_000);
       expect(query).toHaveBeenCalledTimes(1);
-      expect(maintenance().isScheduled).toBe(false);
+      expect(scheduler.isScheduled).toBe(false);
       expect(jest.getTimerCount()).toBe(0);
     } finally {
       release([]);
-      query.mockRestore();
+      await scheduler.stop();
       jest.useRealTimers();
     }
   });

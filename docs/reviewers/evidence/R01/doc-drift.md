@@ -22,3 +22,22 @@ review evidence is preserved; line numbers refer to the current worktree and may
 Other documentation, including the remainder of `AGENT_STATE.md` and `DEPLOYMENT.md`, still needs a complete
 claim-by-claim sweep. The historical text in each decision remains for traceability; the added notes
 explain the current implementation without silently changing the original decision status.
+
+## Deployment claim sweep (partial, 2026-11-17)
+
+- The Compose smoke passed in CI on `fcc6206`; earlier text still said it was pending. The target
+  diagram is aspirational and the hosted deployment remains unverified.
+- The earlier SIGTERM/restart guidance claimed interrupted jobs were safely requeued. Startup
+  recovery is age-based and only runs at boot, without ownership fencing; shutdown now waits for
+  active work but has no deadline. See ARC-013 and ARC-021.
+- Cost guidance and `cloud.ts` called `AI_MAX_COST_MICROS_PER_DOC` a hard cap; the implementation
+  only warns after a rough estimate. Corrected guidance and added regression evidence; actual
+  spending enforcement remains open (ARC-022).
+- The previous guide implied comprehensive log redaction, a down-migration, no MFA or browser
+  tests, and fully implemented signed auto-update. Corrected these claims and noted their limits.
+- Compose examples require three distinct secrets and do not automatically forward every env key;
+  the table previously mentioned Google keys absent from the backend config. The table is now
+  explicitly selective. Desktop embeds `API_BASE_URL`; this has not been established for mobile.
+
+This sweep is not a complete documentation sign-off, validation of production operations, or a
+substitute for R19/R20 review.

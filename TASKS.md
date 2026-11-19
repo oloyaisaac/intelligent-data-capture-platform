@@ -173,3 +173,12 @@ a deployed PostgreSQL installation, an APK, an iOS build, or completion of revie
 tests. PostgreSQL, Compose and browser CI passed for commit `38cd0a3`, but Verify failed in its
 Jest step in [PR #28](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44537667203).
 Subsequent commits `02b1383` and `6d19f92` passed all checks, including the PostgreSQL JSON regression.
+
+R01's partial deployment-documentation sweep found that cloud OCR's configured cost value is only a
+post-request warning threshold, not a hard budget (ARC-022); operations guidance and a regression
+now state this explicitly. Actual cost enforcement, other document claims, and cross-review remain
+open. PR #29 CI on `2a536d8` passed Verify, browser, Compose and secret checks but failed the
+PostgreSQL suite in the maintenance fake-timer test: the timer assertion ran before the preceding
+real database step reached the mocked retention query. The revised timer test stubs its repository
+ports, avoiding fake-clock interference with network I/O. Local focused tests passed; PostgreSQL
+must be rerun in CI before treating this as resolved.
