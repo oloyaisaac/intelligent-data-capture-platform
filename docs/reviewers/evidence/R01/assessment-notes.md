@@ -33,12 +33,11 @@ remain incomplete.
    requires coordinated ownership/leases, fencing and idempotent effects, shared realtime and rate
    limiting, shared storage, coordinated maintenance and failure-injection/operational tests. This
    is a qualitative assessment, not an estimate of effort or an owner-approved migration plan.
-5. **Third-party connectors?** No: `packages/connectors/src/contract.ts` and
-   `services/connector-service.ts` execute registered code within the backend process. Catching
-   asynchronous errors does not contain `process.exit`, native faults, CPU/memory exhaustion,
-   direct logging or untrusted filesystem/network access. Signed manifests and destination checks do
-   not sandbox code. Marketplace-installed arbitrary third-party code needs a separately designed and
-   verified isolation boundary; P8 remains unmet.
+5. **Third-party connectors?** No: the standard registry now invokes first-party operations in a
+   subprocess with bounded IPC, a timeout and an empty inherited environment. Explicitly injected
+   registries can execute in-process; even the standard child has the API's OS identity and can
+   signal the host, as `connector-process-security.test.ts` demonstrates. This is not a sandbox or
+   complete resource isolation; P8 remains unmet. See `docs/connector-process.md`.
 6. **Shared package and independent release?** The three apps and connectors declare
    `@idcp/shared: "*"`, and `packages/shared/package.json` points `main` and `types` at source.
    Monorepo installs and builds therefore share the checked-out contract. Independent deployment is

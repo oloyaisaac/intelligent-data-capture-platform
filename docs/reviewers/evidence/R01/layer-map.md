@@ -16,7 +16,8 @@ entry points compose them. Shared contracts must not depend on applications. Con
 implementations depend on shared code, not application internals.
 
 This is an intended rule, not a claim that all boundaries pass: the HTTP layer receives the entire
-`Services` graph; connector implementations execute in-process; process/CLI/provider factories
+`Services` graph; default connector operations execute in same-privilege child processes (injected registries may execute
+in-process); process/CLI/provider factories
 also construct adapters. The realtime route now uses the optional subscription capability on the
 hub port rather than a concrete-hub cast. The offline migration
 CLI is a separate entry point. See `findings.md` for outstanding issues and `dependency-graph.md`
@@ -39,6 +40,9 @@ The filesystem layout is not itself proof of dependency direction.
 ### `apps/backend/src/adapters/`
 
 - `apps/backend/src/adapters/smtp-mailer.ts` — SMTP transport adapter; the mailer port remains in `services/mailer.ts`.
+- `apps/backend/src/adapters/connector-process.ts` — bounded subprocess transport; not a security sandbox.
+- `apps/backend/src/adapters/connector-runner.ts` — first-party connector child entry point.
+- `apps/backend/src/adapters/process-connector-registry.ts` — service-facing process proxies.
 
 ### `apps/backend/src/ai/`
 
@@ -130,6 +134,7 @@ The filesystem layout is not itself proof of dependency direction.
 - `apps/backend/src/services/batch-service.ts`
 - `apps/backend/src/services/connector-config-migration.ts`
 - `apps/backend/src/services/connector-config.ts`
+- `apps/backend/src/services/connector-registry.ts` — service-facing connector registry port.
 - `apps/backend/src/services/connector-service.ts`
 - `apps/backend/src/services/container.ts`
 - `apps/backend/src/services/crypto.ts`

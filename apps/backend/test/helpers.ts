@@ -11,7 +11,7 @@ import { buildApp } from '../src/http/app';
 import type { OcrProvider, OcrResult } from '../src/ai/providers/types';
 import type { Database } from '../src/db/database';
 import type { Mailer } from '../src/services/mailer';
-import type { ConnectorRegistry } from '@idcp/connectors';
+import type { ConnectorOperationsRegistry } from '../src/services/connector-registry';
 
 /**
  * Test harness: a real API over an in-memory SQLite database and in-memory storage, with a fake
@@ -174,7 +174,7 @@ async function createPostgresTestDatabase(connectionString: string): Promise<Dat
 
 export async function createHarness(
   overrides: NodeJS.ProcessEnv = {},
-  options: { mailer?: Mailer | null; logger?: Logger; registry?: ConnectorRegistry } = {},
+  options: { mailer?: Mailer | null; logger?: Logger; registry?: ConnectorOperationsRegistry } = {},
 ): Promise<Harness> {
   const postgresTestRun = process.env.IDCP_TEST_DB_DRIVER === 'postgres';
   const config = testConfig({

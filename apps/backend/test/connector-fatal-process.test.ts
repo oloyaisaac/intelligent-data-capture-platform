@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
-/** Characterizes the absence of connector process isolation; P8 is not satisfied. */
-it('documents that fatal connector code terminates its API host process', async () => {
+/** Characterizes an explicitly injected in-process registry; P8 is not satisfied. */
+it('documents that fatal injected connector code terminates its API host process', async () => {
   const child = spawn(
     process.execPath,
     ['--import', 'tsx', 'test/fixtures/connector-fatal-process.ts'],

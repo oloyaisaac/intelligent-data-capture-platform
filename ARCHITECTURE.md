@@ -95,7 +95,13 @@ for active maintenance sweeps; neither behavior makes multi-replica scheduling s
 
 `packages/shared` contains the UDM, validation, errors, formatting and shared contracts used by the
 clients and backend. `packages/connectors` defines the connector contract and first-party adapters.
-These connectors run **in the backend process**, with no process, filesystem or network sandbox.
+The default backend registry invokes first-party connector operations, including validation, in
+one-shot child processes. The host limits concurrent children to eight, input and output to 2 MiB,
+and each invocation to 60 seconds; the child runs with an empty environment and a 128 MiB V8 heap
+limit. A timeout or crash may leave an external write partially completed. This is not a sandbox:
+children have the same OS privileges and can signal the host or access its filesystem and network;
+the heap cap does not bound native memory, subprocesses or CPU. Explicitly injected registries can
+still execute in-process. No untrusted third-party connector code should be run under this boundary.
 Some connector-run errors are caught and recorded; validation, health, schema, duplicate-preview and
 send failures return safe messages, and the supplied connector logger discards connector-provided
 text and context. This trades diagnostic detail for reduced disclosure. It does not sanitize existing

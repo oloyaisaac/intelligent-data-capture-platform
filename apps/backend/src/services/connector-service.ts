@@ -11,7 +11,6 @@ import {
   type Udm,
 } from '@idcp/shared';
 import {
-  ConnectorRegistry,
   applyMapping,
   type ConnectorContext,
   type ConnectorRecord,
@@ -33,6 +32,7 @@ import type { SecretBox } from './crypto';
 import type { RealtimeHub } from '../realtime/hub';
 import { z } from 'zod';
 import { decodeConnectorConfig, encodeConnectorConfig } from './connector-config';
+import type { ConnectorOperationsRegistry } from './connector-registry';
 
 // Strip non-contract properties from untrusted connector output. Contract strings remain
 // destination-supplied and may themselves contain sensitive data; this is not a sandbox.
@@ -88,7 +88,7 @@ export class ConnectorService {
 
   constructor(
     repositories: ConnectorServiceRepositories,
-    private readonly registry: ConnectorRegistry,
+    private readonly registry: ConnectorOperationsRegistry,
     private readonly secretBox: SecretBox,
     private readonly hub: RealtimeHub,
     private readonly logger: Logger,
@@ -118,7 +118,10 @@ export class ConnectorService {
     }
     const parts = { config: input.config, credentials: input.credentials ?? {} };
     try {
-      connector.validateConfig({ ...parts.config, ...parts.credentials });
+      await connector.validateConfig(
+        { ...parts.config, ...parts.credentials },
+        actor.organisationId,
+      );
     } catch {
       throw badRequest('Connector configuration is invalid. Review the connection settings.');
     }
@@ -157,7 +160,9 @@ export class ConnectorService {
       }
       const { credentials } = decodeConnectorConfig(this.secretBox, current);
       try {
-        this.registry.get(current.type).validateConfig({ ...patch.config, ...credentials });
+        await this.registry
+          .get(current.type)
+          .validateConfig({ ...patch.config, ...credentials }, actor.organisationId);
       } catch {
         throw badRequest('Connector configuration is invalid. Review the connection settings.');
       }
@@ -595,7 +600,7 @@ export class ConnectorService {
 
   private context(actor: AuthenticatedActor): ConnectorContext {
     // Connector messages and context are untrusted and may contain credentials or record data.
-    // Preserve severity, not connector-supplied text; this does not sandbox in-process code.
+    // Preserve severity, not connector-supplied text; this is not a security sandbox.
     const diagnostic = (level: 'info' | 'warn' | 'debug' | 'error') => () =>
       this.logger[level]('connector diagnostic', { organisationId: actor.organisationId });
     return {

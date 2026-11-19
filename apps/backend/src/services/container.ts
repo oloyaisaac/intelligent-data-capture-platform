@@ -1,4 +1,8 @@
 import { ConnectorRegistry } from '@idcp/connectors';
+import { join, resolve } from 'node:path';
+import { ConnectorProcess } from '../adapters/connector-process';
+import { ProcessConnectorRegistry } from '../adapters/process-connector-registry';
+import type { ConnectorOperationsRegistry } from './connector-registry';
 import type { Config } from '../config';
 import { corsOrigins } from '../config';
 import type { Database } from '../db/database';
@@ -72,7 +76,7 @@ export interface Services {
   tokens: TokenService;
   hasher: PasswordHasher;
   secretBox: SecretBox;
-  registry: ConnectorRegistry;
+  registry: ConnectorOperationsRegistry;
   auth: AuthService;
   pairing: PairingService;
   documents: DocumentService;
@@ -100,7 +104,7 @@ export interface BuildServicesOptions {
   storage?: Storage;
   hub?: RealtimeHub;
   provider?: OcrProvider;
-  registry?: ConnectorRegistry;
+  registry?: ConnectorOperationsRegistry;
   hasher?: PasswordHasher;
   /** Optional override for credential encryption secret (defaults to `config.ENCRYPTION_KEY`). */
   encryptionKey?: string;
@@ -140,7 +144,29 @@ export function buildServices(options: BuildServicesOptions): Services {
   const encryptionSecret = options.encryptionKey ?? config.ENCRYPTION_KEY;
   const secretBox = createSecretBox(encryptionSecret, config.JWT_SECRET);
 
-  const registry = options.registry ?? new ConnectorRegistry();
+  // A one-shot child limits host impact of ordinary exits/hangs; this is not an OS sandbox.
+  // The TypeScript entry is used by tsx in development/tests; the packaged build ships the JS entry.
+  const sourceEntry = __filename.endsWith('.ts');
+  const runner = sourceEntry
+    ? resolve(__dirname, '../adapters/connector-runner.ts')
+    : join(__dirname, 'connector-runner.js');
+  const registry =
+    options.registry ??
+    new ProcessConnectorRegistry(
+      new ConnectorRegistry(),
+      new ConnectorProcess(
+        process.execPath,
+        sourceEntry
+          ? ['--max-old-space-size=128', '--import', 'tsx', runner]
+          : ['--max-old-space-size=128', runner],
+        {
+          maxConcurrent: 8,
+          timeoutMs: 60_000,
+          maxInputBytes: 2 * 1024 * 1024,
+          maxOutputBytes: 2 * 1024 * 1024,
+        },
+      ),
+    );
 
   const mailer = options.mailer === undefined ? createMailer(config) : options.mailer;
   const auth = new AuthService(

@@ -30,6 +30,12 @@ session's stated date; it is recorded as the runner's clock, not used as a revie
   passed Verify, PostgreSQL and browser checks; the container build initially failed during `npm ci`
   with its underlying error unavailable in the accessible annotations. The failed container job
   passed on rerun. The cause of the initial failure remains unknown.
+- Connector subprocess work: local `npm run verify` passed 64 suites and 643 tests with four
+  PostgreSQL tests skipped. The transport tests exercise timeout, output and input limits, child
+  exit, environment filtering and synthetic CSV calls. A synthetic fatal child leaves an API route
+  responsive, while a different same-privilege child kills a disposable API host. A local bundled
+  backend against in-memory SQLite also passed a synthetic CSV validation/health smoke test; no
+  real external destination or sandbox was exercised. P8 remains unmet.
 - Local PostgreSQL and Docker were unavailable. PostgreSQL, Compose and browser jobs passed at
   `7dc278c` in [CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44548570287).
   That is not production validation.

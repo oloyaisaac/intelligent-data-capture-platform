@@ -20,9 +20,11 @@ new narrow SQLite live-claim regression do not by themselves satisfy P6.
 
 ## P8 — connector isolation
 
-Connectors currently execute in the API process, including validation, health, schema, duplicate
-preview and writes. `connector-fatal-process.test.ts` demonstrates that a synthetic connector can
-terminate that process; catching ordinary throws is not isolation. An implementer and security owner
+The default first-party registry runs validation, health, schema, duplicate preview and writes in
+one-shot child processes. `connector-process-api.test.ts` covers a fatal child without killing the
+API, but `connector-process-security.test.ts` demonstrates that the same-privilege child can signal
+and terminate its host. Explicitly injected registries can still run in-process;
+`connector-fatal-process.test.ts` demonstrates that path. These controls are not a sandbox. An implementer and security owner
 need to choose and verify a separately enforced runtime boundary. At minimum, the design must address:
 
 - fault containment for every connector entry point, including synchronous validation; bounded
@@ -39,7 +41,7 @@ need to choose and verify a separately enforced runtime boundary. At minimum, th
 
 A same-privilege subprocess or worker thread alone is not a security sandbox. Prove controls using
 adversarial integration tests in the actual supported deployment environment, not only mocks.
-There is no approved design or implementation in this handoff.
+The subprocess implementation is only a partial mitigation; there is no approved security sandbox in this handoff.
 
 ## P5, P7 and the rest of the architecture review
 

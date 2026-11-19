@@ -105,6 +105,7 @@ it('preserves legacy invocation and credential precedence, redacts legacy DTOs, 
     expect(patched.body).not.toContain('new-secret');
     expect(validateConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({ field: 'new-secret', token: 'credential-priority' }),
+      account.organisationId,
     );
     const updated = await harness.db.one<{ config: string; credentials_encrypted: string }>(
       'SELECT config, credentials_encrypted FROM connectors WHERE id = ?',
