@@ -21,7 +21,7 @@ The historical review reports are not reviewer-completion declarations for the c
 No reviewer completion file has been created. The protocol requires every assigned item and test to
 be completed before one can be written. Existing programme gates remain unapproved until their
 required evidence and sign-offs are complete. The R01 Madge scan using `tsconfig.base.json`
-reported no cycles in 218 processed files and no skipped-file warnings; it supersedes the earlier
+reported no cycles in 221 processed files and no skipped-file warnings; it supersedes the earlier
 scan that skipped `@idcp/shared/ids`. The declared internal dependency edges are acyclic; interim
 evidence is recorded in `docs/reviewers/evidence/R01/dependency-graph.md`. These results do not prove
 that dynamic imports, external packages or undeclared cross-workspace dependencies have been fully
@@ -61,6 +61,9 @@ R01's documentation inspection also found that workflow send/export actions repo
 "queued" output without dispatching anything, and notify does not deliver a message (ARC-019).
 This feature-correctness issue is handed to R02 and remains open; callers must not treat completed
 workflow runs as evidence of delivery. The historical handover and DEC-026/028 now carry caveats.
+All CI checks also passed for the documentation update in [CI for `7dc278c`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44548570287). A partial raw
+command transcript and module census have been added to the R01 evidence; the manual shell sequence,
+native workflows, real OCR and independent reviewer sign-off remain outstanding.
 
 Pairing completion now locks the session before checking status and expiry, and creates the device,
 claims the token and records the audit in one transaction; the event is published after commit.
