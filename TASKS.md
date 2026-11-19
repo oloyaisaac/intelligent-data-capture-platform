@@ -32,9 +32,11 @@ requeued, but it still models a stale active job being reclaimed. A two-subproce
 claims 20 synthetic jobs, not 20 documents processed by two backend instances; it does not exercise
 worker side effects, recovery or audits. The PostgreSQL lock-contention regression passed in
 [PR #26 CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44514864382/job/135528120126);
-PostgreSQL and Docker are unavailable locally. This branch's commit `780b5ff` passed the complete
-backend suite against PostgreSQL and the Compose smoke test in
-[PR #28 CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44533729361).
+PostgreSQL and Docker are unavailable locally. This branch's commit `38cd0a3` passed the complete backend suite against PostgreSQL and the
+Compose smoke test in [PR #28 CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44537667203),
+but its Verify job failed during Jest tests. Full job logs were unavailable from this sandbox, and
+local reproduction passed; the cause remains under investigation. The CI test step now reports
+failed Jest cases as GitHub annotations without changing its exit code.
 This does not establish multi-worker safety; P6 remains unmet.
 
 Pairing completion now locks the session before checking status and expiry, and creates the device,
@@ -46,6 +48,12 @@ backend suite, including the enabled blocked-row expiry regression; the suite al
 `780b5ff`. The first job step status was verified through the GitHub API; individual test log retrieval
 was unavailable in this sandbox. Pairing's
 in-process event is not durable and a response lost after commit still requires a fresh session.
+
+A focused two-subprocess API exercise (`replica-process.test.ts`) with workers and maintenance
+explicitly disabled observed a shared login/token and cross-replica document read, but separate SSE
+streams and login-limit counters. See the interim process-state inventory in
+`docs/reviewers/evidence/R01/process-state.md`. This is not the two-worker exercise or proof of a
+safe multi-replica deployment; several memory bounds and other state remain unassessed.
 
 A registered test connector's rejected create, read and update operations produce a recorded failed
 run and actionable HTTP response while the API remains responsive (`apps/backend/test/connector-throw.test.ts`).
@@ -112,19 +120,21 @@ the new privileged renderer origin must not retain an unrestricted navigation pa
 ## Current verification baseline
 
 On the current R01 worktree, `npm run format:check`, the backend build and `npm run verify` passed:
-47 Jest suites and 581 tests passed, with one suite and three PostgreSQL tests skipped, plus four backup-tool
+48 Jest suites and 582 tests passed, with one suite and three PostgreSQL tests skipped, plus four backup-tool
 tests, typecheck, lint and contract checks. Focused coverage includes pairing rollback and concurrent
 requests, marketplace and composition boundaries, membership-scoped credentials,
 MFA invitation acceptance, recovery-code concurrency and rollback, SQLite transaction isolation,
 synthetic SQLite job claims from two processes, composition test doubles, dashboard isolation and
 privacy erasure rollback. Local transaction-scoping and lock-ordering checks use PostgreSQL test
 doubles; they are not PostgreSQL integration tests. PostgreSQL claim and pairing contention tests
-were skipped locally but the complete backend suite passed on commit `780b5ff` in PR #28 CI,
-including the connector injection; the subsequent auth, document, privacy, maintenance and migration
-composition changes have not yet run in PostgreSQL CI. On the earlier
+were skipped locally but the complete backend suite passed on commit `38cd0a3` in PR #28 CI,
+including the auth, document, privacy, maintenance and migration composition changes. The separate
+Verify job failed during Jest tests on that commit, and the cause remains under investigation. On the earlier
 worktree, the built offline encryption-migration CLI passed check, apply and a second check against an
 empty, newly migrated synthetic SQLite database; encrypted-record migration and rollback are covered
 by Jest integration tests. `npm ci` skipped the Electron binary download. The test run emitted
 existing React `act` and jsdom navigation warnings. This is not evidence of a packaged desktop launch,
 a deployed PostgreSQL installation, an APK, an iOS build, or completion of reviewer-specific runtime
-tests. PostgreSQL, Compose, browser and Verify CI passed for commit `780b5ff` in [PR #28](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44533729361).
+tests. PostgreSQL, Compose and browser CI passed for commit `38cd0a3`, but Verify failed in its
+Jest step in [PR #28](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44537667203).
+The earlier commit `780b5ff` passed all CI checks.

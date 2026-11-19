@@ -56,8 +56,18 @@ jobs:
       - name: Backup and restore tool tests
         run: npm run test:backup
 
+      - name: Test Jest failure reporting
+        run: node --test scripts/report-jest-failures.test.mjs
+
       - name: Tests
-        run: npm test -- --ci --reporters=default
+        run: |
+          set +e
+          npm test -- --ci --reporters=default --json --outputFile=/tmp/idcp-jest-results.json
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            node scripts/report-jest-failures.mjs /tmp/idcp-jest-results.json
+          fi
+          exit "$status"
 
       - name: Build renderer
         run: npm run build --workspace @idcp/desktop
