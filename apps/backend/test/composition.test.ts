@@ -484,11 +484,11 @@ it('uses injected document repositories and rejects a document outside the actor
         documents: {
           createIfAbsent: jest.fn(),
           findByIdempotencyKey: jest.fn(),
-          findById: jest.fn(),
+          lockForReprocess: jest.fn(),
           queueForReprocess: jest.fn(),
         },
         pages: { create: jest.fn() },
-        jobs: repositories.jobs,
+        jobs: { ...repositories.jobs, hasActiveExtraction: jest.fn() },
         audit: repositories.audit,
       }),
   };

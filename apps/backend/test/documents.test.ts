@@ -190,12 +190,42 @@ describe('documents: upload, validation and extraction', () => {
     await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [id]);
     const retry = await uploadDocument(harness, account, options);
     expect(retry.statusCode).toBe(409);
-    expect(retry.json<{ error: { message: string } }>().error.message).toContain('operator');
+    expect(retry.json<{ error: { message: string } }>().error.message).toContain('Reprocess');
     const jobs = await harness.db.one<{ count: number }>(
       'SELECT COUNT(*) AS count FROM jobs WHERE document_id = ?',
       [id],
     );
     expect(Number(jobs?.count)).toBe(0);
+    const repair = await harness.api.json('POST', `/api/v1/documents/${id}/reprocess`, {
+      token: account.accessToken,
+    });
+    expect(repair.statusCode).toBe(202);
+    const repairedJobId = repair.json<{ jobId: string }>().jobId;
+    const retryAfterRepair = await uploadDocument(harness, account, options);
+    expect(retryAfterRepair.statusCode).toBe(200);
+    expect(retryAfterRepair.json<{ jobId: string }>().jobId).toBe(repairedJobId);
+  });
+
+  it('admits only one concurrent repair of jobless processing state', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account, { content: fakePng('repair race') });
+    const id = upload.json<{ id: string }>().id;
+    await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [id]);
+    await harness.db.execute("UPDATE documents SET status = 'processing' WHERE id = ?", [id]);
+    const repair = () =>
+      harness.api.json('POST', `/api/v1/documents/${id}/reprocess`, {
+        token: account.accessToken,
+      });
+    const responses = await Promise.all([repair(), repair()]);
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([202, 409]);
+    const jobs = await new JobsRepository(harness.db).listForDocument(id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.status).toBe('queued');
+    const document = await harness.db.one<{ status: string }>(
+      'SELECT status FROM documents WHERE id = ?',
+      [id],
+    );
+    expect(document?.status).toBe('queued');
   });
 
   it('rolls back the upload and removes its file when enqueue fails', async () => {
@@ -421,6 +451,65 @@ Thank you for your purchase`);
       [documentId, 'document.reprocessed'],
     );
     expect(audit).toHaveLength(1);
+  });
+
+  it('serializes competing jobless repairs before checking for an active job', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account, {
+      content: fakePng('locked repair race'),
+    });
+    const id = upload.json<{ id: string }>().id;
+    await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [id]);
+    let release!: () => void;
+    let entered!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const original = JobsRepository.prototype.hasActiveExtraction;
+    const lookup = jest
+      .spyOn(JobsRepository.prototype, 'hasActiveExtraction')
+      .mockImplementationOnce(async function (this: JobsRepository, organisationId, documentId) {
+        entered();
+        await paused;
+        return original.call(this, organisationId, documentId);
+      });
+    const repair = () =>
+      harness.api.json('POST', `/api/v1/documents/${id}/reprocess`, { token: account.accessToken });
+    let first: ReturnType<typeof repair> | undefined;
+    let second: ReturnType<typeof repair> | undefined;
+    try {
+      first = repair();
+      await started;
+      second = repair();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(lookup).toHaveBeenCalledTimes(1);
+      release();
+      const responses = await Promise.all([first, second]);
+      expect(responses.map((response) => response.statusCode).sort()).toEqual([202, 409]);
+      expect(await new JobsRepository(harness.db).listForDocument(id)).toHaveLength(1);
+    } finally {
+      release();
+      if (first) await first.catch(() => undefined);
+      if (second) await second.catch(() => undefined);
+      lookup.mockRestore();
+    }
+  });
+
+  it('rejects reprocess when a job is active even if the document status is not processing', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account, {
+      content: fakePng('active job despite status'),
+    });
+    const id = upload.json<{ id: string }>().id;
+    await harness.db.execute("UPDATE documents SET status = 'approved' WHERE id = ?", [id]);
+    const response = await harness.api.json('POST', `/api/v1/documents/${id}/reprocess`, {
+      token: account.accessToken,
+    });
+    expect(response.statusCode).toBe(409);
+    expect(await new JobsRepository(harness.db).listForDocument(id)).toHaveLength(1);
   });
 
   it('rolls back the queued status and new job if reprocess auditing fails', async () => {

@@ -185,8 +185,18 @@ must be rerun in CI before treating this as resolved.
 
 ARC-013 partial progress: extraction publication now commits job success, page OCR, extraction,
 fields and document status together under the current claim attempt; guarded failure status is also
-transactional. Reprocessing a queued or running document now returns 409 and the reprocess status,
-job and audit commit together. The former stale-claim reproduction produced two OCR calls and two
+transactional. Reprocessing returns 409 if an extraction job is queued or running; the reprocess
+status, job and audit commit together. The document is locked before checking active jobs, so
+jobless legacy documents in queued or processing state can be explicitly reprocessed without
+admitting concurrent repairs. The former stale-claim reproduction produced two OCR calls and two
 extraction rows; it now produces two OCR calls and one committed row. Unfenced OCR costs, purge,
 pre-existing distinct jobs, crash recovery and wider multi-worker safety remain unresolved, so P6
 is unmet. See `docs/reviewers/evidence/R01/worker-recovery-design.md`.
+
+A real subprocess SIGKILL test now covers a crash partway through SQLite extraction publication;
+it observes rollback and a fresh claim left running at the immediate restart, then artificially ages
+the claim and recovers it on a later start. This uses fake OCR and does not demonstrate actual
+elapsed-time, PostgreSQL crash behavior or all crash points. A document with no active extraction job
+can now be explicitly reprocessed even if its status was left queued or processing; concurrent
+repairs serialize on the document lock. A job still marked running remains a blocker, not proof of
+safe automatic recovery.

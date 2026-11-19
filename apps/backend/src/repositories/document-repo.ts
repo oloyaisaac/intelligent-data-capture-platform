@@ -143,19 +143,22 @@ export class DocumentsRepository {
     ]);
   }
 
-  /** Reserve a document for reprocessing in the same transaction that enqueues its new job. */
-  async queueForReprocess(organisationId: string, id: string): Promise<boolean> {
-    const row = await this.db.one<{ id: string }>(
-      `UPDATE documents SET status = 'queued', updated_at = ?
-       WHERE organisation_id = ? AND id = ? AND deleted_at IS NULL
-         AND status NOT IN ('queued', 'processing')
-         AND NOT EXISTS (
-           SELECT 1 FROM jobs WHERE document_id = ? AND organisation_id = ?
-             AND type = 'extract_document' AND status IN ('queued', 'running')
-         ) RETURNING id`,
-      [nowIso(), organisationId, id, id, organisationId],
+  /** Lock the document before checking active jobs, only inside a transaction. */
+  lockForReprocess(organisationId: string, id: string): Promise<DocumentRow | null> {
+    const lock = this.db.driver === 'postgres' ? ' FOR UPDATE' : '';
+    return this.db.one<DocumentRow>(
+      `SELECT * FROM documents WHERE organisation_id = ? AND id = ?${lock}`,
+      [organisationId, id],
     );
-    return row !== null;
+  }
+
+  /** Only call after locking the document and checking for active jobs in the same transaction. */
+  async queueForReprocess(organisationId: string, id: string): Promise<void> {
+    await this.db.execute(
+      `UPDATE documents SET status = 'queued', updated_at = ?
+       WHERE organisation_id = ? AND id = ? AND deleted_at IS NULL`,
+      [nowIso(), organisationId, id],
+    );
   }
 
   /** Call with a locked running job inside a transaction; never revive a deleted or reviewed row. */

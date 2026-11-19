@@ -10,15 +10,24 @@ See ARC-013 and ARC-021 in `findings.md`. P6 remains unmet.
 A recent crashed claim is not revisited in the same process. The extraction start validates the
 attempt under a job lock; the publication transaction guards job success and commits page text,
 extraction, field and final document status together. Guarded final failure and document status also
-commit together. Reprocess requests now reserve the document, enqueue the job and audit atomically,
-and reject queued or running work. A synthetic recovery regression that previously produced two
+commit together. Reprocess requests now lock the document, reject active extraction jobs, and
+reserve the document, enqueue the job and audit atomically. A synthetic recovery regression that previously produced two
 extractions now commits one, but still performs two OCR calls. OCR, billing, notifications and
 retention purge are outside this publication transaction. Existing or externally inserted distinct
 jobs for a document, concurrent review/reprocess interactions, ambiguous commit acknowledgement,
 process crashes and overlapping deployments require further analysis and testing. The supported
-single-worker topology reduces overlap but does not prove idempotence. A document stranded in
-`queued` or `processing` without an active job cannot use the guarded reprocess endpoint; operators
-must reconcile that legacy/inconsistent state, and a safe supported repair path remains open.
+single-worker topology reduces overlap but does not prove idempotence. A jobless document stranded
+in `queued` or `processing` can now be explicitly reprocessed: the document lock serializes
+concurrent requests, and the active-job check prevents re-enqueueing if work already exists. This
+is not automatic crash recovery: jobs still marked `running` are considered active even if their
+worker died, and old-binary or out-of-band writers that ignore the lock are not covered.
+
+`worker-crash-process.test.ts` kills a real worker subprocess with SIGKILL after it enters the
+SQLite publication transaction, then checks that page text, extraction and final status rolled
+back. A fresh startup leaves the interrupted claim running; the test artificially ages its timestamp
+and restarts again to recover it. This covers one controlled crash point and a synthetic OCR
+provider, not real elapsed-time recovery, PostgreSQL process crashes, external OCR cost, event
+persistence or all possible crash boundaries.
 
 ## Necessary design decisions before claiming P6
 

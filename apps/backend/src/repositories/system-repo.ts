@@ -140,6 +140,16 @@ export class JobsRepository {
     return requeued.length;
   }
 
+  /** Check after locking the document; reprocess enqueues under that same document lock. */
+  async hasActiveExtraction(organisationId: string, documentId: string): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      `SELECT id FROM jobs WHERE organisation_id = ? AND document_id = ?
+       AND type = 'extract_document' AND status IN ('queued', 'running') LIMIT 1`,
+      [organisationId, documentId],
+    );
+    return row !== null;
+  }
+
   /** The most recent extraction job for a prior upload, without enqueueing new work. */
   latestExtractionForDocument(organisationId: string, documentId: string): Promise<JobRow | null> {
     return this.db.one<JobRow>(

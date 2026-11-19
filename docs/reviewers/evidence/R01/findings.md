@@ -36,8 +36,11 @@ The same synthetic test now commits one extraction after both OCR calls. The wor
 claim before setting processing state and commits guarded job success, document status, page OCR,
 extraction and fields together; dead job and document failure status also commit together. Added
 failure-injection rollback/retry, competing recovery, and deletion-during-OCR tests. Reprocess now
-returns 409 for an active extraction and reserves the document, enqueues and audits in a transaction;
-concurrent-request and audit-rollback regressions cover it. Older or manually inserted overlapping
-jobs, cross-job review races, duplicate OCR cost, nondurable events, retention, real crashes and
-owner/lease semantics remain unproven. Local SQLite results are available; PostgreSQL CI must pass
-before claiming that driver was verified for these changes. P6 remains open.
+returns 409 for an active extraction and locks the document before checking, enqueueing and auditing
+in a transaction. It also allows explicit repair of a jobless document in queued or processing state;
+concurrent-repair, lock-interleaving, active-job and audit-rollback regressions cover it. A real
+SIGKILL subprocess test additionally covers one SQLite crash point during publication and recovery
+after artificially aging the claim; it does not establish crash safety generally. Older or manually
+inserted overlapping jobs, cross-job review races, duplicate OCR cost, nondurable events, retention
+and owner/lease semantics remain unproven. The preceding implementation passed PostgreSQL CI on
+`50470a4`; the revised repair locking needs its own CI run. P6 remains open.

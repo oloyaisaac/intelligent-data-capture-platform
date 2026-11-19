@@ -47,10 +47,10 @@ export interface UploadInput {
 export interface DocumentTransactionRepositories {
   documents: Pick<
     DocumentsRepository,
-    'createIfAbsent' | 'findByIdempotencyKey' | 'findById' | 'queueForReprocess'
+    'createIfAbsent' | 'findByIdempotencyKey' | 'lockForReprocess' | 'queueForReprocess'
   >;
   pages: Pick<DocumentPagesRepository, 'create'>;
-  jobs: Pick<JobsRepository, 'enqueue' | 'latestExtractionForDocument'>;
+  jobs: Pick<JobsRepository, 'enqueue' | 'latestExtractionForDocument' | 'hasActiveExtraction'>;
   audit: Pick<AuditRepository, 'record'>;
 }
 
@@ -227,9 +227,7 @@ export class DocumentService {
     const job = await jobs.latestExtractionForDocument(document.organisation_id, document.id);
     if (!job) {
       // Legacy rows created before atomic upload/job creation require explicit operator action.
-      throw conflict(
-        'The previous upload has no extraction job. An operator must reconcile it before retrying.',
-      );
+      throw conflict('The previous upload has no extraction job. Reprocess it before retrying.');
     }
     return { document: toDocumentSummary(document), jobId: job.id, duplicate: true };
   }
@@ -313,14 +311,15 @@ export class DocumentService {
 
   async reprocess(actor: AuthenticatedActor, id: string): Promise<{ jobId: string }> {
     return this.transaction(async (repositories) => {
-      if (!(await repositories.documents.queueForReprocess(actor.organisationId, id))) {
-        const document = await repositories.documents.findById(actor.organisationId, id);
-        if (!document || document.deleted_at)
-          throw new AppError('NOT_FOUND', 'Document not found.');
-        throw conflict(
-          'This document is queued or processing, or already has an active extraction.',
-        );
+      // The document lock serialises concurrent repairs/reprocess requests. On PostgreSQL the
+      // subsequent active-job query runs after the lock is acquired, using a fresh statement
+      // snapshot; SQLite's immediate transaction serialises writers.
+      const document = await repositories.documents.lockForReprocess(actor.organisationId, id);
+      if (!document || document.deleted_at) throw new AppError('NOT_FOUND', 'Document not found.');
+      if (await repositories.jobs.hasActiveExtraction(actor.organisationId, id)) {
+        throw conflict('This document already has an extraction queued or in progress.');
       }
+      await repositories.documents.queueForReprocess(actor.organisationId, id);
       const job = await repositories.jobs.enqueue({
         organisationId: actor.organisationId,
         type: 'extract_document',
