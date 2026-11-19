@@ -79,7 +79,11 @@ The worker claims jobs via a database update that rechecks queued/runnable statu
 row, retries failures and marks exhausted jobs dead. Claim exclusivity alone is **not** proof of
 exactly-once effects or multi-worker safety. On startup, a running job older than 30 seconds can be
 requeued without a lease or heartbeat even if another process is still processing it
-(`services/worker.ts`, `repositories/system-repo.ts`). Only one worker process is supported.
+(`services/worker.ts`, `repositories/system-repo.ts`). Only one worker process is supported. On
+normal shutdown the worker waits for startup recovery and a currently claimed job to finish before
+the database closes; overlapping drain calls on that worker share one loop. This wait has no global
+shutdown deadline, and a forced termination can still interrupt work. Normal shutdown also waits
+for active maintenance sweeps; neither behavior makes multi-replica scheduling safe.
 
 ### 2.4 Shared and connector packages
 

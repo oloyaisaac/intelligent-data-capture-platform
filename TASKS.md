@@ -26,6 +26,12 @@ scan that skipped `@idcp/shared/ids`. The declared internal dependency edges are
 evidence is recorded in `docs/reviewers/evidence/R01/dependency-graph.md`. These results do not prove
 that dynamic imports, external packages or undeclared cross-workspace dependencies have been fully
 assessed.
+Normal worker shutdown now waits for recovery and any active claimed job, avoids overlapping drains
+within one worker and does not schedule after stop during startup. Lifecycle tests and a real
+SIGTERM subprocess test fail on the prior implementation and pass with the change. Shutdown also
+awaits active maintenance sweeps. There is no shutdown deadline, and forced termination or another
+worker can still cause unsafe recovery; this does not satisfy P6.
+
 The job claim update now rechecks queued/runnable state after acquiring the target row's write lock,
 so a waiting claimant cannot claim the same already-updated row. Recovery now counts rows actually
 requeued, but it still models a stale active job being reclaimed. `job-claim-process.test.ts`
@@ -146,7 +152,7 @@ the new privileged renderer origin must not retain an unrestricted navigation pa
 ## Current verification baseline
 
 On the current R01 worktree, `npm run format:check`, the backend build and `npm run verify` passed:
-50 Jest suites and 591 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
+52 Jest suites and 600 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
 tests, typecheck, lint and contract checks. Focused coverage includes pairing rollback and concurrent
 requests, marketplace and composition boundaries, membership-scoped credentials,
 MFA invitation acceptance, recovery-code concurrency and rollback, SQLite transaction isolation,

@@ -51,6 +51,10 @@ export class Worker {
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
+  private generation = 0;
+  private starting: Promise<void> | null = null;
+  private stopping: Promise<void> | null = null;
+  private draining: Promise<number> | null = null;
 
   constructor(
     repositories: WorkerRepositories,
@@ -77,23 +81,42 @@ export class Worker {
    * an extraction strands the document in `processing` with no retry.
    */
   async start(): Promise<void> {
+    if (this.stopping) await this.stopping;
+    if (this.starting) return this.starting;
     if (this.running) return;
     this.running = true;
-
-    const claimCutoff = new Date(Date.now() - RECOVERY_GRACE_MS).toISOString();
-    const recovered = await this.jobs.requeueStale(claimCutoff);
-    if (recovered > 0) {
-      this.logger.warn('requeued jobs interrupted by a previous process', { count: recovered });
+    const generation = this.generation;
+    const starting = this.startLoop(generation);
+    this.starting = starting;
+    try {
+      await starting;
+    } finally {
+      if (this.starting === starting) this.starting = null;
     }
+  }
+
+  private async startLoop(generation: number): Promise<void> {
+    try {
+      const claimCutoff = new Date(Date.now() - RECOVERY_GRACE_MS).toISOString();
+      const recovered = await this.jobs.requeueStale(claimCutoff);
+      if (recovered > 0) {
+        this.logger.warn('requeued jobs interrupted by a previous process', { count: recovered });
+      }
+    } catch (error) {
+      if (this.generation === generation) this.running = false;
+      throw error;
+    }
+    // Shutdown may have begun while recovery was waiting for the database.
+    if (!this.running || this.generation !== generation) return;
 
     const tick = async () => {
-      if (!this.running) return;
+      if (!this.running || this.generation !== generation) return;
       try {
         await this.drain();
       } catch (error) {
         this.logger.error('worker tick failed', { error: (error as Error).message });
       }
-      if (this.running) {
+      if (this.running && this.generation === generation) {
         this.timer = setTimeout(tick, this.config.WORKER_POLL_INTERVAL_MS);
         this.timer.unref();
       }
@@ -103,21 +126,60 @@ export class Worker {
     this.logger.info('worker started', { pollIntervalMs: this.config.WORKER_POLL_INTERVAL_MS });
   }
 
+  /** Stop scheduling new jobs and wait for startup and any claimed work before closing the DB. */
   async stop(): Promise<void> {
+    if (this.stopping) return this.stopping;
     this.running = false;
+    this.generation += 1;
     if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    const starting = this.starting;
+    const draining = this.draining;
+    const stopping = (async () => {
+      // The caller of start still observes a startup failure. Shutdown must nevertheless wait for
+      // its DB operation to finish, and should continue closing resources if recovery failed.
+      if (starting) await starting.catch(() => undefined);
+      if (draining) {
+        await draining.catch((error: unknown) => {
+          this.logger.error('worker drain failed during shutdown', {
+            error: error instanceof Error ? error.message : 'unknown error',
+          });
+        });
+      }
+    })();
+    this.stopping = stopping;
+    try {
+      await stopping;
+    } finally {
+      if (this.stopping === stopping) this.stopping = null;
+    }
   }
 
-  /** Process every runnable job once. Tests call this directly instead of starting the timer. */
+  /** Process runnable jobs; overlapping calls share the same in-process drain. */
   async drain(): Promise<number> {
+    if (this.stopping) await this.stopping;
+    if (this.draining) return this.draining;
+    const generation = this.generation;
+    const draining = this.drainLoop(generation);
+    this.draining = draining;
+    try {
+      return await draining;
+    } finally {
+      if (this.draining === draining) this.draining = null;
+    }
+  }
+
+  private async drainLoop(generation: number): Promise<number> {
     let processed = 0;
-    for (;;) {
+    while (this.generation === generation) {
       const job = await this.jobs.claimNext();
       if (!job) return processed;
+      // If stop began while claimNext was in flight, finish the claimed job rather than strand it.
       await this.processJob(job);
       processed += 1;
       if (processed > 100) return processed;
     }
+    return processed;
   }
 
   async processJob(job: JobRow): Promise<void> {
