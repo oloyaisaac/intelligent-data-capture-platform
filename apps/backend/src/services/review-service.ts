@@ -13,6 +13,7 @@ import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
 import { DocumentsRepository, ExtractionsRepository } from '../repositories/document-repo';
+import { OrganisationsRepository } from '../repositories/auth-repo';
 import { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
 import { AuditRepository } from '../repositories/system-repo';
 import type { DocumentRow } from '../repositories/types';
@@ -33,9 +34,10 @@ export class ReviewService {
   private readonly reviews: ReviewsRepository;
   private readonly changes: ReviewChangesRepository;
   private readonly audit: AuditRepository;
+  private readonly organisations: OrganisationsRepository;
 
   constructor(
-    private readonly db: Database,
+    db: Database,
     private readonly hub: RealtimeHub,
     private readonly logger: Logger,
   ) {
@@ -44,6 +46,7 @@ export class ReviewService {
     this.reviews = new ReviewsRepository(db);
     this.changes = new ReviewChangesRepository(db);
     this.audit = new AuditRepository(db);
+    this.organisations = new OrganisationsRepository(db);
   }
 
   /** REV-001: the queue puts the least confident records first — that is where attention pays off. */
@@ -177,11 +180,7 @@ export class ReviewService {
     });
 
     // Re-point the open review at the new attempt.
-    await this.db.execute('UPDATE reviews SET extraction_id = ?, updated_at = ? WHERE id = ?', [
-      saved.id,
-      new Date().toISOString(),
-      review.id,
-    ]);
+    await this.reviews.setExtraction(review.id, saved.id, nowIso());
 
     return {
       reviewId: review.id,
@@ -320,10 +319,7 @@ export class ReviewService {
    * content leaving the review screens.
    */
   async correctionStats(actor: AuthenticatedActor) {
-    const organisation = await this.db.one<{ learning_opt_in: number }>(
-      'SELECT learning_opt_in FROM organisations WHERE id = ?',
-      [actor.organisationId],
-    );
+    const organisation = await this.organisations.findLearningOptIn(actor.organisationId);
     const byField = await this.changes.statisticsForOrganisation(actor.organisationId);
     const byDocumentType = await this.changes.statisticsByDocumentType(actor.organisationId);
 
@@ -353,10 +349,7 @@ export class ReviewService {
     if (!roleAtLeast(actor.role, 'admin')) {
       throw new AppError('ROLE_REQUIRED', 'Only admins can export correction data.');
     }
-    const organisation = await this.db.one<{ learning_opt_in: number }>(
-      'SELECT learning_opt_in FROM organisations WHERE id = ?',
-      [actor.organisationId],
-    );
+    const organisation = await this.organisations.findLearningOptIn(actor.organisationId);
     if (Number(organisation?.learning_opt_in ?? 0) !== 1) {
       throw new AppError(
         'CONFLICT',

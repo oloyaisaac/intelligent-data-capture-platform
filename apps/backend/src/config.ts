@@ -95,16 +95,17 @@ const ConfigSchema = z.object({
   TRUST_PROXY: booleanish.default(true),
 });
 
-export type Config = z.infer<typeof ConfigSchema>;
+// npm supplies this optional value when starting via its scripts; it is not an operator setting.
+export type Config = z.infer<typeof ConfigSchema> & { appVersion: string };
 
 /**
- * Every environment key this service reads.
- *
- * Exported so `.env.example` can be checked against it (test/config.test.ts): a key that exists in
- * one and not the other is a documentation bug that otherwise only shows up when someone copies the
- * example and the server refuses to start.
+ * Operator-configurable API settings. npm's package-version variable and the separate seed and
+ * offline migration CLI settings are intentionally not part of this schema. The API keys are
+ * compared with `.env.example` in test/config.test.ts.
  */
-export const CONFIG_ENV_KEYS = Object.keys(ConfigSchema.shape) as Array<keyof Config>;
+export const CONFIG_ENV_KEYS = Object.keys(ConfigSchema.shape) as Array<
+  keyof z.infer<typeof ConfigSchema>
+>;
 
 function describeIssues(error: z.ZodError): string {
   return error.issues
@@ -200,7 +201,44 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       throw new Error('Invalid configuration:\n  CORS_ORIGINS: required in production');
     }
   }
-  return config;
+  return { ...config, appVersion: env.npm_package_version ?? '0.1.0' };
+}
+
+/** Seed-only settings: do not expose demo credentials to the running API's service graph. */
+export function loadSeedConfig(env: NodeJS.ProcessEnv = process.env): {
+  config: Config;
+  email: string;
+  password: string;
+} {
+  return {
+    config: loadConfig(env),
+    email: env.SEED_EMAIL ?? 'owner@example.com',
+    password: env.SEED_PASSWORD ?? 'demo-password-change-me',
+  };
+}
+
+/** Migration secrets are only loaded by the offline CLI, not retained in the API config. */
+export function loadEncryptionMigrationConfig(env: NodeJS.ProcessEnv = process.env): {
+  config: Config;
+  sourceSecret: string;
+} {
+  const config = loadConfig(env);
+  if (
+    !env.JWT_SECRET ||
+    !env.ENCRYPTION_KEY ||
+    config.ENCRYPTION_KEY.length < 32 ||
+    config.ENCRYPTION_KEY === 'local-encryption-secret-do-not-use-in-production' ||
+    config.JWT_SECRET === config.ENCRYPTION_KEY
+  ) {
+    throw new Error(
+      'Explicit, distinct JWT_SECRET and a non-default ENCRYPTION_KEY of at least 32 characters are required.',
+    );
+  }
+  const sourceSecret = env.ENCRYPTION_MIGRATION_SOURCE_KEY || config.JWT_SECRET;
+  if (sourceSecret.length < 16 || sourceSecret === config.ENCRYPTION_KEY) {
+    throw new Error('The source key must have at least 16 characters and differ from the target.');
+  }
+  return { config, sourceSecret };
 }
 
 export function corsOrigins(config: Config): string[] {

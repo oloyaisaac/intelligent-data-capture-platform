@@ -888,6 +888,7 @@ export const AcceptInviteRequestSchema = z
   .object({
     token: z.string().min(20).max(200),
     password: PasswordSchema,
+    code: z.string().min(6).max(40).optional(),
   })
   .strict();
 export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequestSchema>;

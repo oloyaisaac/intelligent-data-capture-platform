@@ -1798,7 +1798,10 @@ paths:
   /invitations/{token}/accept:
     post:
       tags: [Auth]
-      summary: Accept an invitation, set a password and sign in (single use)
+      summary: Accept an invitation and sign in (single use)
+      description: |
+        Set a password for a new account, or supply the current password for an existing account.
+        If the existing account has MFA enabled, also supply an authenticator or recovery code.
       operationId: acceptInvitation
       security: []
       parameters:
@@ -1812,10 +1815,17 @@ paths:
               required: [password]
               properties:
                 password: { type: string, minLength: 12 }
+                code:
+                  {
+                    type: string,
+                    minLength: 6,
+                    maxLength: 40,
+                    description: Authenticator or recovery code when MFA is enabled,
+                  }
       responses:
         '200': { description: Token pair, as /auth/login }
-        '400': { description: Weak password }
-        '401': { description: Unknown, used or expired invitation }
+        '400': { description: Invalid request or weak password }
+        '401': { description: Invalid invitation or credentials }
   /events:
     get:
       tags: [Realtime]

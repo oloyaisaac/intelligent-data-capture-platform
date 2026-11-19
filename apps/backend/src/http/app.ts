@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import { AppError, isAppError, toErrorEnvelope, type HealthResponse } from '@idcp/shared';
 import { MAX_BATCH_FILES } from '../services/batch-service';
 import { corsOrigins } from '../config';
+import { checkDatabaseHealth } from '../db/health';
 import type { Services } from '../services/container';
 import { createGuards } from './guards';
 import { registerAuthRoutes } from './routes/auth-routes';
@@ -105,7 +106,7 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
     const dependencies: HealthResponse['dependencies'] = {};
     let status: HealthResponse['status'] = 'ok';
     try {
-      await services.db.one('SELECT 1 AS ok');
+      await checkDatabaseHealth(services.db);
       dependencies.db = 'ok';
     } catch {
       dependencies.db = 'error';
@@ -113,7 +114,7 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
     }
     const body: HealthResponse = {
       status,
-      version: process.env.npm_package_version ?? '0.1.0',
+      version: services.config.appVersion,
       uptimeSeconds: Math.round(process.uptime()),
       dependencies,
     };

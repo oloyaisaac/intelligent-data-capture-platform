@@ -1,8 +1,7 @@
 import { AppError, badRequest, type Project, type Role } from '@idcp/shared';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
-import { ProjectsRepository } from '../repositories/project-repo';
-import { AuditRepository } from '../repositories/system-repo';
+import type { ProjectsRepository } from '../repositories/project-repo';
+import type { AuditRepository } from '../repositories/system-repo';
 import type { AuthenticatedActor } from './auth-service';
 import type { ProjectRow } from '../repositories/types';
 
@@ -12,16 +11,21 @@ import type { ProjectRow } from '../repositories/types';
  * A project is a grouping label for documents and batches, not a second tenant: every query stays
  * scoped by organisation first, so a project can never widen visibility.
  */
+export interface ProjectServiceRepositories {
+  projects: Pick<ProjectsRepository, 'list' | 'create' | 'findById' | 'findByKey' | 'update'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
 export class ProjectService {
-  private readonly projects: ProjectsRepository;
-  private readonly audit: AuditRepository;
+  private readonly projects: ProjectServiceRepositories['projects'];
+  private readonly audit: ProjectServiceRepositories['audit'];
 
   constructor(
-    db: Database,
+    repositories: ProjectServiceRepositories,
     private readonly logger: Logger,
   ) {
-    this.projects = new ProjectsRepository(db);
-    this.audit = new AuditRepository(db);
+    this.projects = repositories.projects;
+    this.audit = repositories.audit;
   }
 
   async list(actor: AuthenticatedActor, includeArchived = false): Promise<Project[]> {

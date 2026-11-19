@@ -13,17 +13,40 @@ remain `done`; its 11 existing, unverified verification blocks remain explicitly
 The original briefs in `docs/reviewers/` and historical reports in `REVIEWS/` are preserved.
 The historical review reports are not reviewer-completion declarations for the current codebase.
 
-| Reviewer                 | Status                                         | Progress and remaining work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------------------ | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R01 — Software Architect | **IN PROGRESS; G1 not approved**               | Corrected architecture drift and misleading source comments, bounded process-local limiter state, and added regression coverage. P1 is unmet: SQL remains in services and a route. P2 is unmet: `http/app.ts` reads the environment. P5 is unmet: services construct repositories. P6 is unmet: startup recovery can reclaim another worker's active job; a lease/heartbeat, safe multi-worker behavior and the required two-process test are still needed. The full checklist, dependency-cycle and runtime exercises, evidence artefacts, and other passing conditions have not been completed or independently verified. |
-| R02–R22                  | **NOT STARTED under this completion protocol** | The original briefs contain extensive checklist, source, evidence and runtime work. Do not infer completion from older reports or prior merged fixes. R22 additionally requires real operators, documents, deployment and pilot evidence; legal, signing, native-tooling and vendor access require their respective external owners.                                                                                                                                                                                                                                                                                        |
+| Reviewer                 | Status                                         | Progress and remaining work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------ | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R01 — Software Architect | **IN PROGRESS; G1 not approved**               | Corrected architecture drift and misleading source comments, bounded process-local limiter state, and added regression coverage. P1's SQL relocation is implemented: literal SQL scans and a regression test find no statements outside `db/` and `repositories/`; the test does not prove the absence of dynamically assembled SQL. P2 is addressed by centralized configuration for the API and offline CLIs. P5 is partially addressed: project and template repositories are injected at the composition root, but many services still construct repositories. P6 is unmet: startup recovery can reclaim another worker's active job; a lease/heartbeat, safe multi-worker behavior and the required two-process test are still needed. Privacy erasure checks ownership before its transaction, leaving a concurrent membership-change race to address. The full checklist, dependency-cycle and runtime exercises, evidence artefacts, and other passing conditions have not been completed or independently verified. |
+| R02–R22                  | **NOT STARTED under this completion protocol** | The original briefs contain extensive checklist, source, evidence and runtime work. Do not infer completion from older reports or prior merged fixes. R22 additionally requires real operators, documents, deployment and pilot evidence; legal, signing, native-tooling and vendor access require their respective external owners.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 No reviewer completion file has been created. The protocol requires every assigned item and test to
 be completed before one can be written. Existing programme gates remain unapproved until their
 required evidence and sign-offs are complete. The R01 cycle scan reported no cycles in 202 processed
 files but skipped `@idcp/shared/ids`; this is not proof that the complete import graph is cycle-free.
-The worker regression models a stale active job being reclaimed; it is not the required two-process
-20-document runtime exercise.
+The job claim update now rechecks queued/runnable state after acquiring the target row's write lock,
+so a waiting claimant cannot claim the same already-updated row. Recovery now counts rows actually
+requeued, but it still models a stale active job being reclaimed. A two-subprocess SQLite test
+claims 20 synthetic jobs, not 20 documents processed by two backend instances; it does not exercise
+worker side effects, recovery or audits. A PostgreSQL lock-contention regression was added but has
+not been run because PostgreSQL and Docker are unavailable locally. P6 remains unmet.
+
+### Additional open security and runtime gaps
+
+- Existing-account invitations now require the current password and, when enabled, a TOTP or
+  recovery code. Recovery-code consumption and invitation acceptance commit together; concurrent
+  reuse is regression-tested. Admins receive invitation tokens, so enumeration resistance still
+  requires redesign and verification. Ordinary MFA login's recovery-code update is not atomic with
+  subsequent audit/session issuance; failures after consumption may require another recovery code.
+- Credential checks use the credential's organisation and live membership. SSE authorization is
+  checked only at connection time: already-open streams are not closed on removal or token expiry.
+  Ordinary login and MFA completion still select the earliest accepted membership; there is no
+  explicit organisation-selection flow.
+- SQLite's adapter now queues ordinary operations alongside transactions on the same connection;
+  regression tests cover blocked readers/writers, rollback isolation, nested scoped calls and stale
+  handles. This is not proof of cross-process safety or every concurrency behavior. Nested scoped
+  transactions share the outer transaction and do not create savepoints.
+- Privacy erasure checks ownership outside the write transaction, so concurrent membership changes
+  can invalidate its eligibility decision. PostgreSQL concurrency for current changes remains
+  untested locally because Docker and PostgreSQL are unavailable in the sandbox.
 
 ## Active — CRITICAL first
 
@@ -59,9 +82,17 @@ the new privileged renderer origin must not retain an unrestricted navigation pa
 
 ## Current verification baseline
 
-On the R01 worktree, `npm run format:check`, the backend build and `npm run verify` passed: 38 Jest
-suites and 518 tests passed, with one suite and one test skipped, plus four backup-tool tests,
-typecheck, lint and contract checks. `npm ci` skipped the Electron binary download. This is not
-evidence of a packaged desktop launch, a deployed PostgreSQL installation, an APK, an iOS build,
-or completion of the reviewer-specific runtime tests. PostgreSQL and Compose CI passed on PR #24,
-not on this unpushed worktree.
+On the current R01 worktree, `npm run format:check`, the backend and desktop renderer builds, and
+`npm run verify` passed:
+44 Jest suites and 558 tests passed, with one suite and two tests skipped, plus four backup-tool
+tests, typecheck, lint and contract checks. Focused coverage includes membership-scoped credentials,
+MFA invitation acceptance, recovery-code concurrency and rollback, SQLite transaction isolation,
+synthetic SQLite job claims from two processes, composition test doubles, dashboard isolation and
+privacy erasure rollback. Transaction-scoping and lock-ordering checks use PostgreSQL test doubles;
+they are not PostgreSQL integration tests. The new PostgreSQL claim-contention test was skipped. The built offline encryption-migration CLI passed check, apply and a second check
+against an empty, newly migrated synthetic SQLite database; encrypted-record migration and rollback
+are covered by the Jest integration tests. `npm ci` skipped the Electron binary download. The test
+run emitted existing React `act` and jsdom navigation warnings; the renderer build reported Rollup
+annotation and bundle-size warnings. This is not evidence of a packaged desktop launch, a deployed PostgreSQL installation, an APK, an iOS build, or completion of
+reviewer-specific runtime tests. PostgreSQL and Compose CI passed on PR #25, not on this unpushed
+worktree.

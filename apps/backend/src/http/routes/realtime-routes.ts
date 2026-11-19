@@ -3,13 +3,12 @@ import type { Guards } from '../guards';
 import type { Services } from '../../services/container';
 import type { InMemoryRealtimeHub, RealtimeEvent } from '../../realtime/hub';
 import { AppError } from '@idcp/shared';
-import { MembershipsRepository } from '../../repositories/auth-repo';
 import type { AuthenticatedActor } from '../../services/auth-service';
 
 async function actorFromQueryToken(services: Services, token: string): Promise<AuthenticatedActor> {
   const claims = services.tokens.verifyAccessToken(token);
   if (!claims) throw new AppError('UNAUTHENTICATED', 'Sign in to continue.');
-  const membership = await new MembershipsRepository(services.db).findForUser(claims.sub);
+  const membership = await services.auth.findActiveMembership(claims.sub, claims.org);
   if (!membership) throw new AppError('UNAUTHENTICATED', 'Account is no longer active.');
   return {
     userId: claims.sub,

@@ -21,13 +21,14 @@ import { isUuid } from '@idcp/shared/ids';
 
 export function registerAuthRoutes(app: FastifyInstance, services: Services, guards: Guards): void {
   /**
-   * TEAM-001 — accept an invitation link. Public, because the person accepting has no session yet;
-   * the token itself is the credential. Single use and short-lived.
+   * TEAM-001 — accept an invitation link. Public, short-lived and single-use. Existing accounts
+   * must also prove their password and, if enabled, their second factor.
    */
   app.post('/invitations/:token/accept', async (request, reply) => {
     const parsed = AcceptInviteRequestSchema.safeParse({
       token: (request.params as Record<string, string>).token,
       password: (request.body as { password?: string } | undefined)?.password,
+      code: (request.body as { code?: string } | undefined)?.code,
     });
     if (!parsed.success) throw badRequest('Choose a password with at least 12 characters.');
 

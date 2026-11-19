@@ -136,6 +136,13 @@ export class InvitationsRepository {
     ]);
   }
 
+  findForOrganisation(organisationId: string, id: string): Promise<InvitationRow | null> {
+    return this.db.one<InvitationRow>(
+      'SELECT * FROM invitations WHERE organisation_id = ? AND id = ?',
+      [organisationId, id],
+    );
+  }
+
   listForOrganisation(organisationId: string): Promise<InvitationRow[]> {
     return this.db.query<InvitationRow>(
       'SELECT * FROM invitations WHERE organisation_id = ? ORDER BY created_at DESC LIMIT 100',
@@ -143,16 +150,13 @@ export class InvitationsRepository {
     );
   }
 
-  /** Marks an invitation used. Returns false when another request already consumed it. */
-  async consume(id: string): Promise<boolean> {
-    const row = await this.db.one<InvitationRow>('SELECT * FROM invitations WHERE id = ?', [id]);
-    if (!row || row.used_at) return false;
-    await this.db.execute('UPDATE invitations SET used_at = ? WHERE id = ? AND used_at IS NULL', [
-      nowIso(),
-      id,
-    ]);
-    const after = await this.db.one<InvitationRow>('SELECT * FROM invitations WHERE id = ?', [id]);
-    return Boolean(after?.used_at);
+  /** Atomically consume only a still-valid invitation; safe against concurrent requests. */
+  async consume(id: string, at: string): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      'UPDATE invitations SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ? RETURNING id',
+      [at, id, at],
+    );
+    return row !== null;
   }
 
   async revoke(id: string): Promise<void> {

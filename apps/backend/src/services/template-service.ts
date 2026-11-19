@@ -6,11 +6,10 @@ import {
   type TemplateDetail,
   type TemplateField,
 } from '@idcp/shared';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
-import { ExtractionsRepository } from '../repositories/document-repo';
-import { TemplatesRepository } from '../repositories/template-repo';
-import { AuditRepository } from '../repositories/system-repo';
+import type { ExtractionsRepository } from '../repositories/document-repo';
+import type { TemplatesRepository } from '../repositories/template-repo';
+import type { AuditRepository } from '../repositories/system-repo';
 import type { AuthenticatedActor } from './auth-service';
 import type { TemplateRow } from '../repositories/types';
 
@@ -24,18 +23,27 @@ import type { TemplateRow } from '../repositories/types';
  * Templates are versioned: changing the field list writes a snapshot, so an extraction performed
  * under an older layout can always be explained. Disabling a template keeps every version.
  */
+export interface TemplateServiceRepositories {
+  templates: Pick<
+    TemplatesRepository,
+    'list' | 'findById' | 'versions' | 'create' | 'update' | 'delete' | 'findActiveForType'
+  >;
+  extractions: Pick<ExtractionsRepository, 'findLatestForDocument'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
 export class TemplateService {
-  private readonly templates: TemplatesRepository;
-  private readonly extractions: ExtractionsRepository;
-  private readonly audit: AuditRepository;
+  private readonly templates: TemplateServiceRepositories['templates'];
+  private readonly extractions: TemplateServiceRepositories['extractions'];
+  private readonly audit: TemplateServiceRepositories['audit'];
 
   constructor(
-    db: Database,
+    repositories: TemplateServiceRepositories,
     private readonly logger: Logger,
   ) {
-    this.templates = new TemplatesRepository(db);
-    this.extractions = new ExtractionsRepository(db);
-    this.audit = new AuditRepository(db);
+    this.templates = repositories.templates;
+    this.extractions = repositories.extractions;
+    this.audit = repositories.audit;
   }
 
   async list(actor: AuthenticatedActor, documentType?: DocumentType): Promise<Template[]> {

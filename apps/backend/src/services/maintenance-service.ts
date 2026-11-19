@@ -3,6 +3,7 @@ import type { Database } from '../db/database';
 import type { Logger } from '../logger';
 import type { Storage } from '../storage';
 import { JobsRepository } from '../repositories/system-repo';
+import { MaintenanceRepository } from '../repositories/maintenance-repo';
 import { processErasureFiles } from './erasure-files';
 
 export interface MaintenanceReport {
@@ -29,6 +30,7 @@ export interface MaintenanceReport {
  */
 export class MaintenanceService {
   private readonly jobs: JobsRepository;
+  private readonly maintenance: MaintenanceRepository;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
@@ -39,6 +41,7 @@ export class MaintenanceService {
     private readonly logger: Logger,
   ) {
     this.jobs = new JobsRepository(db);
+    this.maintenance = new MaintenanceRepository(db);
   }
 
   async runOnce(now: Date = new Date()): Promise<MaintenanceReport> {
@@ -77,18 +80,10 @@ export class MaintenanceService {
 
   /** One purge job per organisation, and only when one is not already waiting. */
   private async enqueueRetentionPurges(now: Date): Promise<number> {
-    const organisations = await this.db.query<{ id: string }>(
-      'SELECT id FROM organisations WHERE retention_days > 0',
-    );
+    const organisations = await this.maintenance.organisationsWithRetention();
     let enqueued = 0;
     for (const organisation of organisations) {
-      const existing = await this.db.one<{ id: string }>(
-        `SELECT id FROM jobs
-          WHERE organisation_id = ? AND type = 'retention_purge'
-            AND status IN ('queued', 'running')
-          LIMIT 1`,
-        [organisation.id],
-      );
+      const existing = await this.maintenance.findPendingPurge(organisation.id);
       if (existing) continue;
       await this.jobs.enqueue({
         organisationId: organisation.id,
@@ -105,11 +100,7 @@ export class MaintenanceService {
    * even if the row is still listed in the history.
    */
   private async expireExports(now: Date): Promise<number> {
-    const expired = await this.db.query<{ id: string; storage_key: string | null }>(
-      `SELECT id, storage_key FROM exports
-        WHERE expires_at IS NOT NULL AND expires_at <= ? AND status <> 'expired'`,
-      [now.toISOString()],
-    );
+    const expired = await this.maintenance.expiredExports(now.toISOString());
     let completed = 0;
     for (const row of expired) {
       if (row.storage_key) {
@@ -124,51 +115,25 @@ export class MaintenanceService {
           continue;
         }
       }
-      await this.db.execute(
-        `UPDATE exports SET status = 'expired', storage_key = NULL WHERE id = ?`,
-        [row.id],
-      );
+      await this.maintenance.markExportExpired(row.id);
       completed += 1;
     }
     return completed;
   }
 
   private async expirePairingSessions(now: Date): Promise<number> {
-    const stale = await this.db.query<{ id: string }>(
-      `SELECT id FROM pairing_sessions WHERE status = 'pending' AND expires_at <= ?`,
-      [now.toISOString()],
-    );
-    if (stale.length === 0) return 0;
-    await this.db.execute(
-      `UPDATE pairing_sessions SET status = 'expired' WHERE status = 'pending' AND expires_at <= ?`,
-      [now.toISOString()],
-    );
-    return stale.length;
+    return this.maintenance.expirePairingSessions(now.toISOString());
   }
 
   /** A refresh session that expired a month ago can never be used or audited into anything useful. */
   private async deleteDeadSessions(now: Date): Promise<number> {
     const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const rows = await this.db.query<{ id: string }>(
-      'SELECT id FROM sessions WHERE expires_at < ?',
-      [cutoff],
-    );
-    if (rows.length === 0) return 0;
-    await this.db.execute('DELETE FROM sessions WHERE expires_at < ?', [cutoff]);
-    return rows.length;
+    return this.maintenance.deleteExpiredSessions(cutoff);
   }
 
   private async deleteSpentResetTokens(now: Date): Promise<number> {
     const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const rows = await this.db.query<{ id: string }>(
-      'SELECT id FROM password_resets WHERE used_at IS NOT NULL AND used_at < ?',
-      [cutoff],
-    );
-    if (rows.length === 0) return 0;
-    await this.db.execute('DELETE FROM password_resets WHERE used_at IS NOT NULL AND used_at < ?', [
-      cutoff,
-    ]);
-    return rows.length;
+    return this.maintenance.deleteSpentResetTokens(cutoff);
   }
 
   /** Run shortly after boot, then on the configured interval. */

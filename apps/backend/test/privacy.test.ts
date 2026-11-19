@@ -6,6 +6,8 @@ import {
   type Harness,
 } from './helpers';
 import { AuditRepository } from '../src/repositories/system-repo';
+import { PrivacyRepository } from '../src/repositories/privacy-repo';
+import type { Database } from '../src/db/database';
 
 /**
  * Data-subject rights: export and erasure (privacy policy §7).
@@ -14,6 +16,15 @@ import { AuditRepository } from '../src/repositories/system-repo';
  * anonymise the account, kill its credentials, remove drafts — and refuse while the person is one of
  * several owners, because the organisation would be left without an accountable human.
  */
+it('scopes draft selection to the user and requests a PostgreSQL row lock', async () => {
+  const query = jest.fn(async () => []);
+  const db = { driver: 'postgres', query } as unknown as Database;
+  await new PrivacyRepository(db).lockDraftsForUser('subject-id');
+  expect(query).toHaveBeenCalledWith(expect.stringMatching(/uploaded_by = \?[\s\S]*FOR UPDATE$/), [
+    'subject-id',
+  ]);
+});
+
 describe('privacy: export and erasure', () => {
   let harness: Harness;
 

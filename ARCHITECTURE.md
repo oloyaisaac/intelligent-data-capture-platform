@@ -46,23 +46,36 @@ real runtime behavior require separate validation; renderer/browser tests are no
 ### 2.3 Backend (`apps/backend`)
 
 `src/index.ts` loads configuration, creates the database, composes services, starts Fastify and,
-when enabled, starts the worker and maintenance scheduler. The intended dependency direction is
-`http/routes` → domain `services` → persistence `repositories` → the `db` port and drivers. This is
-a guide, not an enforced invariant: several services issue SQL directly, the health route uses the
-database, the SSE route constructs a membership repository, and services construct repositories in
-their constructors. Any refactoring must preserve transaction boundaries and tenant scoping.
+when enabled, starts the worker and maintenance scheduler. Environment access is centralized in
+`src/config.ts`; seed and offline encryption-migration settings are loaded separately from API
+settings, and the health endpoint receives its version through configuration. The intended dependency
+direction is `http/routes` → domain `services` → persistence `repositories` → the `db` port and
+drivers. Literal SQL scans now find no statements in services or HTTP modules; a static regression
+test checks common literal statements but cannot prove the absence of dynamically assembled SQL.
+The health route invokes a database probe, and many services still construct repositories in their
+constructors. Project and template repositories are injected by the composition root. HTTP guards
+and event-stream authentication consult the auth service for the credential's organisation and live
+membership. The privacy erasure and encryption-migration write repositories are bound to
+transaction-scoped databases. The privacy owner eligibility checks still happen before the erasure
+transaction and are not protected from concurrent membership changes. Any further refactoring must
+preserve transaction boundaries and tenant scoping.
 
 `services/container.ts` builds the service graph and supplies storage, OCR and realtime adapters;
 individual services also construct repositories. SQLite and PostgreSQL are implemented behind the
-`Database` interface. SQLite uses Node's experimental `node:sqlite`; migrations are handwritten in
+`Database` interface. SQLite uses Node's experimental `node:sqlite` and queues all operations on
+its shared connection around transaction-scoped callbacks; nested scoped transactions do not create
+savepoints. This does not establish cross-process safety. Migrations are handwritten in
 `src/db/migrations.ts`, not Prisma. The storage port has filesystem and test-memory implementations;
 S3 is not implemented (DEC-010). Authenticated SSE uses `InMemoryRealtimeHub`; it is process-local
-and the route depends on its concrete subscription method (DEC-016).
+and the route depends on its concrete subscription method (DEC-016). Event-stream credentials are
+checked on connection; an already-open stream is not revalidated when a membership is removed or a
+token expires.
 
-The worker claims jobs via a database update, retries failures and marks exhausted jobs dead. This
-is **not** proof of exactly-once effects or multi-worker safety. On startup, a running job older than
-30 seconds can be requeued without a lease or heartbeat even if another process is still processing
-it (`services/worker.ts`, `repositories/system-repo.ts`). Only one worker process is supported.
+The worker claims jobs via a database update that rechecks queued/runnable status when updating the
+row, retries failures and marks exhausted jobs dead. Claim exclusivity alone is **not** proof of
+exactly-once effects or multi-worker safety. On startup, a running job older than 30 seconds can be
+requeued without a lease or heartbeat even if another process is still processing it
+(`services/worker.ts`, `repositories/system-repo.ts`). Only one worker process is supported.
 
 ### 2.4 Shared and connector packages
 

@@ -49,8 +49,9 @@ export class JobsRepository {
   }
 
   /**
-   * Claim the next runnable job. Returning the row in a single statement makes concurrent
-   * workers safe: only one caller can flip `queued` → `running`.
+   * Atomically claim a queued job. Recheck the target row after acquiring its write lock: on
+   * PostgreSQL another claimant may have selected the same queued row before this update waited.
+   * This protects the claim only; it does not make crash recovery or job side effects idempotent.
    */
   async claimNext(now: string = nowIso()): Promise<JobRow | null> {
     return this.db.one<JobRow>(
@@ -59,9 +60,9 @@ export class JobsRepository {
           SELECT id FROM jobs
            WHERE status = 'queued' AND (run_after IS NULL OR run_after <= ?)
            ORDER BY created_at LIMIT 1
-        )
+        ) AND status = 'queued' AND (run_after IS NULL OR run_after <= ?)
         RETURNING *`,
-      [now, now],
+      [now, now, now],
     );
   }
 
@@ -100,29 +101,23 @@ export class JobsRepository {
    *
    * `claimNext` flips a job to `running` and nothing else ever moves it out of that state, so a
    * crash, a `kill -9` or a deploy that stops the container mid-extraction used to strand the job
-   * — and its document in `processing` — forever. Anything claimed before this process started
-   * cannot still be running here, so it is safe to retry: extraction is idempotent and `attempts`
-   * already counted the lost try (DEC-008).
+   * — and its document in `processing` — forever. This startup heuristic retries old work while
+   * preserving the attempt count, but side effects are not guaranteed to be idempotent.
    *
-   * Only correct for one worker process. Two instances sharing a database need a lease/heartbeat
-   * instead, which is part of the multi-instance work in DEC-029.
+   * It is only usable with one worker process. A second process can requeue a live job. Safe
+   * recovery across instances needs ownership, leases, fencing and idempotent side effects.
    */
   async requeueStale(startedBefore: string): Promise<number> {
-    const stale = await this.db.query<{ id: string }>(
-      `SELECT id FROM jobs WHERE status = 'running' AND (started_at IS NULL OR started_at <= ?)`,
-      [startedBefore],
-    );
-    if (stale.length === 0) return 0;
-    await this.db.execute(
+    const requeued = await this.db.query<{ id: string }>(
       `UPDATE jobs SET status = 'queued', run_after = ?, last_error = ?
-        WHERE status = 'running' AND (started_at IS NULL OR started_at <= ?)`,
+        WHERE status = 'running' AND (started_at IS NULL OR started_at <= ?) RETURNING id`,
       [
         nowIso(),
         'Recovered after an interrupted run (the process stopped mid-job).',
         startedBefore,
       ],
     );
-    return stale.length;
+    return requeued.length;
   }
 
   listForDocument(documentId: string): Promise<JobRow[]> {

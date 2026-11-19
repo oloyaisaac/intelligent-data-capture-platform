@@ -136,8 +136,11 @@ export class ApiKeyService {
 
     // The key acts as its creator, re-checked against the live membership: a removed user's key
     // stops working immediately.
-    const membership = await this.memberships.findForUser(row.created_by);
-    if (!membership || membership.organisation_id !== row.organisation_id) return null;
+    const membership = await this.memberships.findActiveForOrganisation(
+      row.created_by,
+      row.organisation_id,
+    );
+    if (!membership) return null;
 
     await this.keys.touch(row.key_hash);
     return {

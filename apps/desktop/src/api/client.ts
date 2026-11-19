@@ -855,11 +855,11 @@ export class ApiClient {
     return this.request(`/invitations/${id}`, { method: 'DELETE' });
   }
 
-  /** Used by the accept-invite screen; the token in the URL is the credential. */
-  acceptInvitation(input: { token: string; password: string }): Promise<TokenPair> {
+  /** Existing accounts also supply their password and, when enabled, a second factor. */
+  acceptInvitation(input: { token: string; password: string; code?: string }): Promise<TokenPair> {
     return this.request(`/invitations/${encodeURIComponent(input.token)}/accept`, {
       method: 'POST',
-      body: { password: input.password },
+      body: { password: input.password, ...(input.code ? { code: input.code } : {}) },
       anonymous: true,
     });
   }

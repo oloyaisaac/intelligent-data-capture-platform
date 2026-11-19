@@ -28,6 +28,10 @@ import { WorkflowService } from './workflow-service';
 import { Worker } from './worker';
 import { PrivacyService } from './privacy-service';
 import { MaintenanceService } from './maintenance-service';
+import { ProjectsRepository } from '../repositories/project-repo';
+import { TemplatesRepository } from '../repositories/template-repo';
+import { ExtractionsRepository } from '../repositories/document-repo';
+import { AuditRepository } from '../repositories/system-repo';
 
 export interface Services {
   config: Config;
@@ -100,7 +104,10 @@ export function buildServices(options: BuildServicesOptions): Services {
   const pairing = new PairingService(db, config, tokens, hub, logger);
   const documents = new DocumentService(db, config, storage, hub, logger);
   const batches = new BatchService(db, hub, documents, logger);
-  const projects = new ProjectService(db, logger);
+  const projects = new ProjectService(
+    { projects: new ProjectsRepository(db), audit: new AuditRepository(db) },
+    logger,
+  );
   const reviews = new ReviewService(db, hub, logger);
   const exports = new ExportService(db, config, storage, hub, logger);
   const connectors = new ConnectorService(db, registry, secretBox, hub, logger);
@@ -113,7 +120,14 @@ export function buildServices(options: BuildServicesOptions): Services {
   );
   const workflows = new WorkflowService(db, logger);
   const organisation = new OrganisationService(db);
-  const templates = new TemplateService(db, logger);
+  const templates = new TemplateService(
+    {
+      templates: new TemplatesRepository(db),
+      extractions: new ExtractionsRepository(db),
+      audit: new AuditRepository(db),
+    },
+    logger,
+  );
   const apiKeys = new ApiKeyService(db, logger);
   const worker = new Worker(db, config, storage, provider, hub, documents, logger, templates);
   const privacy = new PrivacyService(db, storage, hasher, logger);

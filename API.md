@@ -384,15 +384,15 @@ explains its outcome — including the runs that skipped.
 
 ### 8b. Projects and invitations (TEAM-001)
 
-| Method | Path                         | Purpose                                                  |
-| ------ | ---------------------------- | -------------------------------------------------------- |
-| GET    | `/projects`                  | Projects; archived ones only with `includeArchived=true` |
-| POST   | `/projects`                  | Create a project (admin); `key` derived from the name    |
-| PATCH  | `/projects/:id`              | Rename, archive or restore (admin)                       |
-| DELETE | `/projects/:id`              | Archive — documents keep their assignment                |
-| GET    | `/invitations`               | Pending and used invitations (admin), never with tokens  |
-| DELETE | `/invitations/:id`           | Revoke an invitation (admin)                             |
-| POST   | `/invitations/:token/accept` | Public: set a password, activate membership, sign in     |
+| Method | Path                         | Purpose                                                            |
+| ------ | ---------------------------- | ------------------------------------------------------------------ |
+| GET    | `/projects`                  | Projects; archived ones only with `includeArchived=true`           |
+| POST   | `/projects`                  | Create a project (admin); `key` derived from the name              |
+| PATCH  | `/projects/:id`              | Rename, archive or restore (admin)                                 |
+| DELETE | `/projects/:id`              | Archive — documents keep their assignment                          |
+| GET    | `/invitations`               | Pending and used invitations (admin), never with tokens            |
+| DELETE | `/invitations/:id`           | Revoke an invitation (admin)                                       |
+| POST   | `/invitations/:token/accept` | Public: establish or verify password, activate membership, sign in |
 
 `POST /users/invite` stores only the SHA-256 hash of the token and returns the link once:
 
@@ -410,9 +410,12 @@ explains its outcome — including the runs that skipped.
 }
 ```
 
-The accept endpoint is anonymous (the token is the credential), expires after
-`INVITATION_TTL_SECONDS`, and is single-use: the second attempt returns `401`. A weak password is
-`400`; an unknown, used or expired token is `401` with a message that does not say which.
+The public accept endpoint requires the invitation token and a password. A new account sets its
+password; an existing account must supply its current password, which is not changed. If MFA is
+enabled, also provide a `code` from the authenticator app or a recovery code. Invitations expire
+after `INVITATION_TTL_SECONDS` and are single-use; a recovery code is consumed only if acceptance
+commits. A weak password is `400`; invalid invitation credentials are `401`. Administrators receive
+invitation tokens, so this flow does not yet satisfy an account-enumeration-resistance guarantee.
 
 ---
 
