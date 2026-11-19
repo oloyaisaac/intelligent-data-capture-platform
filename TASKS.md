@@ -47,6 +47,14 @@ The SSE route now uses an optional subscription capability on the realtime port 
 concrete in-memory hub cast. Tests cover an injected alternative and a hub without subscriptions;
 this does not add a distributed hub or continuous stream reauthorization.
 
+An architecture-flow replay exposed that an idempotent upload retry queued a second extraction job.
+Upload metadata, page, audit and initial job now commit together; repeat and concurrent requests
+return an existing job without requeueing. Local regressions cover sequential and forced concurrent
+requests, failed enqueue rollback and an ambiguous commit response. File storage remains outside
+the database transaction and cleanup is best effort; crashes or uncertain commits can leave orphans.
+Legacy rows without an extraction job return an actionable conflict rather than silently scheduling
+work. These changes do not resolve worker recovery or prove exactly-once effects.
+
 Pairing completion now locks the session before checking status and expiry, and creates the device,
 claims the token and records the audit in one transaction; the event is published after commit.
 An audit-failure test reproduced partial committed state before the fix. SQLite tests cover rollback,
@@ -128,7 +136,7 @@ the new privileged renderer origin must not retain an unrestricted navigation pa
 ## Current verification baseline
 
 On the current R01 worktree, `npm run format:check`, the backend build and `npm run verify` passed:
-49 Jest suites and 586 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
+50 Jest suites and 591 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
 tests, typecheck, lint and contract checks. Focused coverage includes pairing rollback and concurrent
 requests, marketplace and composition boundaries, membership-scoped credentials,
 MFA invitation acceptance, recovery-code concurrency and rollback, SQLite transaction isolation,

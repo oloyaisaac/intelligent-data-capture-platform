@@ -480,12 +480,13 @@ it('uses injected document repositories and rejects a document outside the actor
       updateStatus: jest.fn(),
     },
     extractions: { findLatestForDocument: jest.fn() },
-    jobs: { enqueue: jest.fn() },
+    jobs: { enqueue: jest.fn(), latestExtractionForDocument: jest.fn() },
     audit: { record: jest.fn() },
     transaction: (run) =>
       run({
-        documents: { create: jest.fn() },
+        documents: { createIfAbsent: jest.fn(), findByIdempotencyKey: jest.fn() },
         pages: { create: jest.fn() },
+        jobs: repositories.jobs,
         audit: repositories.audit,
       }),
   };

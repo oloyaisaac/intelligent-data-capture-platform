@@ -120,6 +120,15 @@ export class JobsRepository {
     return requeued.length;
   }
 
+  /** The most recent extraction job for a prior upload, without enqueueing new work. */
+  latestExtractionForDocument(organisationId: string, documentId: string): Promise<JobRow | null> {
+    return this.db.one<JobRow>(
+      `SELECT * FROM jobs WHERE organisation_id = ? AND document_id = ? AND type = 'extract_document'
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [organisationId, documentId],
+    );
+  }
+
   listForDocument(documentId: string): Promise<JobRow[]> {
     return this.db.query<JobRow>('SELECT * FROM jobs WHERE document_id = ? ORDER BY created_at', [
       documentId,

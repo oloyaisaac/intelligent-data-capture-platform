@@ -111,7 +111,11 @@ These are code paths to exercise, not claims of completed device or production v
    checks its status and expiry, and commits the device, token claim and audit together. It emits
    a non-durable process-local event after commit; a lost response requires a new pairing session.
 2. **Capture and review:** the mobile client queues a capture and uploads with an idempotency key.
-   The API stores a file and document/job metadata. The worker runs OCR and extraction; the review
+   The API stores a file, then commits document, page, upload audit and extraction-job metadata in
+   one database transaction. A retry with the same organisation/key returns an existing extraction
+   job rather than scheduling another; an older document without a job requires explicit reprocessing.
+   Storage is outside the transaction: failures, process crashes or ambiguous commit outcomes can
+   leave orphan files and require reconciliation. The worker runs OCR and extraction; the review
    API accepts human corrections and approval. Events are sent to local SSE subscribers.
 3. **Export and connector write:** approved records can be exported or sent through configured
    mapping and connector operations. External systems and side effects need their own reconciliation

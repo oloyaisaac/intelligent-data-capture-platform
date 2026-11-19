@@ -7,7 +7,8 @@ import type { DocumentPageRow, DocumentRow, ExtractionRow } from './types';
 export class DocumentsRepository {
   constructor(private readonly db: Database) {}
 
-  async create(input: {
+  /** Insert unless another upload already claimed the organisation's idempotency key. */
+  async createIfAbsent(input: {
     organisationId: string;
     uploadedBy?: string | null;
     deviceId?: string | null;
@@ -20,7 +21,7 @@ export class DocumentsRepository {
     documentType?: DocumentType;
     status?: DocumentStatus;
     projectId?: string | null;
-  }): Promise<DocumentRow> {
+  }): Promise<DocumentRow | null> {
     const now = nowIso();
     const row: DocumentRow = {
       id: newId(),
@@ -41,10 +42,11 @@ export class DocumentsRepository {
       created_at: now,
       updated_at: now,
     };
-    await this.db.execute(
+    const inserted = await this.db.one<{ id: string }>(
       `INSERT INTO documents (id, organisation_id, uploaded_by, device_id, idempotency_key, storage_key,
         mime_type, size_bytes, sha256, page_count, document_type, status, project_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (organisation_id, idempotency_key) DO NOTHING RETURNING id`,
       [
         row.id,
         row.organisation_id,
@@ -63,7 +65,7 @@ export class DocumentsRepository {
         row.updated_at,
       ],
     );
-    return row;
+    return inserted ? row : null;
   }
 
   findById(organisationId: string, id: string): Promise<DocumentRow | null> {

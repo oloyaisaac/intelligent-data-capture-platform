@@ -186,6 +186,7 @@ export function buildServices(options: BuildServicesOptions): Services {
           run({
             documents: new DocumentsRepository(tx),
             pages: new DocumentPagesRepository(tx),
+            jobs: new JobsRepository(tx),
             audit: new AuditRepository(tx),
           }),
         ),

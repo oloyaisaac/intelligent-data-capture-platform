@@ -3,6 +3,7 @@ import {
   AppError,
   LIMITS,
   badRequest,
+  conflict,
   type DocumentStatus,
   type DocumentSummary,
   type DocumentType,
@@ -44,8 +45,9 @@ export interface UploadInput {
 }
 
 export interface DocumentTransactionRepositories {
-  documents: Pick<DocumentsRepository, 'create'>;
+  documents: Pick<DocumentsRepository, 'createIfAbsent' | 'findByIdempotencyKey'>;
   pages: Pick<DocumentPagesRepository, 'create'>;
+  jobs: Pick<JobsRepository, 'enqueue' | 'latestExtractionForDocument'>;
   audit: Pick<AuditRepository, 'record'>;
 }
 
@@ -60,7 +62,7 @@ export interface DocumentServiceRepositories {
     | 'updateStatus'
   >;
   extractions: Pick<ExtractionsRepository, 'findLatestForDocument'>;
-  jobs: Pick<JobsRepository, 'enqueue'>;
+  jobs: Pick<JobsRepository, 'enqueue' | 'latestExtractionForDocument'>;
   audit: Pick<AuditRepository, 'record'>;
   transaction<T>(run: (repositories: DocumentTransactionRepositories) => Promise<T>): Promise<T>;
 }
@@ -117,14 +119,7 @@ export class DocumentService {
         actor.organisationId,
         input.idempotencyKey,
       );
-      if (existing) {
-        const job = await this.jobs.enqueue({
-          organisationId: actor.organisationId,
-          type: 'extract_document',
-          documentId: existing.id,
-        });
-        return { document: toDocumentSummary(existing), jobId: job.id, duplicate: true };
-      }
+      if (existing) return this.existingUpload(existing, this.jobs);
     }
 
     const sha256 = createHash('sha256').update(input.buffer).digest('hex');
@@ -138,60 +133,109 @@ export class DocumentService {
 
     await this.storage.put(storageKey, input.buffer, mimeType);
 
-    const document = await this.transaction(async (repositories) => {
-      const created = await repositories.documents.create({
-        organisationId: actor.organisationId,
-        uploadedBy: actor.userId,
-        deviceId: actor.deviceId ?? null,
-        idempotencyKey: input.idempotencyKey ?? null,
-        storageKey,
-        mimeType,
-        sizeBytes: input.buffer.length,
-        sha256,
-        documentType: input.documentType ?? 'unknown',
-        status: 'queued',
-        projectId: input.projectId ?? null,
+    let callbackFinished = false;
+    let result: { document: DocumentSummary; jobId: string; duplicate: boolean };
+    try {
+      result = await this.transaction(async (repositories) => {
+        const created = await repositories.documents.createIfAbsent({
+          organisationId: actor.organisationId,
+          uploadedBy: actor.userId,
+          deviceId: actor.deviceId ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
+          storageKey,
+          mimeType,
+          sizeBytes: input.buffer.length,
+          sha256,
+          documentType: input.documentType ?? 'unknown',
+          status: 'queued',
+          projectId: input.projectId ?? null,
+        });
+
+        if (!created) {
+          // A concurrent transaction won the key. Its document and job committed together.
+          const existing = input.idempotencyKey
+            ? await repositories.documents.findByIdempotencyKey(
+                actor.organisationId,
+                input.idempotencyKey,
+              )
+            : null;
+          if (!existing) throw new Error('Conflicting upload could not be found.');
+          const duplicate = await this.existingUpload(existing, repositories.jobs);
+          callbackFinished = true;
+          return duplicate;
+        }
+
+        await repositories.pages.create({
+          documentId: created.id,
+          pageNumber: 1,
+          storageKey,
+          width: null,
+          height: null,
+        });
+
+        await repositories.audit.record({
+          organisationId: actor.organisationId,
+          actorType: actor.actorType,
+          actorId: actor.userId,
+          action: 'document.uploaded',
+          targetType: 'document',
+          targetId: created.id,
+          metadata: { mimeType, sizeBytes: input.buffer.length, sha256 },
+        });
+
+        const job = await repositories.jobs.enqueue({
+          organisationId: actor.organisationId,
+          type: 'extract_document',
+          documentId: created.id,
+          payload: { documentTypeHint: input.documentType },
+        });
+        callbackFinished = true;
+        return { document: toDocumentSummary(created), jobId: job.id, duplicate: false };
       });
+    } catch (error) {
+      // No COMMIT was attempted when the callback threw. A commit error is ambiguous, however,
+      // so retain the file rather than risk deleting an object referenced by committed metadata.
+      if (!callbackFinished) await this.removeUnreferencedUpload(storageKey);
+      throw error;
+    }
 
-      await repositories.pages.create({
-        documentId: created.id,
-        pageNumber: 1,
-        storageKey,
-        width: null,
-        height: null,
-      });
-
-      await repositories.audit.record({
-        organisationId: actor.organisationId,
-        actorType: actor.actorType,
-        actorId: actor.userId,
-        action: 'document.uploaded',
-        targetType: 'document',
-        targetId: created.id,
-        metadata: { mimeType, sizeBytes: input.buffer.length, sha256 },
-      });
-
-      return created;
-    });
-
-    const job = await this.jobs.enqueue({
-      organisationId: actor.organisationId,
-      type: 'extract_document',
-      documentId: document.id,
-      payload: { documentTypeHint: input.documentType },
-    });
-
+    if (result.duplicate) {
+      await this.removeUnreferencedUpload(storageKey);
+      return result;
+    }
     this.hub.toOrganisation(actor.organisationId, 'document:queued', {
-      documentId: document.id,
-      jobId: job.id,
+      documentId: result.document.id,
+      jobId: result.jobId,
     });
     this.logger.info('document uploaded', {
-      documentId: document.id,
+      documentId: result.document.id,
       organisationId: actor.organisationId,
       bytes: input.buffer.length,
     });
 
-    return { document: toDocumentSummary(document), jobId: job.id, duplicate: false };
+    return result;
+  }
+
+  private async existingUpload(
+    document: DocumentRow,
+    jobs: Pick<JobsRepository, 'latestExtractionForDocument'>,
+  ): Promise<{ document: DocumentSummary; jobId: string; duplicate: boolean }> {
+    if (document.deleted_at) throw conflict('The previous upload has been deleted; use a new key.');
+    const job = await jobs.latestExtractionForDocument(document.organisation_id, document.id);
+    if (!job) {
+      // Legacy rows created before atomic upload/job creation require explicit operator action.
+      throw conflict('The previous upload has no extraction job. Reprocess it before retrying.');
+    }
+    return { document: toDocumentSummary(document), jobId: job.id, duplicate: true };
+  }
+
+  private async removeUnreferencedUpload(storageKey: string): Promise<void> {
+    try {
+      await this.storage.delete(storageKey);
+    } catch {
+      // File cleanup is best effort: operators may need orphan reconciliation.
+      this.logger.error('could not remove unreferenced upload file');
+    }
   }
 
   async list(
