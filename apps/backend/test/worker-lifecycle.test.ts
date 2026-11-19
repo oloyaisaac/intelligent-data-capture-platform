@@ -37,9 +37,8 @@ function setup() {
   const jobs = {
     claimNext: jest.fn<Promise<JobRow | null>, []>(),
     requeueStale: jest.fn().mockResolvedValue(0),
-    markSucceeded: jest.fn().mockResolvedValue(undefined),
-    markFailed: jest.fn().mockResolvedValue(undefined),
-    findById: jest.fn(),
+    markSucceeded: jest.fn().mockResolvedValue(true),
+    markFailed: jest.fn().mockResolvedValue('queued'),
   };
   const repositories: WorkerRepositories = {
     jobs,
@@ -89,10 +88,10 @@ it('waits for active work on stop, coalesces concurrent drains, and leaves later
   await stopping;
   expect(stopped).toBe(true);
   expect(jobs.markSucceeded).toHaveBeenCalledTimes(1);
-  expect(jobs.markSucceeded).toHaveBeenCalledWith('first');
+  expect(jobs.markSucceeded).toHaveBeenCalledWith('first', 1);
   expect(jobs.claimNext).toHaveBeenCalledTimes(1);
   expect(await worker.drain()).toBe(1);
-  expect(jobs.markSucceeded).toHaveBeenCalledWith('second');
+  expect(jobs.markSucceeded).toHaveBeenCalledWith('second', 1);
 });
 
 it('finishes a job whose claim was already in flight when stop began', async () => {
@@ -110,7 +109,7 @@ it('finishes a job whose claim was already in flight when stop began', async () 
   expect(await draining).toBe(1);
   await stopping;
   expect(purge).toHaveBeenCalledTimes(1);
-  expect(jobs.markSucceeded).toHaveBeenCalledWith('in-flight');
+  expect(jobs.markSucceeded).toHaveBeenCalledWith('in-flight', 1);
   expect(jobs.claimNext).toHaveBeenCalledTimes(1);
 });
 
@@ -158,9 +157,43 @@ it('does not restart recovery until the previous stop has finished its active jo
   await draining;
   await stopping;
   await restarting;
-  expect(jobs.markSucceeded).toHaveBeenCalledWith('active');
+  expect(jobs.markSucceeded).toHaveBeenCalledWith('active', 1);
   expect(jobs.requeueStale).toHaveBeenCalledTimes(1);
   await worker.stop();
+});
+
+it('does not fail a document or emit a failure event when the job claim is obsolete', async () => {
+  const jobs = {
+    claimNext: jest.fn(),
+    requeueStale: jest.fn(),
+    markSucceeded: jest.fn(),
+    markFailed: jest.fn().mockResolvedValue(null),
+  };
+  const documents = {
+    findById: jest.fn().mockRejectedValue(new Error('ocr failed')),
+    updateStatus: jest.fn(),
+  };
+  const hub = new InMemoryRealtimeHub();
+  const emit = jest.spyOn(hub, 'toOrganisation');
+  const worker = new Worker(
+    {
+      jobs,
+      documents,
+      extractions: { create: jest.fn(), replaceFields: jest.fn() },
+      pages: { upsertOcr: jest.fn() },
+      orgs: { findById: jest.fn() },
+    },
+    testConfig(),
+    new MemoryStorage(),
+    new FakeOcrProvider(),
+    hub,
+    { purgeExpired: jest.fn() },
+    createLogger({ level: 'error', sink: () => undefined }),
+  );
+  await worker.processJob({ ...job('obsolete'), type: 'extract_document', document_id: 'doc' });
+  expect(jobs.markFailed).toHaveBeenCalledWith('obsolete', 1, 'ocr failed');
+  expect(documents.updateStatus).not.toHaveBeenCalled();
+  expect(emit).not.toHaveBeenCalled();
 });
 
 it('waits for a failed drain without preventing shutdown cleanup', async () => {

@@ -14,7 +14,9 @@ process.on('message', async (message: unknown) => {
       const job = await jobs.claimNext();
       if (!job) break;
       claimed.push(job.id);
-      await jobs.markSucceeded(job.id);
+      if (!(await jobs.markSucceeded(job.id, job.attempts))) {
+        throw new Error('Claim became obsolete before completion');
+      }
     }
     await db.close();
     process.send?.({ type: 'done', claimed }, () => process.disconnect());

@@ -32,10 +32,7 @@ export const RECOVERY_GRACE_MS = 30_000;
 
 /** Repository operations used by the worker, supplied by the composition root. */
 export interface WorkerRepositories {
-  jobs: Pick<
-    JobsRepository,
-    'claimNext' | 'requeueStale' | 'markSucceeded' | 'markFailed' | 'findById'
-  >;
+  jobs: Pick<JobsRepository, 'claimNext' | 'requeueStale' | 'markSucceeded' | 'markFailed'>;
   documents: Pick<DocumentsRepository, 'findById' | 'updateStatus'>;
   extractions: Pick<ExtractionsRepository, 'create' | 'replaceFields'>;
   pages: Pick<DocumentPagesRepository, 'upsertOcr'>;
@@ -76,9 +73,9 @@ export class Worker {
   /**
    * Start the poll loop.
    *
-   * Before the first tick, jobs left `running` by a previous process are re-queued: on a single
-   * instance (DEC-029) nothing else can be holding them, and without this a deploy or crash during
-   * an extraction strands the document in `processing` with no retry.
+   * Before the first tick, old `running` jobs are requeued using an age-only heuristic. This
+   * assumes the supported single-instance topology; a second worker can still be active. Fresh
+   * interrupted claims are not revisited during this run, and side effects are not fenced.
    */
   async start(): Promise<void> {
     if (this.stopping) await this.stopping;
@@ -194,22 +191,25 @@ export class Worker {
         default:
           throw new Error(`Unknown job type "${job.type}".`);
       }
-      await this.jobs.markSucceeded(job.id);
+      if (!(await this.jobs.markSucceeded(job.id, job.attempts))) {
+        this.logger.warn('job completion ignored for an obsolete claim', { jobId: job.id });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Job failed.';
-      await this.jobs.markFailed(job.id, message);
+      const outcome = await this.jobs.markFailed(job.id, job.attempts, message);
+      if (!outcome) {
+        this.logger.warn('job failure ignored for an obsolete claim', { jobId: job.id });
+        return;
+      }
       this.logger.warn('job failed', { jobId: job.id, type: job.type, error: message });
 
-      if (job.document_id) {
-        const latest = await this.jobs.findById(job.id);
-        if (latest?.status === 'dead') {
-          await this.documents.updateStatus(job.document_id, 'failed');
-          this.hub.toOrganisation(job.organisation_id, 'document:failed', {
-            documentId: job.document_id,
-            code: 'EXTRACTION_FAILED',
-            message,
-          });
-        }
+      if (job.document_id && outcome === 'dead') {
+        await this.documents.updateStatus(job.document_id, 'failed');
+        this.hub.toOrganisation(job.organisation_id, 'document:failed', {
+          documentId: job.document_id,
+          code: 'EXTRACTION_FAILED',
+          message,
+        });
       }
     }
   }

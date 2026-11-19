@@ -77,7 +77,9 @@ token expires.
 
 The worker claims jobs via a database update that rechecks queued/runnable status when updating the
 row, retries failures and marks exhausted jobs dead. Claim exclusivity alone is **not** proof of
-exactly-once effects or multi-worker safety. On startup, a running job older than 30 seconds can be
+exactly-once effects or multi-worker safety. Completion and failure updates now compare the running
+status and claim attempt, so an obsolete attempt cannot overwrite the job row. This guard does not
+cover OCR, extraction rows, document status, purge operations or other effects. On startup, a running job older than 30 seconds can be
 requeued without a lease or heartbeat even if another process is still processing it
 (`services/worker.ts`, `repositories/system-repo.ts`). Only one worker process is supported. On
 normal shutdown the worker waits for startup recovery and a currently claimed job to finish before

@@ -66,30 +66,40 @@ export class JobsRepository {
     );
   }
 
-  async markSucceeded(id: string): Promise<void> {
-    await this.db.execute(
-      `UPDATE jobs SET status = 'succeeded', finished_at = ?, last_error = NULL WHERE id = ?`,
-      [nowIso(), id],
+  /** Guard the job row against completion by a claim that has been recovered or replaced. */
+  async markSucceeded(id: string, attempt: number): Promise<boolean> {
+    const updated = await this.db.one<{ id: string }>(
+      `UPDATE jobs SET status = 'succeeded', finished_at = ?, last_error = NULL
+       WHERE id = ? AND status = 'running' AND attempts = ? RETURNING id`,
+      [nowIso(), id, attempt],
     );
+    return updated !== null;
   }
 
   /** Retry with exponential backoff, or mark dead once attempts are exhausted. */
-  async markFailed(id: string, error: string): Promise<void> {
-    const job = await this.db.one<JobRow>('SELECT * FROM jobs WHERE id = ?', [id]);
-    if (!job) return;
-    const exhausted = job.attempts >= job.max_attempts;
-    if (exhausted) {
-      await this.db.execute(
-        `UPDATE jobs SET status = 'dead', finished_at = ?, last_error = ? WHERE id = ?`,
-        [nowIso(), error.slice(0, 2000), id],
-      );
-      return;
-    }
-    const backoffMs = Math.min(2 ** job.attempts * 1000, 60_000);
-    await this.db.execute(
-      `UPDATE jobs SET status = 'queued', last_error = ?, run_after = ? WHERE id = ?`,
-      [error.slice(0, 2000), new Date(Date.now() + backoffMs).toISOString(), id],
+  async markFailed(id: string, attempt: number, error: string): Promise<'dead' | 'queued' | null> {
+    const job = await this.db.one<JobRow>(
+      `SELECT * FROM jobs WHERE id = ? AND status = 'running' AND attempts = ?`,
+      [id, attempt],
     );
+    if (!job) return null;
+    const exhausted = job.attempts >= job.max_attempts;
+    const backoffMs = Math.min(2 ** job.attempts * 1000, 60_000);
+    // The guarded update is essential even after the read: recovery or another worker may have
+    // changed the row in between. This fences only this row, not the job's other side effects.
+    const updated = await this.db.one<{ id: string }>(
+      `UPDATE jobs SET status = ?, finished_at = ?, last_error = ?, run_after = ?
+       WHERE id = ? AND status = 'running' AND attempts = ? RETURNING id`,
+      [
+        exhausted ? 'dead' : 'queued',
+        exhausted ? nowIso() : null,
+        error.slice(0, 2000),
+        exhausted ? job.run_after : new Date(Date.now() + backoffMs).toISOString(),
+        id,
+        attempt,
+      ],
+    );
+    return updated ? (exhausted ? 'dead' : 'queued') : null;
   }
 
   findById(id: string): Promise<JobRow | null> {

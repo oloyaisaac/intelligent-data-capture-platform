@@ -182,3 +182,9 @@ PostgreSQL suite in the maintenance fake-timer test: the timer assertion ran bef
 real database step reached the mocked retention query. The revised timer test stubs its repository
 ports, avoiding fake-clock interference with network I/O. Local focused tests passed; PostgreSQL
 must be rerun in CI before treating this as resolved.
+
+ARC-013 partial progress: job success/failure writes now condition on the running claim attempt;
+obsolete failures do not mark documents failed. This protects the job row only. A deterministic
+recovery regression still produces two OCR calls and two extraction records when a live claim is
+recovered, so P6 remains unmet. The open design and required failure tests are described in
+`docs/reviewers/evidence/R01/worker-recovery-design.md`.
