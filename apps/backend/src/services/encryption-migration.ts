@@ -1,6 +1,20 @@
-import type { Database } from '../db/database';
-import { EncryptionMigrationRepository } from '../repositories/encryption-migration-repo';
+import type { EncryptionMigrationRepository } from '../repositories/encryption-migration-repo';
 import { createSecretBox, type SecretBox } from './crypto';
+
+export type EncryptionMigrationRecords = Pick<
+  EncryptionMigrationRepository,
+  | 'lockForMigration'
+  | 'countWebhooks'
+  | 'countEnabledMfaWithoutSecret'
+  | 'listConnectors'
+  | 'listMfa'
+  | 'saveConnector'
+  | 'saveMfa'
+>;
+
+export interface EncryptionMigrationTransaction {
+  transaction<T>(run: (records: EncryptionMigrationRecords) => Promise<T>): Promise<T>;
+}
 
 export interface EncryptionMigrationReport {
   mode: 'check' | 'apply';
@@ -14,7 +28,7 @@ export interface EncryptionMigrationReport {
  * them stopped through post-migration verification and configuration rollout.
  */
 export async function migrateEncryptionKeys(
-  db: Database,
+  transactions: EncryptionMigrationTransaction,
   input: { encryptionSecret: string; sourceSecret: string; mode: 'check' | 'apply' },
 ): Promise<EncryptionMigrationReport> {
   if (input.encryptionSecret === input.sourceSecret) {
@@ -28,10 +42,9 @@ export async function migrateEncryptionKeys(
     mfa: { alreadyCurrent: 0, legacy: 0 },
   };
 
-  return db.transaction(async (tx) => {
+  return transactions.transaction(async (records) => {
     // Row locks alone cannot prevent newly inserted rows. This protects the scan during the
     // transaction, but cannot prevent an old process writing after commit: downtime is still required.
-    const records = new EncryptionMigrationRepository(tx);
     await records.lockForMigration();
     const webhooks = await records.countWebhooks();
     if (Number(webhooks?.count ?? 0) !== 0) {

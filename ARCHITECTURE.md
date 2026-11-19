@@ -52,23 +52,26 @@ settings, and the health endpoint receives its version through configuration. Th
 direction is `http/routes` → domain `services` → persistence `repositories` → the `db` port and
 drivers. Literal SQL scans now find no statements in services or HTTP modules; a static regression
 test checks common literal statements but cannot prove the absence of dynamically assembled SQL.
-The health route invokes a database probe, and many services still construct repositories in their
-constructors. Project, template, worker, API-key and workflow repositories are injected by the
-composition root. HTTP guards and event-stream authentication consult the auth service for the
-credential's organisation and live
-membership. The privacy erasure and encryption-migration write repositories are bound to
-transaction-scoped databases. The privacy owner eligibility checks still happen before the erasure
-transaction and are not protected from concurrent membership changes. Any further refactoring must
-preserve transaction boundaries and tenant scoping.
+The health route invokes a database probe. Service repositories are injected by the composition
+root, including transaction-scoped repositories used for registration, invitation acceptance,
+document upload, pairing completion and privacy erasure. The offline encryption-migration CLI is
+its own composition entry point and creates its transaction-scoped repository. A static test guards
+against direct repository construction in service modules, but does not establish that every adapter
+or dynamically constructed dependency is composed centrally. HTTP guards and event-stream
+authentication consult the auth service for the credential's organisation and live membership. The
+privacy owner eligibility checks still happen before the erasure transaction and are not protected
+from concurrent membership changes. Any further refactoring must preserve transaction boundaries
+and tenant scoping.
 
 `services/container.ts` builds the service graph and supplies storage, OCR and realtime adapters;
-individual services also construct repositories. SQLite and PostgreSQL are implemented behind the
+other entry points and factories also construct concrete implementations. SQLite and PostgreSQL are implemented behind the
 `Database` interface. SQLite uses Node's experimental `node:sqlite` and queues all operations on
 its shared connection around transaction-scoped callbacks; nested scoped transactions do not create
 savepoints. This does not establish cross-process safety. Migrations are handwritten in
 `src/db/migrations.ts`, not Prisma. The storage port has filesystem and test-memory implementations;
-S3 is not implemented (DEC-010). Authenticated SSE uses `InMemoryRealtimeHub`; it is process-local
-and the route depends on its concrete subscription method (DEC-016). Event-stream credentials are
+S3 is not implemented (DEC-010). Authenticated SSE uses `InMemoryRealtimeHub`; it is process-local.
+The route uses an optional subscription capability on the realtime port, not the concrete hub
+(DEC-016); hubs without that capability return 501 from the SSE endpoint. Event-stream credentials are
 checked on connection; an already-open stream is not revalidated when a membership is removed or a
 token expires.
 
@@ -104,13 +107,22 @@ These are code paths to exercise, not claims of completed device or production v
 
 1. **Pairing:** an authenticated desktop requests `/api/v1/pairing/sessions`; its QR payload carries
    an endpoint and short-lived token. The mobile client sends the token and device details to
-   `/api/v1/pairing/complete` and receives a device credential. Pairing emits a process-local event.
+   `/api/v1/pairing/complete` and receives a device credential. Completion locks the session,
+   checks its status and expiry, and commits the device, token claim and audit together. It emits
+   a non-durable process-local event after commit; a lost response requires a new pairing session.
 2. **Capture and review:** the mobile client queues a capture and uploads with an idempotency key.
-   The API stores a file and document/job metadata. The worker runs OCR and extraction; the review
+   The API stores a file, then commits document, page, upload audit and extraction-job metadata in
+   one database transaction. A retry with the same organisation/key returns an existing extraction
+   job rather than scheduling another; an older document without a job requires explicit reprocessing.
+   Storage is outside the transaction: failures, process crashes or ambiguous commit outcomes can
+   leave orphan files and require reconciliation. The worker runs OCR and extraction; the review
    API accepts human corrections and approval. Events are sent to local SSE subscribers.
 3. **Export and connector write:** approved records can be exported or sent through configured
    mapping and connector operations. External systems and side effects need their own reconciliation
-   and idempotency guarantees; a local job claim is not an exactly-once guarantee.
+   and idempotency guarantees; a local job claim is not an exactly-once guarantee. Workflow action
+   execution is a separate path: its connector-send and export actions currently record placeholder
+   output without dispatching the operation, and its notify action does not deliver a notification.
+   A completed workflow run is therefore not evidence that these effects occurred.
 
 ## 4. Technology and decisions
 

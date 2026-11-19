@@ -8,12 +8,11 @@ import {
 } from '@idcp/shared';
 import ExcelJS from 'exceljs';
 import type { Config } from '../config';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
-import { DocumentsRepository } from '../repositories/document-repo';
-import { ExportsRepository } from '../repositories/connector-repo';
-import { AuditRepository } from '../repositories/system-repo';
-import { ReviewsRepository } from '../repositories/review-repo';
+import type { DocumentsRepository } from '../repositories/document-repo';
+import type { ExportsRepository } from '../repositories/connector-repo';
+import type { AuditRepository } from '../repositories/system-repo';
+import type { ReviewsRepository } from '../repositories/review-repo';
 import type { ExportRow } from '../repositories/types';
 import { buildStorageKey, extensionForMimeType, type Storage } from '../storage';
 import type { AuthenticatedActor } from './auth-service';
@@ -42,23 +41,30 @@ export function toExportDto(row: ExportRow, downloadUrl: string | null = null): 
  * Only approved records with a human-approved UDM snapshot are exported: the export is a record of
  * decisions a person signed off, never raw AI output.
  */
+export interface ExportServiceRepositories {
+  documents: Pick<DocumentsRepository, 'listApproved'>;
+  reviews: Pick<ReviewsRepository, 'findApprovedUdm'>;
+  exports: Pick<ExportsRepository, 'create' | 'findById' | 'list' | 'markFailed' | 'markReady'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
 export class ExportService {
-  private readonly documents: DocumentsRepository;
-  private readonly reviews: ReviewsRepository;
-  private readonly exports: ExportsRepository;
-  private readonly audit: AuditRepository;
+  private readonly documents: ExportServiceRepositories['documents'];
+  private readonly reviews: ExportServiceRepositories['reviews'];
+  private readonly exports: ExportServiceRepositories['exports'];
+  private readonly audit: ExportServiceRepositories['audit'];
 
   constructor(
-    db: Database,
+    repositories: ExportServiceRepositories,
     private readonly config: Config,
     private readonly storage: Storage,
     private readonly hub: RealtimeHub,
     private readonly logger: Logger,
   ) {
-    this.documents = new DocumentsRepository(db);
-    this.reviews = new ReviewsRepository(db);
-    this.exports = new ExportsRepository(db);
-    this.audit = new AuditRepository(db);
+    this.documents = repositories.documents;
+    this.reviews = repositories.reviews;
+    this.exports = repositories.exports;
+    this.audit = repositories.audit;
   }
 
   async create(actor: AuthenticatedActor, request: CreateExportRequest): Promise<ExportRecord> {

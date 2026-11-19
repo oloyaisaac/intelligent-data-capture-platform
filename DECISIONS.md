@@ -41,7 +41,12 @@ Convention: `DEC-###` · status `Proposed | Accepted | Superseded by DEC-###`.
 
 **Alternatives considered:** MongoDB (flexible documents, weaker multi-entity consistency and reporting); Firebase Firestore (fast start, but vendor lock-in, weak relational queries and costly audit/reporting patterns); SQLite only (fine for a local desktop mode, not for multi-tenant hosting).
 
-**Consequences:** Requires migrations (Prisma) and a hosted database in production. SQLite may still be used for a future local-only desktop mode.
+**Consequences (historical):** Requires migrations (Prisma) and a hosted database in production. SQLite may still be used for a future local-only desktop mode.
+
+**Implementation note:** Prisma was not adopted; handwritten migrations and both database drivers
+are described in DEC-013. SQLite is the current local default, and the PostgreSQL path is exercised
+in CI. The shared schema stores UDM JSON as text; JSONB and a hosted production deployment are not
+established by this decision.
 
 ---
 
@@ -103,7 +108,11 @@ Convention: `DEC-###` · status `Proposed | Accepted | Superseded by DEC-###`.
 
 **Alternatives considered:** Synchronous processing (simpler, times out on large documents, poor mobile experience).
 
-**Consequences:** Need a queue (Redis-backed), job status transitions, and per-item status visible in mobile and desktop. Every job status change is bounded by the states in `DATABASE.md`.
+**Consequences (historical):** Need a queue (Redis-backed), job status transitions, and per-item status visible in mobile and desktop. Every job status change is bounded by the states in `DATABASE.md`.
+
+**Implementation note:** The shipped queue uses the database jobs table, not Redis (DEC-029).
+Upload idempotency and atomic job claims do not establish exactly-once job effects; stale recovery
+can requeue live work and multiple workers are not supported.
 
 ---
 
@@ -128,6 +137,10 @@ Convention: `DEC-###` · status `Proposed | Accepted | Superseded by DEC-###`.
 **Alternatives considered:** Storing blobs in PostgreSQL (simple but bloats backups and hurts performance); local disk (not durable or scalable).
 
 **Consequences:** Deletion must purge both storage objects and rows (`SEC-001`). Access to objects is always brokered through the API, never public buckets.
+
+**Implementation note:** The current storage adapter uses a local filesystem, not S3; selecting S3
+fails configuration validation. Lifecycle rules, encryption at rest and complete deletion are not
+established by this decision. See `ARCHITECTURE.md` and `docs/backup-restore.md` for limitations.
 
 ---
 
@@ -181,6 +194,12 @@ repositories on SQLite so the divergence is caught. There is no Prisma, so migra
 hand-written and reviewed rather than generated. Postgres-specific behaviour (concurrent writes,
 JSONB query performance, connection pooling) is exercised only in production until a Postgres service
 exists in CI.
+
+**Implementation note:** The preceding text is historical: the PostgreSQL backend suite now runs
+in CI. Queries use `RETURNING` where supported by both current drivers and some repository queries
+branch on the database driver for PostgreSQL row locks; see `repositories/device-repo.ts` and
+`repositories/privacy-repo.ts`. The database port exposes the driver name. CI is not evidence of a
+production deployment or of JSONB performance.
 
 ---
 
@@ -309,6 +328,10 @@ building SMTP delivery now (out of scope, and untested without a mail server).
 
 **Consequences:** There is no "resend" that produces the same link — a new invitation is a new row.
 `GET /invitations` never returns tokens, so a lost link means revoke and invite again.
+
+**Implementation note:** SMTP delivery is now supported when explicitly configured; the creator
+still receives the link for manual delivery if email fails. Acceptance now also checks credentials
+and MFA for existing accounts and performs the consume and membership changes transactionally.
 
 ---
 
@@ -484,6 +507,12 @@ owner opts out; unattended runs of destructive actions are possible only by expl
 and are audited (`workflow.run_approved`). Rules cannot branch — a condition list is one AND — and
 `notify` does not deliver anything until a mail transport exists.
 
+**Implementation note:** SMTP is now available for other flows, but workflow `notify` is not wired
+up to it. More importantly, `send_to_connector` and `create_export` currently return placeholder
+strings saying they were queued without dispatching either operation; their reported completion is
+not proof that anything was sent or exported. See the R01 findings and route this feature-correctness
+issue to R02. The historical decision above is not a guarantee that all of its proposed effects ship.
+
 ---
 
 ## DEC-027 — Voice is a consent gate and a transcript, never a recording
@@ -549,6 +578,11 @@ operator in the field expects, and the desktop's picker covers shared workstatio
 verified by the direction helper and the logical-property test rather than by a shipped RTL locale,
 because none of the three supported languages is RTL yet.
 
+**Implementation note:** Catalogue coverage does not establish that every visible string uses the
+catalogue. For example, `apps/mobile/src/screens/PairingScreen.tsx` and
+`apps/desktop/src/pages/ExportsPage.tsx` contain literal English UI text. Translation coverage,
+accessibility and real RTL rendering still need their respective reviews.
+
 ---
 
 ## DEC-029 — The shipped runtime is one process: SQLite, a filesystem and an in-process worker
@@ -610,6 +644,10 @@ than hidden. The generic 202 means a support agent cannot tell a customer whethe
 registered from this endpoint, which is intended. `apps/backend/test/auth-recovery.test.ts` asserts the
 indistinguishable response, the single use and the session revocation.
 
+**Implementation note:** SMTP delivery is now available when configured; production does not return
+reset links to the caller. Mail delivery requires operator configuration and an actual mail service;
+tests using a local SMTP server do not establish production delivery.
+
 ---
 
 ## DEC-031 — Retention and housekeeping run in-process, on an interval, and are safe to run twice
@@ -636,6 +674,12 @@ somebody happens to look at).
 wasteful rather than wrong, and it is another entry in the list of things that must change before
 horizontal scaling (`DEC-029`). The defaults are mirrored in `legal/PRIVACY.md` and asserted by
 `npm run test:legal`, so changing a retention default without changing the policy fails CI.
+
+**Implementation note:** The stated blanket boundedness and multi-replica idempotence are not
+established. For example, retention scheduling checks for a pending job before enqueueing without
+cross-process coordination; concurrent schedulers can enqueue duplicates. Several sweep queries
+have no explicit per-run bound. Only the single-process topology is supported; see
+`services/maintenance-service.ts`, `repositories/maintenance-repo.ts` and the R01 state inventory.
 
 ---
 

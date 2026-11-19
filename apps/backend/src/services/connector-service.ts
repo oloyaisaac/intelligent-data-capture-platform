@@ -18,16 +18,15 @@ import {
   type ConnectorWriteResult,
   type MappedField,
 } from '@idcp/connectors';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
-import {
+import type {
   ConnectorsRepository,
   ConnectorRunsRepository,
   MappingProfilesRepository,
 } from '../repositories/connector-repo';
-import { DocumentsRepository } from '../repositories/document-repo';
-import { ReviewsRepository } from '../repositories/review-repo';
-import { AuditRepository } from '../repositories/system-repo';
+import type { DocumentsRepository } from '../repositories/document-repo';
+import type { ReviewsRepository } from '../repositories/review-repo';
+import type { AuditRepository } from '../repositories/system-repo';
 import type { ConnectorRow, MappingProfileRow } from '../repositories/types';
 import type { AuthenticatedActor } from './auth-service';
 import type { SecretBox } from './crypto';
@@ -46,27 +45,39 @@ export function toConnectorDto(row: ConnectorRow) {
   };
 }
 
+export interface ConnectorServiceRepositories {
+  connectors: Pick<
+    ConnectorsRepository,
+    'create' | 'delete' | 'findById' | 'list' | 'recordHealthCheck' | 'update'
+  >;
+  mappings: Pick<MappingProfilesRepository, 'create' | 'findById' | 'list'>;
+  runs: Pick<ConnectorRunsRepository, 'create' | 'listForConnector'>;
+  documents: Pick<DocumentsRepository, 'findById'>;
+  reviews: Pick<ReviewsRepository, 'findApprovedUdm'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
 export class ConnectorService {
-  private readonly connectors: ConnectorsRepository;
-  private readonly mappings: MappingProfilesRepository;
-  private readonly runs: ConnectorRunsRepository;
-  private readonly documents: DocumentsRepository;
-  private readonly reviews: ReviewsRepository;
-  private readonly audit: AuditRepository;
+  private readonly connectors: ConnectorServiceRepositories['connectors'];
+  private readonly mappings: ConnectorServiceRepositories['mappings'];
+  private readonly runs: ConnectorServiceRepositories['runs'];
+  private readonly documents: ConnectorServiceRepositories['documents'];
+  private readonly reviews: ConnectorServiceRepositories['reviews'];
+  private readonly audit: ConnectorServiceRepositories['audit'];
 
   constructor(
-    db: Database,
+    repositories: ConnectorServiceRepositories,
     private readonly registry: ConnectorRegistry,
     private readonly secretBox: SecretBox,
     private readonly hub: RealtimeHub,
     private readonly logger: Logger,
   ) {
-    this.connectors = new ConnectorsRepository(db);
-    this.mappings = new MappingProfilesRepository(db);
-    this.runs = new ConnectorRunsRepository(db);
-    this.documents = new DocumentsRepository(db);
-    this.reviews = new ReviewsRepository(db);
-    this.audit = new AuditRepository(db);
+    this.connectors = repositories.connectors;
+    this.mappings = repositories.mappings;
+    this.runs = repositories.runs;
+    this.documents = repositories.documents;
+    this.reviews = repositories.reviews;
+    this.audit = repositories.audit;
   }
 
   listTypes(): Array<{ type: string; label: string; capabilities: readonly string[] }> {

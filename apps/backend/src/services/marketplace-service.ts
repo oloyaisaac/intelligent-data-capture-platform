@@ -1,19 +1,18 @@
 import { AppError, roleAtLeast } from '@idcp/shared';
 import type { KeyObject } from 'node:crypto';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
-import { ConnectorsRepository } from '../repositories/connector-repo';
+import type { ConnectorsRepository } from '../repositories/connector-repo';
 import {
   FIRST_PARTY_CATALOGUE,
   installBlocker,
   verifyPackageSignature,
   type MarketplacePackage,
 } from '../marketplace/catalog';
-import {
+import type {
   MarketplaceRepository,
-  type MarketplaceInstallRow,
+  MarketplaceInstallRow,
 } from '../repositories/marketplace-repo';
-import { AuditRepository } from '../repositories/system-repo';
+import type { AuditRepository } from '../repositories/system-repo';
 import type { AuthenticatedActor } from './auth-service';
 
 /**
@@ -24,20 +23,34 @@ import type { AuthenticatedActor } from './auth-service';
  *   - the permissions the connector will hold are shown, and stored with the install;
  *   - a previous version can be restored, because the install history is kept rather than overwritten.
  */
+export interface MarketplaceServiceRepositories {
+  installs: Pick<
+    MarketplaceRepository,
+    | 'listForOrganisation'
+    | 'findById'
+    | 'findActiveForConnector'
+    | 'create'
+    | 'markRolledBack'
+    | 'reactivate'
+  >;
+  connectors: Pick<ConnectorsRepository, 'list' | 'findById'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
 export class MarketplaceService {
-  private readonly installs: MarketplaceRepository;
-  private readonly connectors: ConnectorsRepository;
-  private readonly audit: AuditRepository;
+  private readonly installs: MarketplaceServiceRepositories['installs'];
+  private readonly connectors: MarketplaceServiceRepositories['connectors'];
+  private readonly audit: MarketplaceServiceRepositories['audit'];
 
   constructor(
-    db: Database,
+    repositories: MarketplaceServiceRepositories,
     private readonly logger: Logger,
     private readonly catalogue: MarketplacePackage[] = FIRST_PARTY_CATALOGUE,
     private readonly publicKey: KeyObject | null = null,
   ) {
-    this.installs = new MarketplaceRepository(db);
-    this.connectors = new ConnectorsRepository(db);
-    this.audit = new AuditRepository(db);
+    this.installs = repositories.installs;
+    this.connectors = repositories.connectors;
+    this.audit = repositories.audit;
   }
 
   /** Newest version of each package, which is what the catalogue lists. */

@@ -129,10 +129,12 @@ export class PairingRepository {
     return row;
   }
 
-  findByTokenHash(hash: string): Promise<PairingSessionRow | null> {
-    return this.db.one<PairingSessionRow>('SELECT * FROM pairing_sessions WHERE token_hash = ?', [
-      hash,
-    ]);
+  /** Call only inside the pairing transaction; SQLite's write transaction already serializes writers. */
+  lockByTokenHash(hash: string): Promise<PairingSessionRow | null> {
+    return this.db.one<PairingSessionRow>(
+      `SELECT * FROM pairing_sessions WHERE token_hash = ?${this.db.driver === 'postgres' ? ' FOR UPDATE' : ''}`,
+      [hash],
+    );
   }
 
   findById(organisationId: string, id: string): Promise<PairingSessionRow | null> {

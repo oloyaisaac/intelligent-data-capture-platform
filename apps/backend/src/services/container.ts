@@ -28,7 +28,7 @@ import { WorkflowService } from './workflow-service';
 import { Worker } from './worker';
 import { PrivacyService } from './privacy-service';
 import { MaintenanceService } from './maintenance-service';
-import { ProjectsRepository } from '../repositories/project-repo';
+import { InvitationsRepository, ProjectsRepository } from '../repositories/project-repo';
 import { TemplatesRepository } from '../repositories/template-repo';
 import {
   DocumentPagesRepository,
@@ -36,8 +36,28 @@ import {
   ExtractionsRepository,
 } from '../repositories/document-repo';
 import { AuditRepository, JobsRepository } from '../repositories/system-repo';
-import { MembershipsRepository, OrganisationsRepository } from '../repositories/auth-repo';
+import {
+  MembershipsRepository,
+  OrganisationsRepository,
+  PasswordResetsRepository,
+  SessionsRepository,
+  UsersRepository,
+} from '../repositories/auth-repo';
 import { ApiKeysRepository } from '../repositories/apikey-repo';
+import { DashboardRepository } from '../repositories/dashboard-repo';
+import {
+  ConnectorsRepository,
+  ConnectorRunsRepository,
+  ExportsRepository,
+  MappingProfilesRepository,
+} from '../repositories/connector-repo';
+import { DevicesRepository, PairingRepository } from '../repositories/device-repo';
+import { MarketplaceRepository } from '../repositories/marketplace-repo';
+import { MaintenanceRepository } from '../repositories/maintenance-repo';
+import { ErasureFilesRepository } from '../repositories/erasure-files-repo';
+import { PrivacyRepository } from '../repositories/privacy-repo';
+import { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
+import { BatchesRepository } from '../repositories/batch-repo';
 import { WorkflowRunsRepository, WorkflowsRepository } from '../repositories/workflow-repo';
 
 export interface Services {
@@ -108,20 +128,134 @@ export function buildServices(options: BuildServicesOptions): Services {
   const registry = options.registry ?? new ConnectorRegistry();
 
   const mailer = options.mailer === undefined ? createMailer(config) : options.mailer;
-  const auth = new AuthService(db, config, tokens, hasher, logger, secretBox, mailer);
-  const pairing = new PairingService(db, config, tokens, hub, logger);
-  const documents = new DocumentService(db, config, storage, hub, logger);
-  const batches = new BatchService(db, hub, documents, logger);
+  const auth = new AuthService(
+    {
+      orgs: new OrganisationsRepository(db),
+      users: new UsersRepository(db),
+      memberships: new MembershipsRepository(db),
+      sessions: new SessionsRepository(db),
+      audit: new AuditRepository(db),
+      invitations: new InvitationsRepository(db),
+      resets: new PasswordResetsRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            orgs: new OrganisationsRepository(tx),
+            users: new UsersRepository(tx),
+            memberships: new MembershipsRepository(tx),
+            sessions: new SessionsRepository(tx),
+            invitations: new InvitationsRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
+    },
+    config,
+    tokens,
+    hasher,
+    logger,
+    secretBox,
+    mailer,
+  );
+  const pairing = new PairingService(
+    {
+      pairings: new PairingRepository(db),
+      devices: new DevicesRepository(db),
+      audit: new AuditRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            pairings: new PairingRepository(tx),
+            devices: new DevicesRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
+    },
+    config,
+    tokens,
+    hub,
+    logger,
+  );
+  const documents = new DocumentService(
+    {
+      documents: new DocumentsRepository(db),
+      extractions: new ExtractionsRepository(db),
+      jobs: new JobsRepository(db),
+      audit: new AuditRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            documents: new DocumentsRepository(tx),
+            pages: new DocumentPagesRepository(tx),
+            jobs: new JobsRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
+    },
+    config,
+    storage,
+    hub,
+    logger,
+  );
+  const batches = new BatchService(
+    {
+      batches: new BatchesRepository(db),
+      documents: new DocumentsRepository(db),
+      projects: new ProjectsRepository(db),
+      audit: new AuditRepository(db),
+    },
+    hub,
+    documents,
+    logger,
+  );
   const projects = new ProjectService(
     { projects: new ProjectsRepository(db), audit: new AuditRepository(db) },
     logger,
   );
-  const reviews = new ReviewService(db, hub, logger);
-  const exports = new ExportService(db, config, storage, hub, logger);
-  const connectors = new ConnectorService(db, registry, secretBox, hub, logger);
+  const reviews = new ReviewService(
+    {
+      documents: new DocumentsRepository(db),
+      extractions: new ExtractionsRepository(db),
+      reviews: new ReviewsRepository(db),
+      changes: new ReviewChangesRepository(db),
+      audit: new AuditRepository(db),
+      organisations: new OrganisationsRepository(db),
+    },
+    hub,
+    logger,
+  );
+  const exports = new ExportService(
+    {
+      documents: new DocumentsRepository(db),
+      reviews: new ReviewsRepository(db),
+      exports: new ExportsRepository(db),
+      audit: new AuditRepository(db),
+    },
+    config,
+    storage,
+    hub,
+    logger,
+  );
+  const connectors = new ConnectorService(
+    {
+      connectors: new ConnectorsRepository(db),
+      mappings: new MappingProfilesRepository(db),
+      runs: new ConnectorRunsRepository(db),
+      documents: new DocumentsRepository(db),
+      reviews: new ReviewsRepository(db),
+      audit: new AuditRepository(db),
+    },
+    registry,
+    secretBox,
+    hub,
+    logger,
+  );
   const marketplaceTrust = loadMarketplaceTrust(config);
   const marketplace = new MarketplaceService(
-    db,
+    {
+      installs: new MarketplaceRepository(db),
+      connectors: new ConnectorsRepository(db),
+      audit: new AuditRepository(db),
+    },
     logger,
     marketplaceTrust.catalogue,
     marketplaceTrust.publicKey,
@@ -136,7 +270,14 @@ export function buildServices(options: BuildServicesOptions): Services {
     },
     logger,
   );
-  const organisation = new OrganisationService(db);
+  const organisation = new OrganisationService({
+    orgs: new OrganisationsRepository(db),
+    users: new UsersRepository(db),
+    memberships: new MembershipsRepository(db),
+    audit: new AuditRepository(db),
+    jobs: new JobsRepository(db),
+    dashboard: new DashboardRepository(db),
+  });
   const templates = new TemplateService(
     {
       templates: new TemplatesRepository(db),
@@ -169,8 +310,33 @@ export function buildServices(options: BuildServicesOptions): Services {
     logger,
     templates,
   );
-  const privacy = new PrivacyService(db, storage, hasher, logger);
-  const maintenance = new MaintenanceService(db, config, storage, logger);
+  const privacy = new PrivacyService(
+    {
+      users: new UsersRepository(db),
+      privacy: new PrivacyRepository(db),
+      erasureFiles: new ErasureFilesRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            privacy: new PrivacyRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
+    },
+    storage,
+    hasher,
+    logger,
+  );
+  const maintenance = new MaintenanceService(
+    {
+      jobs: new JobsRepository(db),
+      maintenance: new MaintenanceRepository(db),
+      erasureFiles: new ErasureFilesRepository(db),
+    },
+    config,
+    storage,
+    logger,
+  );
 
   return {
     config,

@@ -1,8 +1,12 @@
-import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
 import type { Storage } from '../storage';
-import { ErasureFilesRepository } from '../repositories/erasure-files-repo';
+import type { ErasureFilesRepository } from '../repositories/erasure-files-repo';
+
+export type ErasureFileQueue = Pick<
+  ErasureFilesRepository,
+  'listPending' | 'isReferenced' | 'complete' | 'recordFailedAttempt'
+>;
 
 /**
  * Retry durable erasure work. Storage.delete must be idempotent: if the process dies after the
@@ -10,12 +14,11 @@ import { ErasureFilesRepository } from '../repositories/erasure-files-repo';
  * maintenance processes may safely attempt the same key; storage keys must never be reused.
  */
 export async function processErasureFiles(
-  db: Database,
+  deletions: ErasureFileQueue,
   storage: Storage,
   logger: Logger,
   options: { userId?: string; limit?: number } = {},
 ): Promise<number> {
-  const deletions = new ErasureFilesRepository(db);
   const rows = await deletions.listPending(options);
   let completed = 0;
   for (const row of rows) {

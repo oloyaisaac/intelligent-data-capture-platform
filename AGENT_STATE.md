@@ -1,5 +1,12 @@
 # Agent State
 
+> **Historical snapshot, 2026-10-27:** the handover below predates subsequent remediation and is
+> retained for context, not as current release status. It contains stale branch/test counts and
+> claims about container builds, backup, audit, batch streaming, mail and localisation. See
+> [`TASKS.md`](TASKS.md), [`ARCHITECTURE.md`](ARCHITECTURE.md),
+> [`docs/reviewers/evidence/R01/`](docs/reviewers/evidence/R01/) and current CI for present
+> evidence and blockers. The original story statuses are not proof of UAT or release readiness.
+
 > Handover notebook. If a new agent starts tomorrow, this file plus `PRD.json` should be enough to continue without asking questions.
 > **Update this file before you stop working.**
 

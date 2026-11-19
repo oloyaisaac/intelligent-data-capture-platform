@@ -1,10 +1,9 @@
 import type { Config } from '../config';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
 import type { Storage } from '../storage';
-import { JobsRepository } from '../repositories/system-repo';
-import { MaintenanceRepository } from '../repositories/maintenance-repo';
-import { processErasureFiles } from './erasure-files';
+import type { JobsRepository } from '../repositories/system-repo';
+import type { MaintenanceRepository } from '../repositories/maintenance-repo';
+import { processErasureFiles, type ErasureFileQueue } from './erasure-files';
 
 export interface MaintenanceReport {
   retentionJobsEnqueued: number;
@@ -28,20 +27,37 @@ export interface MaintenanceReport {
  * The scheduler runs once shortly after boot and then on an interval. Each step is idempotent and
  * individually guarded, so a failure in one does not stop the others.
  */
+export interface MaintenanceServiceRepositories {
+  jobs: Pick<JobsRepository, 'enqueue'>;
+  maintenance: Pick<
+    MaintenanceRepository,
+    | 'organisationsWithRetention'
+    | 'findPendingPurge'
+    | 'expiredExports'
+    | 'markExportExpired'
+    | 'expirePairingSessions'
+    | 'deleteExpiredSessions'
+    | 'deleteSpentResetTokens'
+  >;
+  erasureFiles: ErasureFileQueue;
+}
+
 export class MaintenanceService {
-  private readonly jobs: JobsRepository;
-  private readonly maintenance: MaintenanceRepository;
+  private readonly jobs: MaintenanceServiceRepositories['jobs'];
+  private readonly maintenance: MaintenanceServiceRepositories['maintenance'];
+  private readonly erasureFiles: MaintenanceServiceRepositories['erasureFiles'];
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
   constructor(
-    private readonly db: Database,
+    repositories: MaintenanceServiceRepositories,
     private readonly config: Config,
     private readonly storage: Storage,
     private readonly logger: Logger,
   ) {
-    this.jobs = new JobsRepository(db);
-    this.maintenance = new MaintenanceRepository(db);
+    this.jobs = repositories.jobs;
+    this.maintenance = repositories.maintenance;
+    this.erasureFiles = repositories.erasureFiles;
   }
 
   async runOnce(now: Date = new Date()): Promise<MaintenanceReport> {
@@ -66,7 +82,7 @@ export class MaintenanceService {
     };
 
     await step('erasureFilesDeleted', () =>
-      processErasureFiles(this.db, this.storage, this.logger),
+      processErasureFiles(this.erasureFiles, this.storage, this.logger),
     );
     await step('retentionJobsEnqueued', () => this.enqueueRetentionPurges(now));
     await step('exportsExpired', () => this.expireExports(now));

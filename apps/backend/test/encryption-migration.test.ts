@@ -7,9 +7,17 @@ import type { Database } from '../src/db/database';
 import { SqliteDatabase } from '../src/db/sqlite';
 import { totp } from '../src/auth/totp';
 import { createSecretBox } from '../src/services/crypto';
-import { migrateEncryptionKeys } from '../src/services/encryption-migration';
+import { migrateEncryptionKeys as runMigration } from '../src/services/encryption-migration';
+import { EncryptionMigrationRepository } from '../src/repositories/encryption-migration-repo';
 import { buildServices } from '../src/services/container';
 import { createHarness, registerAccount, type Harness } from './helpers';
+
+function migrateEncryptionKeys(db: Database, input: Parameters<typeof runMigration>[1]) {
+  return runMigration(
+    { transaction: (run) => db.transaction((tx) => run(new EncryptionMigrationRepository(tx))) },
+    input,
+  );
+}
 
 const legacy = 'legacy-jwt-secret-0123456789abcdef';
 const current = 'dedicated-encryption-key-0123456789';

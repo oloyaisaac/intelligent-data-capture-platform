@@ -1,3 +1,5 @@
+import { AuditRepository, JobsRepository } from '../src/repositories/system-repo';
+import { DocumentsRepository } from '../src/repositories/document-repo';
 import {
   createHarness,
   drainWorker,
@@ -35,6 +37,33 @@ describe('documents: upload, validation and extraction', () => {
       [body.id],
     );
     expect(stored?.mime_type).toBe('image/png');
+  });
+
+  it('rolls back document and page rows if upload auditing fails', async () => {
+    const account = await registerAccount(harness);
+    const storageBytesBefore = harness.storage.size();
+    const audit = jest
+      .spyOn(AuditRepository.prototype, 'record')
+      .mockRejectedValueOnce(new Error('audit unavailable'));
+    try {
+      const response = await uploadDocument(harness, account, {
+        content: fakePng('transaction rollback'),
+      });
+      expect(response.statusCode).toBe(500);
+    } finally {
+      audit.mockRestore();
+    }
+    const docs = await harness.db.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM documents WHERE organisation_id = ?',
+      [account.organisationId],
+    );
+    const jobs = await harness.db.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM jobs WHERE organisation_id = ?',
+      [account.organisationId],
+    );
+    expect(Number(docs?.count)).toBe(0);
+    expect(Number(jobs?.count)).toBe(0);
+    expect(harness.storage.size()).toBe(storageBytesBefore);
   });
 
   it('accepts a PDF', async () => {
@@ -93,6 +122,141 @@ describe('documents: upload, validation and extraction', () => {
       [account.organisationId, key],
     );
     expect(Number(count?.count)).toBe(1);
+    expect(second.json<{ jobId: string }>().jobId).toBe(first.json<{ jobId: string }>().jobId);
+    const jobs = await harness.db.one<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM jobs WHERE document_id = ? AND type = 'extract_document'",
+      [first.json<{ id: string }>().id],
+    );
+    expect(Number(jobs?.count)).toBe(1);
+  });
+
+  it('concurrent uploads with the same key commit one document, job, audit and stored file', async () => {
+    const account = await registerAccount(harness);
+    const content = fakePng('simultaneous upload');
+    const storageBytesBefore = harness.storage.size();
+    const original = DocumentsRepository.prototype.findByIdempotencyKey;
+    let checked = 0;
+    let release!: () => void;
+    const bothChecked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lookup = jest
+      .spyOn(DocumentsRepository.prototype, 'findByIdempotencyKey')
+      .mockImplementation(async function (this: DocumentsRepository, organisationId, key) {
+        const row = await original.call(this, organisationId, key);
+        if (checked < 2) {
+          checked += 1;
+          if (checked === 2) release();
+          await bothChecked;
+        }
+        return row;
+      });
+    try {
+      const [a, b] = await Promise.all([
+        uploadDocument(harness, account, { content, idempotencyKey: 'simultaneous-upload-001' }),
+        uploadDocument(harness, account, { content, idempotencyKey: 'simultaneous-upload-001' }),
+      ]);
+      expect([a.statusCode, b.statusCode].sort()).toEqual([200, 201]);
+      const first = a.json<{ id: string; jobId: string }>();
+      const second = b.json<{ id: string; jobId: string }>();
+      expect(second).toMatchObject({ id: first.id, jobId: first.jobId });
+      const docs = await harness.db.one<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM documents WHERE organisation_id = ? AND idempotency_key = ?',
+        [account.organisationId, 'simultaneous-upload-001'],
+      );
+      const jobs = await harness.db.one<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM jobs WHERE document_id = ? AND type = 'extract_document'",
+        [first.id],
+      );
+      const audits = await harness.db.one<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM audit_logs WHERE target_id = ? AND action = 'document.uploaded'",
+        [first.id],
+      );
+      expect(Number(docs?.count)).toBe(1);
+      expect(Number(jobs?.count)).toBe(1);
+      expect(Number(audits?.count)).toBe(1);
+      expect(harness.storage.size() - storageBytesBefore).toBe(content.length);
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+
+  it('does not silently enqueue work when a legacy upload has no extraction job', async () => {
+    const account = await registerAccount(harness);
+    const options = { content: fakePng('legacy job'), idempotencyKey: 'legacy-job-001' };
+    const first = await uploadDocument(harness, account, options);
+    expect(first.statusCode).toBe(201);
+    const id = first.json<{ id: string }>().id;
+    await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [id]);
+    const retry = await uploadDocument(harness, account, options);
+    expect(retry.statusCode).toBe(409);
+    expect(retry.json<{ error: { message: string } }>().error.message).toContain('Reprocess');
+    const jobs = await harness.db.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM jobs WHERE document_id = ?',
+      [id],
+    );
+    expect(Number(jobs?.count)).toBe(0);
+  });
+
+  it('rolls back the upload and removes its file when enqueue fails', async () => {
+    const account = await registerAccount(harness);
+    const storageBytesBefore = harness.storage.size();
+    const enqueue = jest
+      .spyOn(JobsRepository.prototype, 'enqueue')
+      .mockRejectedValueOnce(new Error('job store unavailable'));
+    try {
+      const response = await uploadDocument(harness, account, {
+        content: fakePng('failed enqueue'),
+      });
+      expect(response.statusCode).toBe(500);
+    } finally {
+      enqueue.mockRestore();
+    }
+    const docs = await harness.db.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM documents WHERE organisation_id = ?',
+      [account.organisationId],
+    );
+    const audits = await harness.db.one<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM audit_logs WHERE organisation_id = ? AND action = 'document.uploaded'",
+      [account.organisationId],
+    );
+    expect(Number(docs?.count)).toBe(0);
+    expect(Number(audits?.count)).toBe(0);
+    expect(harness.storage.size()).toBe(storageBytesBefore);
+  });
+
+  it('retains the file when transaction outcome is ambiguous and retry finds the committed job', async () => {
+    const account = await registerAccount(harness);
+    const content = fakePng('ambiguous commit');
+    const transact = harness.db.transaction.bind(harness.db);
+    const spy = jest.spyOn(harness.db, 'transaction').mockImplementation(async (run) => {
+      await transact(run);
+      throw new Error('commit acknowledgement lost');
+    });
+    try {
+      const response = await uploadDocument(harness, account, {
+        content,
+        idempotencyKey: 'ambiguous-upload-001',
+      });
+      expect(response.statusCode).toBe(500);
+    } finally {
+      spy.mockRestore();
+    }
+    const retry = await uploadDocument(harness, account, {
+      content,
+      idempotencyKey: 'ambiguous-upload-001',
+    });
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json<{ duplicate: boolean }>().duplicate).toBe(true);
+    const id = retry.json<{ id: string }>().id;
+    const file = await harness.api.download(`/api/v1/documents/${id}/file`, account.accessToken);
+    expect(file.statusCode).toBe(200);
+    expect(file.buffer()).toEqual(content);
+    const jobs = await harness.db.one<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM jobs WHERE document_id = ? AND type = 'extract_document'",
+      [id],
+    );
+    expect(Number(jobs?.count)).toBe(1);
   });
 
   it('extracts an invoice into the Universal Data Model (AI-001, AI-003)', async () => {

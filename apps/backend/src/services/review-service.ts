@@ -9,13 +9,12 @@ import {
   type DocumentType,
   type Udm,
 } from '@idcp/shared';
-import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
-import { DocumentsRepository, ExtractionsRepository } from '../repositories/document-repo';
-import { OrganisationsRepository } from '../repositories/auth-repo';
-import { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
-import { AuditRepository } from '../repositories/system-repo';
+import type { DocumentsRepository, ExtractionsRepository } from '../repositories/document-repo';
+import type { OrganisationsRepository } from '../repositories/auth-repo';
+import type { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
+import type { AuditRepository } from '../repositories/system-repo';
 import type { DocumentRow } from '../repositories/types';
 import { toDocumentSummary } from './document-service';
 import type { AuthenticatedActor } from './auth-service';
@@ -28,25 +27,44 @@ export interface ReviewQueueItem {
   blockingFields: Array<{ path: string; reason: string; confidence: number }>;
 }
 
+export interface ReviewServiceRepositories {
+  documents: Pick<
+    DocumentsRepository,
+    'list' | 'findById' | 'updateAnyDocumentType' | 'updateStatus'
+  >;
+  extractions: Pick<ExtractionsRepository, 'findLatestForDocument' | 'findById' | 'create'>;
+  reviews: Pick<ReviewsRepository, 'findById' | 'openOrResume' | 'setExtraction' | 'complete'>;
+  changes: Pick<
+    ReviewChangesRepository,
+    | 'create'
+    | 'listForReview'
+    | 'listForTraining'
+    | 'statisticsByDocumentType'
+    | 'statisticsForOrganisation'
+  >;
+  audit: Pick<AuditRepository, 'record'>;
+  organisations: Pick<OrganisationsRepository, 'findLearningOptIn'>;
+}
+
 export class ReviewService {
-  private readonly documents: DocumentsRepository;
-  private readonly extractions: ExtractionsRepository;
-  private readonly reviews: ReviewsRepository;
-  private readonly changes: ReviewChangesRepository;
-  private readonly audit: AuditRepository;
-  private readonly organisations: OrganisationsRepository;
+  private readonly documents: ReviewServiceRepositories['documents'];
+  private readonly extractions: ReviewServiceRepositories['extractions'];
+  private readonly reviews: ReviewServiceRepositories['reviews'];
+  private readonly changes: ReviewServiceRepositories['changes'];
+  private readonly audit: ReviewServiceRepositories['audit'];
+  private readonly organisations: ReviewServiceRepositories['organisations'];
 
   constructor(
-    db: Database,
+    repositories: ReviewServiceRepositories,
     private readonly hub: RealtimeHub,
     private readonly logger: Logger,
   ) {
-    this.documents = new DocumentsRepository(db);
-    this.extractions = new ExtractionsRepository(db);
-    this.reviews = new ReviewsRepository(db);
-    this.changes = new ReviewChangesRepository(db);
-    this.audit = new AuditRepository(db);
-    this.organisations = new OrganisationsRepository(db);
+    this.documents = repositories.documents;
+    this.extractions = repositories.extractions;
+    this.reviews = repositories.reviews;
+    this.changes = repositories.changes;
+    this.audit = repositories.audit;
+    this.organisations = repositories.organisations;
   }
 
   /** REV-001: the queue puts the least confident records first — that is where attention pays off. */

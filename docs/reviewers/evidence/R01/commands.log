@@ -1,0 +1,482 @@
+# R01 partial command transcript
+# Runner-reported UTC (sandbox clock may differ from the session date): 2026-11-19T14:53:26Z
+# Worktree base commit: 7dc278c5e77cefbd1f5f3e2954bf165eef8605a6
+# This is a partial transcript, not evidence that every original manual command was run.
+# Two-process, connector and replay exercises use the named automated tests; PostgreSQL and Compose are checked in CI.
+
+$ npm ci --no-audit --no-fund
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated lodash.isequal@4.5.0: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+npm warn deprecated abab@2.0.6: Use your platform's native atob() and btoa() methods instead
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated whatwg-encoding@2.0.0: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+npm warn deprecated domexception@4.0.0: Use your platform's native DOMException instead
+npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+npm warn deprecated fstream@1.0.12: This package is no longer supported.
+npm warn deprecated eslint@9.39.5: This version is no longer supported. Please see https://eslint.org/version-support for other options.
+
+added 1120 packages in 16s
+[exit 0]
+
+$ grep -rnE "SELECT |INSERT |UPDATE |DELETE FROM " apps/backend/src --include="*.ts" | grep -v "/repositories/" | grep -v "/db/"
+[exit 1]
+
+$ grep -rn "process.env" apps/backend/src --include="*.ts"
+apps/backend/src/config.ts:5: * `process.env` anywhere else. A bad value must fail fast with an actionable message.
+apps/backend/src/config.ts:116:export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+apps/backend/src/config.ts:208:export function loadSeedConfig(env: NodeJS.ProcessEnv = process.env): {
+apps/backend/src/config.ts:221:export function loadEncryptionMigrationConfig(env: NodeJS.ProcessEnv = process.env): {
+[exit 0]
+
+$ grep -rn "request\.\|reply\.\|FastifyRequest" apps/backend/src/services
+apps/backend/src/services/export-service.ts:74:      format: request.format,
+apps/backend/src/services/export-service.ts:80:      const extension = request.format;
+apps/backend/src/services/export-service.ts:88:        request.format === 'csv'
+apps/backend/src/services/export-service.ts:91:                delimiter: request.delimiter ?? ',',
+apps/backend/src/services/export-service.ts:92:                bom: request.bom ?? false,
+apps/backend/src/services/export-service.ts:109:        metadata: { format: request.format, rows: table.rows.length },
+apps/backend/src/services/export-service.ts:172:      documentType: request.documentType,
+apps/backend/src/services/export-service.ts:173:      from: request.from,
+apps/backend/src/services/export-service.ts:174:      to: request.to,
+apps/backend/src/services/export-service.ts:187:    const selected = request.columns?.length ? request.columns : [...fieldPaths].sort();
+apps/backend/src/services/pairing-service.ts:210:  /** Used by the auth guard on every device-authenticated request. */
+[exit 0]
+
+$ grep -rn "apps/" packages/shared/src packages/connectors/src
+[exit 1]
+
+$ grep -rn "from '\.\./\.\./\.\./\.\./apps" apps packages --include='*.ts' --include='*.tsx'
+[exit 1]
+
+$ npx --yes madge@8 --circular --extensions ts,tsx --ts-config tsconfig.base.json --warning apps packages
+- Finding files
+Processed 221 files (2.9s) 
+
+✔ No circular dependency found!
+
+[exit 0]
+
+$ git ls-files 'apps/**/*.ts' 'apps/**/*.tsx' 'packages/**/*.ts' | xargs wc -l | sort -rn | head -30
+  48632 total
+   2121 packages/shared/src/i18n.ts
+   1627 apps/desktop/test/desktop.test.tsx
+   1054 apps/mobile/test/mobile.test.ts
+    994 apps/backend/src/services/auth-service.ts
+    973 apps/desktop/src/api/client.ts
+    971 packages/shared/src/contracts.ts
+    695 apps/desktop/src/pages/SettingsPage.tsx
+    672 apps/backend/test/composition.test.ts
+    639 packages/connectors/test/connectors.test.ts
+    624 apps/backend/src/services/connector-service.ts
+    576 apps/backend/src/db/migrations.ts
+    549 apps/backend/src/repositories/auth-repo.ts
+    519 apps/desktop/src/workflows/WorkflowsPage.tsx
+    512 apps/desktop/src/pages/ReviewPage.tsx
+    508 apps/desktop/src/pages/AccountPage.tsx
+    504 apps/backend/test/connector.test.ts
+    476 apps/backend/test/marketplace.test.ts
+    475 apps/backend/test/helpers.ts
+    469 apps/backend/test/teams.test.ts
+    438 apps/backend/test/documents.test.ts
+    430 packages/shared/test/shared.test.ts
+    426 apps/backend/test/batches.test.ts
+    417 apps/mobile/src/capture/edgeDetection.ts
+    408 apps/backend/src/services/review-service.ts
+    403 apps/desktop/src/App.tsx
+    394 apps/backend/src/ai/extract.ts
+    388 apps/mobile/src/api/client.ts
+    383 apps/backend/src/services/container.ts
+    382 apps/backend/src/repositories/document-repo.ts
+[exit 141]
+
+$ git ls-files -z "*.md" | xargs -0 grep -ohE "DEC-[0-9]{3}" | sort -u > /tmp/idcp-r01-cited.txt; grep -ohE "^##+ DEC-[0-9]{3}" DECISIONS.md | grep -oE "DEC-[0-9]{3}" | sort -u > /tmp/idcp-r01-defined.txt; comm -23 /tmp/idcp-r01-cited.txt /tmp/idcp-r01-defined.txt
+[exit 0]
+
+$ npx jest --config jest.config.cjs --selectProjects backend --runInBand --testPathPattern='(workers-process|replica-process|connector-throw|connector-boundary|architecture-flow)\.test\.ts$'
+Running one project: backend
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /home/user/intelligent-data-capture-platform/apps/backend/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+(node:16177) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS backend apps/backend/test/replica-process.test.ts (6.168 s)
+PASS backend apps/backend/test/workers-process.test.ts
+PASS backend apps/backend/test/architecture-flow.test.ts
+PASS backend apps/backend/test/connector-throw.test.ts
+PASS backend apps/backend/test/connector-boundary.test.ts
+
+Test Suites: 5 passed, 5 total
+Tests:       5 passed, 5 total
+Snapshots:   0 total
+Time:        13.044 s
+Ran all test suites matching /(workers-process|replica-process|connector-throw|connector-boundary|architecture-flow)\.test\.ts$/i.
+[exit 0]
+
+$ npm run verify
+
+> idcp@0.1.0 verify
+> npm run typecheck && npm run lint && npm run test:prd && npm run test:api && npm run test:packaging && npm run test:legal && npm run test:backup && npm test
+
+
+> idcp@0.1.0 typecheck
+> npm run typecheck --workspaces --if-present
+
+
+> @idcp/backend@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json
+
+
+> @idcp/desktop@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json
+
+
+> @idcp/mobile@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json
+
+
+> @idcp/connectors@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json
+
+
+> @idcp/shared@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json
+
+
+> idcp@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+> idcp@0.1.0 test:prd
+> node scripts/validate-prd.mjs
+
+PRD 1.0.0 (AI Universal Data Capture Platform)
+  epics:  15
+  stories: 45 — done 45, in progress 0, pending 0
+  open questions: 4
+  done stories with recorded caveats: 11
+
+PRD is valid.
+
+> idcp@0.1.0 test:api
+> node scripts/validate-openapi.mjs && node scripts/generate-udm-schema.mjs --check
+
+OpenAPI 3.1 document
+  paths: 85, operations: 102
+  routes found in the server: 102
+
+OpenAPI document is valid and matches the registered routes.
+UDM JSON Schema is up to date.
+
+> idcp@0.1.0 test:packaging
+> node scripts/validate-packaging.mjs
+
+Packaging configuration is valid (win, mac, linux; ASAR; isolated renderer).
+
+> idcp@0.1.0 test:legal
+> node scripts/validate-legal.mjs
+
+Legal pack is consistent: 6 documents, placeholders intact.
+
+> idcp@0.1.0 test:backup
+> node --test scripts/sqlite-backup.test.mjs
+
+TAP version 13
+# (node:16508) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: backup and restore SQLite WAL data and nested documents without overwriting
+ok 1 - backup and restore SQLite WAL data and nested documents without overwriting
+  ---
+  duration_ms: 46.849806
+  type: 'test'
+  ...
+# Subtest: rejects corruption, missing and unexpected files without publishing a restore
+ok 2 - rejects corruption, missing and unexpected files without publishing a restore
+  ---
+  duration_ms: 27.911534
+  type: 'test'
+  ...
+# Subtest: rejects symlinks, unsafe paths, overlapping destinations and non-IDCP databases
+ok 3 - rejects symlinks, unsafe paths, overlapping destinations and non-IDCP databases
+  ---
+  duration_ms: 30.000895
+  type: 'test'
+  ...
+# (node:16533) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:16544) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: CLI requires explicit offline confirmation and can verify a complete backup
+ok 4 - CLI requires explicit offline confirmation and can verify a complete backup
+  ---
+  duration_ms: 190.17657
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 363.813219
+
+> idcp@0.1.0 test
+> jest --config jest.config.cjs
+
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /home/user/intelligent-data-capture-platform/apps/backend/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+(node:16567) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS backend apps/backend/test/teams.test.ts (6.481 s)
+PASS backend apps/backend/test/replica-process.test.ts (5.585 s)
+PASS backend apps/backend/test/encryption-migration.test.ts (5.076 s)
+PASS backend apps/backend/test/workers-process.test.ts
+PASS backend apps/backend/test/batches.test.ts
+PASS backend apps/backend/test/mfa.test.ts
+PASS backend apps/backend/test/privacy.test.ts
+PASS backend apps/backend/test/seed-cli.test.ts
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /home/user/intelligent-data-capture-platform/apps/mobile/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+PASS mobile apps/mobile/test/mobile.test.ts
+PASS backend apps/backend/test/auth-recovery.test.ts
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /home/user/intelligent-data-capture-platform/apps/desktop/tsconfig.test.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+PASS desktop apps/desktop/test/desktop.test.tsx
+  ● Console
+
+    console.error
+      An update to SendToDestination inside a test was not wrapped in act(...).
+      
+      When testing, code that causes React state updates should be wrapped into act(...):
+      
+      act(() => {
+        /* fire events that update state */
+      });
+      /* assert on the output */
+      
+      This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+      156 |     try {
+      157 |       const value = await loaderRef.current();
+    > 158 |       if (mounted.current) setData(value);
+          |                            ^
+      159 |     } catch (caught) {
+      160 |       if (mounted.current)
+      161 |         setError(
+
+      at ../../node_modules/react-dom/cjs/react-dom-client.development.js:20466:19
+      at runWithFiberInDEV (../../node_modules/react-dom/cjs/react-dom-client.development.js:1048:13)
+      at warnIfUpdatesNotWrappedWithActDEV (../../node_modules/react-dom/cjs/react-dom-client.development.js:20465:9)
+      at scheduleUpdateOnFiber (../../node_modules/react-dom/cjs/react-dom-client.development.js:17920:11)
+      at dispatchSetStateInternal (../../node_modules/react-dom/cjs/react-dom-client.development.js:9556:13)
+      at dispatchSetState (../../node_modules/react-dom/cjs/react-dom-client.development.js:9513:7)
+      at src/components/ui.tsx:158:28
+
+    console.error
+      An update to SendToDestination inside a test was not wrapped in act(...).
+      
+      When testing, code that causes React state updates should be wrapped into act(...):
+      
+      act(() => {
+        /* fire events that update state */
+      });
+      /* assert on the output */
+      
+      This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+      165 |         );
+      166 |     } finally {
+    > 167 |       if (mounted.current) setLoading(false);
+          |                            ^
+      168 |     }
+      169 |   }, []);
+      170 |
+
+      at ../../node_modules/react-dom/cjs/react-dom-client.development.js:20466:19
+      at runWithFiberInDEV (../../node_modules/react-dom/cjs/react-dom-client.development.js:1048:13)
+      at warnIfUpdatesNotWrappedWithActDEV (../../node_modules/react-dom/cjs/react-dom-client.development.js:20465:9)
+      at scheduleUpdateOnFiber (../../node_modules/react-dom/cjs/react-dom-client.development.js:17920:11)
+      at dispatchSetStateInternal (../../node_modules/react-dom/cjs/react-dom-client.development.js:9556:13)
+      at dispatchSetState (../../node_modules/react-dom/cjs/react-dom-client.development.js:9513:7)
+      at src/components/ui.tsx:167:28
+
+    console.error
+      An update to SendToDestination inside a test was not wrapped in act(...).
+      
+      When testing, code that causes React state updates should be wrapped into act(...):
+      
+      act(() => {
+        /* fire events that update state */
+      });
+      /* assert on the output */
+      
+      This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+      156 |     try {
+      157 |       const value = await loaderRef.current();
+    > 158 |       if (mounted.current) setData(value);
+          |                            ^
+      159 |     } catch (caught) {
+      160 |       if (mounted.current)
+      161 |         setError(
+
+      at ../../node_modules/react-dom/cjs/react-dom-client.development.js:20466:19
+      at runWithFiberInDEV (../../node_modules/react-dom/cjs/react-dom-client.development.js:1048:13)
+      at warnIfUpdatesNotWrappedWithActDEV (../../node_modules/react-dom/cjs/react-dom-client.development.js:20465:9)
+      at scheduleUpdateOnFiber (../../node_modules/react-dom/cjs/react-dom-client.development.js:17920:11)
+      at dispatchSetStateInternal (../../node_modules/react-dom/cjs/react-dom-client.development.js:9556:13)
+      at dispatchSetState (../../node_modules/react-dom/cjs/react-dom-client.development.js:9513:7)
+      at src/components/ui.tsx:158:28
+
+    console.error
+      An update to SendToDestination inside a test was not wrapped in act(...).
+      
+      When testing, code that causes React state updates should be wrapped into act(...):
+      
+      act(() => {
+        /* fire events that update state */
+      });
+      /* assert on the output */
+      
+      This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+      165 |         );
+      166 |     } finally {
+    > 167 |       if (mounted.current) setLoading(false);
+          |                            ^
+      168 |     }
+      169 |   }, []);
+      170 |
+
+      at ../../node_modules/react-dom/cjs/react-dom-client.development.js:20466:19
+      at runWithFiberInDEV (../../node_modules/react-dom/cjs/react-dom-client.development.js:1048:13)
+      at warnIfUpdatesNotWrappedWithActDEV (../../node_modules/react-dom/cjs/react-dom-client.development.js:20465:9)
+      at scheduleUpdateOnFiber (../../node_modules/react-dom/cjs/react-dom-client.development.js:17920:11)
+      at dispatchSetStateInternal (../../node_modules/react-dom/cjs/react-dom-client.development.js:9556:13)
+      at dispatchSetState (../../node_modules/react-dom/cjs/react-dom-client.development.js:9513:7)
+      at src/components/ui.tsx:167:28
+
+    console.error
+      Error: Not implemented: navigation (except hash changes)
+          at module.exports (/home/user/intelligent-data-capture-platform/node_modules/jest-environment-jsdom/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+          at navigateFetch (/home/user/intelligent-data-capture-platform/node_modules/jest-environment-jsdom/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+          at exports.navigate (/home/user/intelligent-data-capture-platform/node_modules/jest-environment-jsdom/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+          at Timeout._onTimeout (/home/user/intelligent-data-capture-platform/node_modules/jest-environment-jsdom/node_modules/jsdom/lib/jsdom/living/nodes/HTMLHyperlinkElementUtils-impl.js:81:7)
+          at listOnTimeout (node:internal/timers:585:17)
+          at processTimers (node:internal/timers:521:7) {
+        type: 'not implemented'
+      }
+
+      at VirtualConsole.<anonymous> (../../node_modules/jest-environment-jsdom/build/index.js:63:23)
+
+    console.error
+      Error: Not implemented: navigation (except hash changes)
+          at module.exports (/home/user/intelligent-data-capture-platform/node_modules/jest-environment-jsdom/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+          at navigateFetch (/home/user/intelligent-data-capture-platform/node_modules/jest-environment-jsdom/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+          at exports.navigate (/home/user/intelligent-data-capture-platform/node_modules/jest-environment-jsdom/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+          at Timeout._onTimeout (/home/user/intelligent-data-capture-platform/node_modules/jest-environment-jsdom/node_modules/jsdom/lib/jsdom/living/nodes/HTMLHyperlinkElementUtils-impl.js:81:7)
+          at listOnTimeout (node:internal/timers:585:17)
+          at processTimers (node:internal/timers:521:7) {
+        type: 'not implemented'
+      }
+
+      at VirtualConsole.<anonymous> (../../node_modules/jest-environment-jsdom/build/index.js:63:23)
+
+PASS backend apps/backend/test/documents.test.ts
+PASS backend apps/backend/test/membership-scope.test.ts
+PASS backend apps/backend/test/auth.test.ts
+PASS backend apps/backend/test/workflows.test.ts
+PASS backend apps/backend/test/dashboard.test.ts
+PASS backend apps/backend/test/review.test.ts
+PASS backend apps/backend/test/pairing.test.ts
+PASS backend apps/backend/test/maintenance.test.ts
+PASS backend apps/backend/test/marketplace.test.ts
+PASS backend apps/backend/test/mailer.test.ts
+PASS backend apps/backend/test/connector.test.ts
+PASS backend apps/backend/test/devapi.test.ts
+PASS backend apps/backend/test/export.test.ts
+PASS backend apps/backend/test/worker-recovery.test.ts
+PASS backend apps/backend/test/web-surface.test.ts
+PASS backend apps/backend/test/architecture-flow.test.ts
+PASS backend apps/backend/test/terms.test.ts
+(node:16864) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:16875) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS backend apps/backend/test/backup-restore.test.ts
+PASS backend apps/backend/test/audit-export.test.ts
+PASS backend apps/backend/test/templates.test.ts
+PASS backend apps/backend/test/config.test.ts
+PASS backend apps/backend/test/connector-throw.test.ts
+PASS backend apps/backend/test/connector-boundary.test.ts
+PASS backend apps/backend/test/security.test.ts
+PASS backend apps/backend/test/composition-boundary.test.ts
+PASS backend apps/backend/test/composition.test.ts
+PASS backend apps/backend/test/sql-boundary.test.ts
+PASS backend apps/backend/test/job-claim-process.test.ts
+PASS backend apps/backend/test/ai.test.ts
+PASS backend apps/backend/test/uat-pilot.test.ts
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /home/user/intelligent-data-capture-platform/tsconfig.base.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+PASS connectors packages/connectors/test/connectors.test.ts
+PASS connectors packages/connectors/test/ssrf.test.ts
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /home/user/intelligent-data-capture-platform/tsconfig.base.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+PASS shared packages/shared/test/shared.test.ts
+PASS backend apps/backend/test/erasure-files.test.ts
+PASS desktop apps/desktop/test/shell.test.ts
+PASS desktop apps/desktop/test/app-protocol.test.ts
+PASS backend apps/backend/test/sqlite-transactions.test.ts
+PASS backend apps/backend/test/totp.test.ts
+PASS mobile apps/mobile/test/metro-assets.test.ts
+
+Test Suites: 1 skipped, 50 passed, 50 of 51 total
+Tests:       4 skipped, 591 passed, 595 total
+Snapshots:   0 total
+Time:        76.252 s, estimated 82 s
+Ran all test suites in 5 projects.
+[exit 0]
+
+# Manual §9 dev-server and sqlite3 shell sequence was not run in this transcript; see the automated subprocess tests above.
+# No real native device, real OCR engine, third-party vendor or external reviewer sign-off was supplied.
+
+# Isolated migration smoke test, using a temporary database instead of the default local data.
+$ SQLITE_PATH=<temporary>/arc.db npm run db:migrate
+
+> idcp@0.1.0 db:migrate
+> npm run db:migrate --workspace @idcp/backend
+
+
+> @idcp/backend@0.1.0 db:migrate
+> tsx src/db/migrate-cli.ts
+
+{"time":"2026-11-19T14:56:40.696Z","level":"info","message":"database migrations applied","task":"migrate","migrations":["001_initial_schema","002_api_keys_and_webhooks","003_template_versions","004_batches_projects_invitations","005_corrections_learning_opt_in","006_marketplace_installs","007_workflows","008_password_resets","010_mfa","009_terms_acceptance","011_erasure_file_deletions"]}
+Applied migrations (11):
+  001_initial_schema  2026-11-19T14:56:40.669Z
+  002_api_keys_and_webhooks  2026-11-19T14:56:40.671Z
+  003_template_versions  2026-11-19T14:56:40.673Z
+  004_batches_projects_invitations  2026-11-19T14:56:40.679Z
+  005_corrections_learning_opt_in  2026-11-19T14:56:40.682Z
+  006_marketplace_installs  2026-11-19T14:56:40.684Z
+  007_workflows  2026-11-19T14:56:40.687Z
+  008_password_resets  2026-11-19T14:56:40.689Z
+  009_terms_acceptance  2026-11-19T14:56:40.694Z
+  010_mfa  2026-11-19T14:56:40.692Z
+  011_erasure_file_deletions  2026-11-19T14:56:40.696Z
+(node:16980) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[exit 0]
+
+$ node --version; npm --version
+v22.22.3
+10.9.8
+[exit 0]

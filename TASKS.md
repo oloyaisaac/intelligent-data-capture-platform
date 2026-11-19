@@ -13,27 +13,73 @@ remain `done`; its 11 existing, unverified verification blocks remain explicitly
 The original briefs in `docs/reviewers/` and historical reports in `REVIEWS/` are preserved.
 The historical review reports are not reviewer-completion declarations for the current codebase.
 
-| Reviewer                 | Status                                         | Progress and remaining work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R01 — Software Architect | **IN PROGRESS; G1 not approved**               | Corrected architecture drift and misleading source comments, bounded process-local limiter state, and added regression coverage. P1's SQL relocation is implemented: literal SQL scans and a regression test find no statements outside `db/` and `repositories/`; the test does not prove the absence of dynamically assembled SQL. P2 is addressed by centralized configuration for the API and offline CLIs. P5 is partially addressed: project, template, worker, API-key and workflow repositories are injected at the composition root, but many services still construct repositories. P6 is unmet: startup recovery can reclaim another worker's active job; a lease/heartbeat, safe multi-worker behavior and the required two-process test are still needed. Privacy erasure checks ownership before its transaction, leaving a concurrent membership-change race to address. The full checklist, dependency-cycle and runtime exercises, evidence artefacts, and other passing conditions have not been completed or independently verified. |
-| R02–R22                  | **NOT STARTED under this completion protocol** | The original briefs contain extensive checklist, source, evidence and runtime work. Do not infer completion from older reports or prior merged fixes. R22 additionally requires real operators, documents, deployment and pilot evidence; legal, signing, native-tooling and vendor access require their respective external owners.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Reviewer                 | Status                                         | Progress and remaining work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R01 — Software Architect | **IN PROGRESS; G1 not approved**               | Corrected architecture drift and misleading source comments, bounded process-local limiter state, and added regression coverage. P1's SQL relocation is implemented: literal SQL scans and a regression test find no statements outside `db/` and `repositories/`; the test does not prove the absence of dynamically assembled SQL. P2 is addressed by centralized configuration for the API and offline CLIs. P5 is partially addressed: backend service repositories and transaction-scoped repositories are injected at the composition root; the offline migration CLI separately composes its repository. A static regression guards direct repository construction outside the service container, but the wider adapter boundary still needs review. P6 is unmet: startup recovery can reclaim another worker's active job; a lease/heartbeat and safe multi-worker behavior are still needed. A two-process, 20-document happy-path exercise now passes with a synthetic OCR executable, but does not test stale recovery or real OCR. Privacy erasure checks ownership before its transaction, leaving a concurrent membership-change race to address. The full checklist, dependency-cycle and runtime exercises, evidence artefacts, and other passing conditions have not been completed or independently verified. |
+| R02–R22                  | **NOT STARTED under this completion protocol** | The original briefs contain extensive checklist, source, evidence and runtime work. Do not infer completion from older reports or prior merged fixes. R22 additionally requires real operators, documents, deployment and pilot evidence; legal, signing, native-tooling and vendor access require their respective external owners.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 No reviewer completion file has been created. The protocol requires every assigned item and test to
 be completed before one can be written. Existing programme gates remain unapproved until their
 required evidence and sign-offs are complete. The R01 Madge scan using `tsconfig.base.json`
-reported no cycles in 217 processed files and no skipped-file warnings; it supersedes the earlier
+reported no cycles in 221 processed files and no skipped-file warnings; it supersedes the earlier
 scan that skipped `@idcp/shared/ids`. The declared internal dependency edges are acyclic; interim
 evidence is recorded in `docs/reviewers/evidence/R01/dependency-graph.md`. These results do not prove
 that dynamic imports, external packages or undeclared cross-workspace dependencies have been fully
 assessed.
 The job claim update now rechecks queued/runnable state after acquiring the target row's write lock,
 so a waiting claimant cannot claim the same already-updated row. Recovery now counts rows actually
-requeued, but it still models a stale active job being reclaimed. A two-subprocess SQLite test
-claims 20 synthetic jobs, not 20 documents processed by two backend instances; it does not exercise
-worker side effects, recovery or audits. The PostgreSQL lock-contention regression passed in
+requeued, but it still models a stale active job being reclaimed. `job-claim-process.test.ts`
+claims 20 synthetic jobs in two SQLite subprocesses. A separate `workers-process.test.ts` runs two
+actual backend/worker subprocesses against one SQLite database and shared filesystem: 20 synthetic
+uploads each produced one successful attempt, one extraction and one upload audit; both workers
+invoked a fake OCR executable. This happy-path exercise does not test crash, recovery, real OCR or
+exactly-once effects after failure. The PostgreSQL lock-contention regression passed in
 [PR #26 CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44514864382/job/135528120126);
-PostgreSQL and Docker are unavailable locally, and this branch's composition changes have not been
-exercised against PostgreSQL. P6 remains unmet.
+PostgreSQL and Docker are unavailable locally. This branch's commit `38cd0a3` passed the complete backend suite against PostgreSQL and the
+Compose smoke test in [PR #28 CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44537667203),
+but its Verify job failed during Jest tests. Full job logs were unavailable from this sandbox, and
+local reproduction passed and the subsequent [commit `02b1383` CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44539157606) passed all checks. The earlier failure remains undiagnosed; the CI test step now reports
+failed Jest cases as GitHub annotations without changing its exit code.
+A later [CI run for `202c558`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44541153577) passed PostgreSQL, Compose and browser checks but failed Verify: the batch byte-budget integration test exceeded 30 seconds. The same test passed six local repeats. In [CI for `2fbdd00`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44542619736), the revised byte-budget test passed, but the new unfinished-client regression exceeded its 12-second overall timeout; PostgreSQL tests also failed without a detailed annotation. The precise causes remain unknown. The unfinished-client test now explicitly closes its deliberate open socket on teardown while retaining a five-second response deadline; the PostgreSQL CI step now reports Jest failures as annotations. Both changes passed in [CI for `e332676`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44543438481), including PostgreSQL, Verify, Compose and browser checks. One green run does not establish the cause of either earlier failure or rule out intermittent recurrence.
+This does not establish multi-worker safety; P6 remains unmet.
+
+The SSE route now uses an optional subscription capability on the realtime port rather than a
+concrete in-memory hub cast. Tests cover an injected alternative and a hub without subscriptions;
+this does not add a distributed hub or continuous stream reauthorization.
+
+An architecture-flow replay exposed that an idempotent upload retry queued a second extraction job.
+Upload metadata, page, audit and initial job now commit together; repeat and concurrent requests
+return an existing job without requeueing. Local regressions cover sequential and forced concurrent
+requests, failed enqueue rollback and an ambiguous commit response. File storage remains outside
+the database transaction and cleanup is best effort; crashes or uncertain commits can leave orphans.
+Legacy rows without an extraction job return an actionable conflict rather than silently scheduling
+work. The complete PostgreSQL backend suite and all other CI checks passed for this change in
+[CI for `8b3e054`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44547470620).
+These changes do not resolve worker recovery or prove exactly-once effects.
+
+R01's documentation inspection also found that workflow send/export actions report placeholder
+"queued" output without dispatching anything, and notify does not deliver a message (ARC-019).
+This feature-correctness issue is handed to R02 and remains open; callers must not treat completed
+workflow runs as evidence of delivery. The historical handover and DEC-026/028 now carry caveats.
+All CI checks also passed for the documentation update in [CI for `7dc278c`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44548570287). A partial raw
+command transcript and module census have been added to the R01 evidence; the manual shell sequence,
+native workflows, real OCR and independent reviewer sign-off remain outstanding.
+
+Pairing completion now locks the session before checking status and expiry, and creates the device,
+claims the token and records the audit in one transaction; the event is published after commit.
+An audit-failure test reproduced partial committed state before the fix. SQLite tests cover rollback,
+concurrent requests and event ordering, but single-connection concurrency does not prove
+cross-process behavior. The PostgreSQL integration job on commit `5d68307` passed the complete
+backend suite, including the enabled blocked-row expiry regression; the suite also passed on commit
+`780b5ff`. The first job step status was verified through the GitHub API; individual test log retrieval
+was unavailable in this sandbox. Pairing's
+in-process event is not durable and a response lost after commit still requires a fresh session.
+
+A focused two-subprocess API exercise (`replica-process.test.ts`) with workers and maintenance
+explicitly disabled observed a shared login/token and cross-replica document and file reads using a
+shared filesystem, but separate SSE streams and login-limit counters. See the interim process-state inventory in
+`docs/reviewers/evidence/R01/state-inventory.md`. This is not the two-worker exercise or proof of a
+safe multi-replica deployment; several memory bounds and other state remain unassessed.
 
 A registered test connector's rejected create, read and update operations produce a recorded failed
 run and actionable HTTP response while the API remains responsive (`apps/backend/test/connector-throw.test.ts`).
@@ -100,17 +146,24 @@ the new privileged renderer origin must not retain an unrestricted navigation pa
 ## Current verification baseline
 
 On the current R01 worktree, `npm run format:check`, the backend build and `npm run verify` passed:
-46 Jest suites and 563 tests passed, with one suite and two tests skipped, plus four backup-tool
-tests, typecheck, lint and contract checks. A focused connector-boundary/connector-throw/connector
-run passed 3 suites and 15 tests. Focused coverage includes membership-scoped credentials,
+50 Jest suites and 591 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
+tests, typecheck, lint and contract checks. Focused coverage includes pairing rollback and concurrent
+requests, marketplace and composition boundaries, membership-scoped credentials,
 MFA invitation acceptance, recovery-code concurrency and rollback, SQLite transaction isolation,
 synthetic SQLite job claims from two processes, composition test doubles, dashboard isolation and
 privacy erasure rollback. Local transaction-scoping and lock-ordering checks use PostgreSQL test
-doubles; they are not PostgreSQL integration tests. The PostgreSQL claim-contention test was skipped
-locally, but passed in PR #26 CI before this branch's composition changes. On the earlier
+doubles; they are not PostgreSQL integration tests. PostgreSQL claim and pairing contention tests
+were skipped locally but the complete backend suite passed on commit `38cd0a3` in PR #28 CI,
+including the auth, document, privacy, maintenance and migration composition changes. The separate
+Verify job failed during Jest tests on that commit; all checks subsequently passed on `02b1383`,
+without identifying the earlier failure. The PostgreSQL JSON-question-mark regression also passed
+on commit `6d19f92` in [CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44539819911).
+On the earlier
 worktree, the built offline encryption-migration CLI passed check, apply and a second check against an
 empty, newly migrated synthetic SQLite database; encrypted-record migration and rollback are covered
 by Jest integration tests. `npm ci` skipped the Electron binary download. The test run emitted
 existing React `act` and jsdom navigation warnings. This is not evidence of a packaged desktop launch,
 a deployed PostgreSQL installation, an APK, an iOS build, or completion of reviewer-specific runtime
-tests. PostgreSQL and Compose CI passed on PR #26, not on this unpushed worktree.
+tests. PostgreSQL, Compose and browser CI passed for commit `38cd0a3`, but Verify failed in its
+Jest step in [PR #28](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44537667203).
+Subsequent commits `02b1383` and `6d19f92` passed all checks, including the PostgreSQL JSON regression.

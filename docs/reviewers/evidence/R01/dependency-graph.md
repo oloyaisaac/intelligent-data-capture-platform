@@ -1,9 +1,9 @@
 # R01 dependency graph — interim evidence
 
 **Status: incomplete; not a G1 approval or reviewer sign-off.** This records an inspection of the
-working tree based on `de7bc574860cd31f97991729aa2ba88d228fd858`, including the uncommitted
-composition and connector-test changes. Further boundary checks and the rest of the R01 evidence
-are still required.
+working tree based on `82f17699069c4b27eefb635f6328b389f20f23ba`, including
+organisation, export, batch, review, pairing, marketplace, connector, auth, document, privacy and
+maintenance composition changes, and pairing transaction changes. Further boundary checks and the rest of the R01 evidence are still required.
 
 ## Declared workspace edges
 
@@ -26,11 +26,12 @@ Node v22.22.3 and npm 10.9.8:
 
 ```text
 $ npx --yes madge@8 --circular --extensions ts,tsx --ts-config tsconfig.base.json --warning apps packages
-Processed 217 files (3.2s)
+Processed 221 files (2.9s)
 ✔ No circular dependency found!
 ```
 
-No skipped-file warnings were emitted. A JSON graph inspection confirmed that the edge from
+This scan was repeated at `7dc278c` after a clean `npm ci`; see the partial `commands.log`.
+No skipped-file warnings were emitted. An earlier JSON graph inspection confirmed that the edge from
 `apps/backend/src/repositories/system-repo.ts` to `packages/shared/src/ids.ts` resolves; this was
 skipped in the earlier scan without `--ts-config`. Madge's static graph is not proof about all
 runtime or dynamic dependencies, external package internals, or deployment-time resolution. This

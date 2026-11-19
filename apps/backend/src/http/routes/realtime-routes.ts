@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Guards } from '../guards';
 import type { Services } from '../../services/container';
-import type { InMemoryRealtimeHub, RealtimeEvent } from '../../realtime/hub';
+import type { RealtimeEvent } from '../../realtime/hub';
 import { AppError } from '@idcp/shared';
 import type { AuthenticatedActor } from '../../services/auth-service';
 
@@ -40,8 +40,8 @@ export function registerRealtimeRoutes(
         : await guards.authenticate(request);
 
     const hub = services.hub;
-    // The in-process hub can stream directly. A Socket.IO deployment would not expose this.
-    if (typeof (hub as InMemoryRealtimeHub).subscribe !== 'function') {
+    // A hub without subscription support cannot back this SSE endpoint.
+    if (typeof hub.subscribe !== 'function') {
       return reply.code(501).send({
         error: {
           code: 'NOT_IMPLEMENTED',
@@ -65,9 +65,8 @@ export function registerRealtimeRoutes(
 
     send('job:progress', { stage: 'connected' });
 
-    const unsubscribe = (hub as InMemoryRealtimeHub).subscribe(
-      { organisationId: actor.organisationId },
-      (event, payload) => send(event, payload),
+    const unsubscribe = hub.subscribe({ organisationId: actor.organisationId }, (event, payload) =>
+      send(event, payload),
     );
 
     // Comment frames keep intermediaries from closing an idle stream.

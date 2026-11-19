@@ -11,7 +11,16 @@ if (!process.env.DATABASE_URL) {
 const jest = fileURLToPath(new URL('../node_modules/jest/bin/jest.js', import.meta.url));
 const child = spawn(
   process.execPath,
-  [jest, '--config', 'jest.config.cjs', '--ci', '--runInBand', '--selectProjects', 'backend'],
+  [
+    jest,
+    '--config',
+    'jest.config.cjs',
+    '--ci',
+    '--runInBand',
+    '--selectProjects',
+    'backend',
+    ...process.argv.slice(2),
+  ],
   {
     stdio: 'inherit',
     env: { ...process.env, IDCP_TEST_DB_DRIVER: 'postgres' },

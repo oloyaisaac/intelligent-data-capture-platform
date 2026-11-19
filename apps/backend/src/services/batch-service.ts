@@ -7,12 +7,11 @@ import {
   type DocumentType,
 } from '@idcp/shared';
 import { newToken } from '@idcp/shared/ids';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
-import { BatchesRepository } from '../repositories/batch-repo';
-import { DocumentsRepository } from '../repositories/document-repo';
-import { ProjectsRepository } from '../repositories/project-repo';
-import { AuditRepository } from '../repositories/system-repo';
+import type { BatchesRepository } from '../repositories/batch-repo';
+import type { DocumentsRepository } from '../repositories/document-repo';
+import type { ProjectsRepository } from '../repositories/project-repo';
+import type { AuditRepository } from '../repositories/system-repo';
 import type { AuthenticatedActor } from './auth-service';
 import type { DocumentService } from './document-service';
 import type { RealtimeHub } from '../realtime/hub';
@@ -35,22 +34,29 @@ export interface BatchFile {
 
 const DONE_STATUSES = new Set(['extracted', 'needs_review', 'approved', 'failed', 'deleted']);
 
+export interface BatchServiceRepositories {
+  batches: Pick<BatchesRepository, 'create' | 'addItem' | 'findById' | 'items' | 'list'>;
+  documents: Pick<DocumentsRepository, 'findById'>;
+  projects: Pick<ProjectsRepository, 'findById'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
 export class BatchService {
-  private readonly batches: BatchesRepository;
-  private readonly documents: DocumentsRepository;
-  private readonly projects: ProjectsRepository;
-  private readonly audit: AuditRepository;
+  private readonly batches: BatchServiceRepositories['batches'];
+  private readonly documents: BatchServiceRepositories['documents'];
+  private readonly projects: BatchServiceRepositories['projects'];
+  private readonly audit: BatchServiceRepositories['audit'];
 
   constructor(
-    db: Database,
+    repositories: BatchServiceRepositories,
     private readonly hub: RealtimeHub,
-    private readonly documentService: DocumentService,
+    private readonly documentService: Pick<DocumentService, 'upload'>,
     private readonly logger: Logger,
   ) {
-    this.batches = new BatchesRepository(db);
-    this.documents = new DocumentsRepository(db);
-    this.projects = new ProjectsRepository(db);
-    this.audit = new AuditRepository(db);
+    this.batches = repositories.batches;
+    this.documents = repositories.documents;
+    this.projects = repositories.projects;
+    this.audit = repositories.audit;
   }
 
   async create(

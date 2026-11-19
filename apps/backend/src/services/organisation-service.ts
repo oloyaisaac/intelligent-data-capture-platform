@@ -1,30 +1,49 @@
 import { AppError, escapeCsvField, roleAtLeast, toCsv, type Role } from '@idcp/shared';
-import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
-import {
+import type {
   MembershipsRepository,
   OrganisationsRepository,
   UsersRepository,
 } from '../repositories/auth-repo';
-import { AuditRepository, JobsRepository } from '../repositories/system-repo';
-import { DashboardRepository } from '../repositories/dashboard-repo';
+import type { AuditRepository, JobsRepository } from '../repositories/system-repo';
+import type { DashboardRepository } from '../repositories/dashboard-repo';
 import type { AuthenticatedActor } from './auth-service';
 
-export class OrganisationService {
-  private readonly orgs: OrganisationsRepository;
-  private readonly users: UsersRepository;
-  private readonly memberships: MembershipsRepository;
-  private readonly audit: AuditRepository;
-  private readonly jobs: JobsRepository;
-  private readonly dashboard: DashboardRepository;
+export interface OrganisationServiceRepositories {
+  orgs: Pick<OrganisationsRepository, 'findById' | 'update'>;
+  users: Pick<UsersRepository, 'findById'>;
+  memberships: Pick<
+    MembershipsRepository,
+    'listForOrganisation' | 'countOwners' | 'updateRole' | 'remove'
+  >;
+  audit: Pick<AuditRepository, 'list' | 'record'>;
+  jobs: Pick<JobsRepository, 'countByStatus' | 'enqueue'>;
+  dashboard: Pick<
+    DashboardRepository,
+    | 'documentsByStatus'
+    | 'documentsByType'
+    | 'documentsByDay'
+    | 'connectors'
+    | 'exports'
+    | 'reviewBacklog'
+  >;
+}
 
-  constructor(db: Database) {
-    this.orgs = new OrganisationsRepository(db);
-    this.users = new UsersRepository(db);
-    this.memberships = new MembershipsRepository(db);
-    this.audit = new AuditRepository(db);
-    this.jobs = new JobsRepository(db);
-    this.dashboard = new DashboardRepository(db);
+export class OrganisationService {
+  private readonly orgs: OrganisationServiceRepositories['orgs'];
+  private readonly users: OrganisationServiceRepositories['users'];
+  private readonly memberships: OrganisationServiceRepositories['memberships'];
+  private readonly audit: OrganisationServiceRepositories['audit'];
+  private readonly jobs: OrganisationServiceRepositories['jobs'];
+  private readonly dashboard: OrganisationServiceRepositories['dashboard'];
+
+  constructor(repositories: OrganisationServiceRepositories) {
+    this.orgs = repositories.orgs;
+    this.users = repositories.users;
+    this.memberships = repositories.memberships;
+    this.audit = repositories.audit;
+    this.jobs = repositories.jobs;
+    this.dashboard = repositories.dashboard;
   }
 
   async get(actor: AuthenticatedActor) {

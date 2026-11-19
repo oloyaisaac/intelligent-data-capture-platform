@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { JobsRepository } from '../src/repositories/system-repo';
-import { createHarness, type Harness } from './helpers';
+import {
+  createHarness,
+  registerAccount,
+  uploadDocument,
+  type ApiResponse,
+  type Harness,
+} from './helpers';
 
 const postgresEnabled = process.env.IDCP_TEST_DB_DRIVER === 'postgres';
 const postgresDescribe = postgresEnabled ? describe : describe.skip;
@@ -66,6 +72,76 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
       if (claims) await claims.catch(() => undefined);
     }
   }, 30_000);
+
+  it('rechecks expiration after waiting for the pairing row lock', async () => {
+    const account = await registerAccount(harness);
+    const created = await harness.api.json('POST', '/api/v1/pairing/sessions', {
+      token: account.accessToken,
+    });
+    expect(created.statusCode).toBe(201);
+    const session = created.json<{ id: string; token: string }>();
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let completion: Promise<ApiResponse> | undefined;
+    try {
+      await harness.db.transaction(async (tx) => {
+        await tx.one('SELECT id FROM pairing_sessions WHERE id = ? FOR UPDATE', [session.id]);
+        const locker = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        if (!locker) throw new Error('Could not identify the row-locking session');
+        completion = harness.api.json('POST', '/api/v1/pairing/complete', {
+          body: { token: session.token, device: { name: 'Blocked phone', platform: 'android' } },
+        });
+        void completion.catch(() => undefined);
+        const deadline = Date.now() + 10_000;
+        let blocked = 0;
+        while (Date.now() < deadline && blocked < 1) {
+          const result = await observer.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+              WHERE $1::int = ANY(pg_blocking_pids(activity.pid))
+                AND activity.wait_event_type = 'Lock'
+                AND activity.query LIKE 'SELECT * FROM pairing_sessions WHERE token_hash = %'`,
+            [locker.pid],
+          );
+          blocked = result.rows[0]?.count ?? 0;
+          if (blocked < 1) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBeGreaterThanOrEqual(1);
+        await tx.execute('UPDATE pairing_sessions SET expires_at = ? WHERE id = ?', [
+          new Date(Date.now() - 1000).toISOString(),
+          session.id,
+        ]);
+      });
+      const result = await completion!;
+      expect(result.statusCode).toBe(422);
+      expect(result.json()).toMatchObject({ error: { code: 'PAIRING_TOKEN_EXPIRED' } });
+      const count = await harness.db.one<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM devices WHERE organisation_id = ?',
+        [account.organisationId],
+      );
+      expect(Number(count?.count)).toBe(0);
+    } finally {
+      await observer.end();
+      if (completion) await completion.catch(() => undefined);
+    }
+  }, 30_000);
+
+  it('preserves question marks in a document extraction JSON parameter', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account);
+    expect(upload.statusCode).toBe(201);
+    const documentId = upload.json<{ id: string }>().id;
+    const extractionId = randomUUID();
+    const json = JSON.stringify({ question: 'How much?', nested: ['?', 'literal $1 ?'] });
+    await harness.db.execute(
+      `INSERT INTO extractions (id, document_id, organisation_id, attempt, udm, udm_version, provider, confidence, needs_review, cost_micros, created_at)
+       VALUES (?, ?, ?, 1, ?, 'test', 'fixture', 1, 1, 0, ?)`,
+      [extractionId, documentId, account.organisationId, json, new Date().toISOString()],
+    );
+    const row = await harness.db.one<{ udm: string; literal_question: string }>(
+      "SELECT udm, '?' AS literal_question FROM extractions WHERE id = ? AND document_id = ?",
+      [extractionId, documentId],
+    );
+    expect(row).toEqual({ udm: json, literal_question: '?' });
+  });
 
   it('applies migrations and executes placeholder queries, transactions, and an API health check', async () => {
     expect(harness.db.driver).toBe('postgres');
