@@ -98,28 +98,42 @@ export function createTokenService(options: {
 }
 
 /**
- * Fixed-window in-memory rate limiter for authentication attempts.
- * Production uses the edge/Redis limiter (API.md §10); this keeps the API honest when deployed
- * as a single process, and is what the tests exercise.
+ * Fixed-window, process-local limiter. Expired entries are swept on demand at intervals of the
+ * window length or one minute, whichever is shorter. Capacity is bounded; when full, new keys fail
+ * closed rather than evicting an active key and resetting its limit. Replicas need a shared limiter.
  */
 export class AttemptLimiter {
   private readonly hits = new Map<string, { count: number; resetAt: number }>();
+  private nextSweepAt = 0;
 
   constructor(
     private readonly limit: number,
     private readonly windowMs: number,
     private readonly now: () => number = Date.now,
     private readonly enabled: boolean = true,
-  ) {}
+    private readonly maxEntries: number = 10_000,
+  ) {
+    if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) {
+      throw new Error('Rate limiter capacity must be a positive integer.');
+    }
+  }
 
-  /** Returns true when the attempt is allowed, false when the caller is over the limit. */
+  /** Returns true when the attempt is allowed, false when over the limit or capacity. */
   hit(key: string): boolean {
     if (!this.enabled) return true;
     const current = this.now();
-    const entry = this.hits.get(key);
-
+    if (current >= this.nextSweepAt) {
+      for (const [storedKey, entry] of this.hits) {
+        if (entry.resetAt <= current) this.hits.delete(storedKey);
+      }
+      this.nextSweepAt = current + Math.min(this.windowMs, 60_000);
+    }
+    // Fixed-size hashes bound key storage and avoid retaining raw email addresses or IPs.
+    const storedKey = hashToken(key);
+    const entry = this.hits.get(storedKey);
     if (!entry || entry.resetAt <= current) {
-      this.hits.set(key, { count: 1, resetAt: current + this.windowMs });
+      if (!entry && this.hits.size >= this.maxEntries) return false;
+      this.hits.set(storedKey, { count: 1, resetAt: current + this.windowMs });
       return true;
     }
     if (entry.count >= this.limit) return false;
@@ -129,13 +143,17 @@ export class AttemptLimiter {
 
   retryAfterSeconds(key: string): number {
     if (!this.enabled) return 0;
-    const entry = this.hits.get(key);
-    if (!entry) return 0;
-    return Math.max(0, Math.ceil((entry.resetAt - this.now()) / 1000));
+    const current = this.now();
+    const entry = this.hits.get(hashToken(key));
+    if (entry) return Math.max(0, Math.ceil((entry.resetAt - current) / 1000));
+    // An unknown key may have been refused because the map was full.
+    return this.hits.size >= this.maxEntries
+      ? Math.max(1, Math.ceil((this.nextSweepAt - current) / 1000))
+      : 0;
   }
 
   reset(key?: string): void {
-    if (key) this.hits.delete(key);
+    if (key !== undefined) this.hits.delete(hashToken(key));
     else this.hits.clear();
   }
 }

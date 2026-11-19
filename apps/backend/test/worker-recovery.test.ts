@@ -1,5 +1,6 @@
 import { createHarness, registerAccount, type Harness } from './helpers';
 import { RECOVERY_GRACE_MS } from '../src/services/worker';
+import { JobsRepository } from '../src/repositories/system-repo';
 
 /**
  * Stale job recovery (DEC-029).
@@ -90,6 +91,23 @@ describe('worker recovery of interrupted jobs', () => {
     await harness.services.worker.stop();
 
     expect(await statusOf(fresh)).toBe('running');
+  });
+
+  it('documents that another worker can reclaim an active job older than the grace period', async () => {
+    const account = await registerAccount(harness);
+    // Model a still-running worker holding an old job: there is no ownership or heartbeat field.
+    const active = await insertJob({
+      organisationId: account.organisationId,
+      status: 'running',
+      startedAt: new Date(Date.now() - RECOVERY_GRACE_MS - 1000).toISOString(),
+    });
+    await harness.services.worker.start();
+    await harness.services.worker.stop();
+    expect(await statusOf(active)).toBe('queued');
+    const reclaimed = await new JobsRepository(harness.db).claimNext();
+    expect(reclaimed?.id).toBe(active);
+    expect(reclaimed?.status).toBe('running');
+    expect(reclaimed?.attempts).toBe(2);
   });
 
   it('does not touch finished or queued jobs', async () => {

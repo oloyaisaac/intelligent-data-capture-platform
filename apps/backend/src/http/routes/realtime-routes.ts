@@ -22,9 +22,9 @@ async function actorFromQueryToken(services: Services, token: string): Promise<A
 /**
  * Server-sent events for the desktop dashboard (DESK-002, PAIR-003).
  *
- * Socket.IO carries the same events in production (DEC-006); SSE is the fallback transport the
- * browser client uses, so a new upload appears without a manual refresh. Only identifiers travel
- * in the payload — never document content (API.md §9).
+ * SSE and the in-process hub are the current transport (DEC-016); no Socket.IO adapter is shipped.
+ * Events reach subscribers in this process only. Only identifiers travel in the payload — never
+ * document content (API.md §9).
  */
 export function registerRealtimeRoutes(
   app: FastifyInstance,

@@ -7,8 +7,8 @@ import { buildApp } from './http/app';
 /**
  * Process entry point. Fails fast on invalid configuration, starts the API, and — when
  * WORKER_ENABLED is set — the background worker in the same process (single-container
- * deployments). Split them by running `WORKER_ENABLED=false` on the API and a second process
- * with `WORKER_ENABLED=true` and `API_ONLY=false` once load requires it.
+ * deployments). Multiple API or worker processes are not a supported topology: worker recovery,
+ * realtime subscriptions and rate limits are process-local. See DEC-029 and ARCHITECTURE.md.
  */
 async function main(): Promise<void> {
   const config = loadConfig();

@@ -178,6 +178,36 @@ describe('rate limiter', () => {
     const disabled = new AttemptLimiter(1, 1000, () => 0, false);
     for (let attempt = 0; attempt < 10; attempt += 1) expect(disabled.hit('a')).toBe(true);
   });
+
+  it('fails closed at capacity without resetting active limits, then sweeps expired keys', () => {
+    let now = 0;
+    const limiter = new AttemptLimiter(1, 1000, () => now, true, 2);
+    expect(limiter.hit('a')).toBe(true);
+    now = 500;
+    expect(limiter.hit('b')).toBe(true);
+    expect(limiter.hit('c')).toBe(false);
+    expect(limiter.retryAfterSeconds('c')).toBe(1);
+    expect(limiter.hit('a')).toBe(false);
+    expect(limiter.hit('b')).toBe(false);
+    now = 1000;
+    expect(limiter.hit('c')).toBe(true);
+    expect(limiter.hit('b')).toBe(false);
+    expect(limiter.hit('a')).toBe(false);
+    limiter.reset('b');
+    expect(limiter.hit('a')).toBe(true);
+    limiter.reset();
+    expect(limiter.hit('b')).toBe(true);
+  });
+
+  it('bounds capacity and rejects invalid capacities', () => {
+    expect(() => new AttemptLimiter(1, 1000, () => 0, true, 0)).toThrow(/capacity/);
+    expect(() => new AttemptLimiter(1, 1000, () => 0, true, 1.5)).toThrow(/capacity/);
+    const limiter = new AttemptLimiter(1, 1000, () => 0, true, 1);
+    for (let index = 0; index < 100; index += 1) {
+      expect(limiter.hit(`unique-${index}`)).toBe(index === 0);
+    }
+    expect(limiter.hit('unique-0')).toBe(false);
+  });
 });
 
 describe('credential encryption (SECURITY.md §6.2)', () => {

@@ -1,194 +1,164 @@
 # Architecture
 
-Technical blueprint of the AI Universal Data Capture Platform (IDCP).
-
-> **Reality check:** the components in §2 exist and are tested; where the shipped runtime is simpler
-> than the blueprint, the difference is stated inline and recorded in `DECISIONS.md` (notably DEC-013
-> for the two database drivers, DEC-016 for SSE instead of Socket.IO, and DEC-029 for the single-process
-> runtime). `AGENT_STATE.md` lists what is deliberately absent.
-
----
+This document describes the repository's current design and separates implemented code from
+unverified or proposed deployment capabilities. It is not a production-readiness certification.
+See `DECISIONS.md`, `TASKS.md` and the linked operational runbooks for decisions and open work.
 
 ## 1. System overview
 
-```
-┌──────────────────┐        ┌──────────────────┐        ┌───────────────────┐
-│   Mobile app     │        │  Desktop app     │        │  Third-party      │
-│  Android / iOS   │        │ Win · macOS · Lin│        │  destinations     │
-│  (React Native)  │        │   (Electron)     │        │ Excel/Sheets/SQL  │
-└────────┬─────────┘        └────────┬─────────┘        │ CRM / ERP / API   │
-         │ capture + upload          │ review + jobs   └─────────▲─────────┘
-         │ QR pairing / HTTPS        │ SSE + HTTPS               │
-         └───────────────┬───────────┘                           │
-                         ▼                                       │
-              ┌──────────────────────────────────────────────────┴────┐
-              │                     Backend                               │
-              │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐ │
-              │  │  REST API   │  │ Job worker   │  │ Connector      │ │
-              │  │  (Fastify)  │  │ (in-process, │  │ runtime        │ │
-              │  │             │  │  `jobs` tbl) │  │                │ │
-              │  └──────┬──────┘  └──────┬───────┘  └───────┬────────┘ │
-              │         │                │                  │          │
-              │  ┌──────▼────────────────▼──────────────────▼───────┐  │
-              │  │ Domain services: documents · extraction · review │  │
-              │  │ mapping · export · audit · devices · tenants     │  │
-              │  └──────┬───────────────────────┬───────────────────┘  │
-              └─────────┼───────────────────────┼──────────────────────┘
-                        ▼                       ▼
-              ┌──────────────────┐    ┌────────────────────┐    ┌───────────────┐
-              │ SQLite / Postgres│    │ Filesystem / S3    │    │ AI providers  │
-              │ metadata, UDM,   │    │ original documents │    │ local OCR +   │
-              │ audit, jobs      │    │ (STORAGE_PATH)     │    │ cloud (opt-in)│
-              └──────────────────┘    └────────────────────┘    └───────────────┘
+The intended loop is phone capture → backend extraction → human review → export or connector write.
+The repository contains a React Native mobile client, an Electron/React desktop client, a Fastify
+backend, and shared and connector packages. Native mobile builds and packaged Electron execution
+still need validation with their actual tooling; unit tests do not prove those journeys work.
+
+```text
+mobile ──HTTP──┐                              ┌── external connector destinations
+              ├── backend API + worker ──────┤
+desktop ─HTTP/SSE─┘       │                  └── optional cloud OCR endpoint
+                          ├── SQLite or PostgreSQL (metadata, jobs, audit)
+                          └── filesystem (originals, exports)
 ```
 
-## 2. Components
+The default deployment model is a **single process** containing the API, worker and maintenance
+scheduler (DEC-029). PostgreSQL and a single-instance Compose path exist; neither implies a shared
+queue, shared realtime broker, shared limiter or horizontally scalable deployment. S3 is not
+implemented. TLS termination, persistent storage, secrets and backups are operator responsibilities.
 
-### 2.1 Mobile app (`apps/mobile`) — React Native
+## 2. Components and boundaries
 
-Responsibilities: QR pairing, camera capture, edge detection/crop/enhancement, offline queue, upload, status display, review of simple fields, secure device credential storage.
+### 2.1 Mobile (`apps/mobile`)
 
-- Navigation: React Navigation 7 (stack for flows, bottom tabs for areas).
-- State: local persistence for the queue (SQLite/MMKV) plus a lightweight query cache; server state is the source of truth once online.
-- Native modules: camera, barcode scanning, document edge detection, secure storage, file system.
-- Talks to the backend **only** over HTTPS; the desktop holds the server-push stream (SSE), and the
-  phone uploads when it has a connection because the queue is local-first.
+The React Native source includes pairing, camera capture, a local upload queue, review screens and
+secure credential storage. Queue metadata is persisted through the keychain-backed store; the queue
+holds file URIs rather than the image bytes (`src/state/queueStorage.ts`). The edge-detection bridge
+requires native frame-processor/worklet support and degrades without it. Android/iOS scaffolds and
+real-device behavior are not yet validated. The API client requires HTTPS except for explicitly
+allowed loopback/emulator development URLs (`src/api/client.ts`).
 
-### 2.2 Desktop app (`apps/desktop`) — Electron + React
+### 2.2 Desktop (`apps/desktop`)
 
-Responsibilities: pairing QR display and device management, live job dashboard, full human-in-the-loop review, mapping configuration, connector setup, exports, analytics later.
+The React renderer implements sign-in, pairing, document review and other screens. Electron's main
+process registers `app://idcp`, validates the packaged API origin, enforces a CSP, and exposes token,
+version and update-check IPC through a context-isolated preload. Tokens use Electron `safeStorage`
+when available. The update-check handler is a stub, not a functional update service. Packaging and
+real runtime behavior require separate validation; renderer/browser tests are not packaged tests.
 
-- Main process: OS integration, keychain access, auto-update, filesystem writes for exports.
-- Renderer: React UI with **no** Node access; all privileged operations go through a validated, allow-listed IPC bridge.
-- Security posture per `SECURITY.md` §6.3.
+### 2.3 Backend (`apps/backend`)
 
-### 2.3 Backend API (`apps/backend`) — Node.js 22 + TypeScript
+`src/index.ts` loads configuration, creates the database, composes services, starts Fastify and,
+when enabled, starts the worker and maintenance scheduler. The intended dependency direction is
+`http/routes` → domain `services` → persistence `repositories` → the `db` port and drivers. This is
+a guide, not an enforced invariant: several services issue SQL directly, the health route uses the
+database, the SSE route constructs a membership repository, and services construct repositories in
+their constructors. Any refactoring must preserve transaction boundaries and tenant scoping.
 
-One process today (DEC-029), split logically into two roles that can be separated later:
+`services/container.ts` builds the service graph and supplies storage, OCR and realtime adapters;
+individual services also construct repositories. SQLite and PostgreSQL are implemented behind the
+`Database` interface. SQLite uses Node's experimental `node:sqlite`; migrations are handwritten in
+`src/db/migrations.ts`, not Prisma. The storage port has filesystem and test-memory implementations;
+S3 is not implemented (DEC-010). Authenticated SSE uses `InMemoryRealtimeHub`; it is process-local
+and the route depends on its concrete subscription method (DEC-016).
 
-- **API role:** HTTP endpoints, authentication, authorisation, validation, job enqueueing, the SSE stream.
-- **Worker role:** OCR/extraction jobs, mapping and connector writes, retention purges. It polls the
-  `jobs` table, claims each job transactionally, and retries with exponential backoff; every job is
-  idempotent, so two workers would be safe even though only one runs by default.
+The worker claims jobs via a database update, retries failures and marks exhausted jobs dead. This
+is **not** proof of exactly-once effects or multi-worker safety. On startup, a running job older than
+30 seconds can be requeued without a lease or heartbeat even if another process is still processing
+it (`services/worker.ts`, `repositories/system-repo.ts`). Only one worker process is supported.
 
-Layers, by folder under `src/`: `http/routes` (Fastify plugins, one per area) → `services` (domain
-rules, role checks, auditing) → `repositories` (the only SQL) → `db` (driver, migrations). Pure logic
-that needs no database lives beside its feature (`workflows/engine.ts`, `marketplace/catalog.ts`) so it
-can be tested directly.
+### 2.4 Shared and connector packages
 
-### 2.4 Shared package (`packages/shared`)
+`packages/shared` contains the UDM, validation, errors, formatting and shared contracts used by the
+clients and backend. `packages/connectors` defines the connector contract and first-party adapters.
+These connectors run **in the backend process**, with no process, filesystem or network sandbox.
+Some connector-run errors are caught and recorded, but that is not isolation from malicious code,
+resource exhaustion or all possible failures. HTTP connector destination checks and their limits are
+documented in `docs/connector-network-security.md`; SQL and filesystem destinations are not protected
+by those HTTP controls. Marketplace signature verification does not turn code into a sandbox.
 
-Single source of truth for: Universal Data Model types and Zod schemas, API request/response types, error codes, confidence/review thresholds, i18n catalogues, date/number formatters. Consumed by mobile, desktop and backend.
+### 2.5 AI
 
-### 2.5 Connector package (`packages/connectors`)
-
-The connector contract (manifest, capabilities, schema discovery, health check) plus first-party connectors. Connectors are isolated: a failing connector reports an error and never crashes the host process.
-
-### 2.6 AI layer
-
-```
-upload → preprocess → OCR (text + geometry) → classify → extract fields/tables
-        → normalise to UDM → score confidence → mark needs_review → persist
-```
-
-- Providers implement one interface: `ocr()`, `classify()`, `extract()`.
-- Local engine is the default; cloud providers are opt-in per organisation and recorded in `DECISIONS.md`.
-- Every output is validated against the UDM schema before persistence.
-- Provenance (provider, model, version, latency, cost) is stored alongside the record.
+`src/ai/pipeline.ts` invokes an `OcrProvider`, classifies and extracts text using local code,
+validates the UDM and records provenance. The configured provider can be local Tesseract or a
+cloud endpoint. Real accuracy, cost and provider connectivity depend on separate corpus and
+integration validation; the presence of interfaces and synthetic tests does not establish them.
 
 ## 3. Key data flows
 
-### 3.1 Pairing
+These are code paths to exercise, not claims of completed device or production validation.
 
-```
-Desktop → POST /api/v1/pairing/sessions → { pairingCode, token, expiresAt }
-Desktop renders QR (token + endpoint only)
-Mobile scans → POST /api/v1/pairing/complete { token, deviceInfo }
-Backend validates (single-use, unexpired) → issues device credential
-Mobile stores credential in secure storage → authenticates socket
-Desktop receives device.paired event and shows the device
-```
+1. **Pairing:** an authenticated desktop requests `/api/v1/pairing/sessions`; its QR payload carries
+   an endpoint and short-lived token. The mobile client sends the token and device details to
+   `/api/v1/pairing/complete` and receives a device credential. Pairing emits a process-local event.
+2. **Capture and review:** the mobile client queues a capture and uploads with an idempotency key.
+   The API stores a file and document/job metadata. The worker runs OCR and extraction; the review
+   API accepts human corrections and approval. Events are sent to local SSE subscribers.
+3. **Export and connector write:** approved records can be exported or sent through configured
+   mapping and connector operations. External systems and side effects need their own reconciliation
+   and idempotency guarantees; a local job claim is not an exactly-once guarantee.
 
-### 3.2 Capture to reviewed record
+## 4. Technology and decisions
 
-```
-Mobile captures → local queue → POST /api/v1/documents (idempotency key)
-Backend writes the image to storage (filesystem), creates document + job, emits document.queued
-Worker: OCR → classify → extract → validate UDM → persist extraction
-Backend emits job.progress / document.needs_review
-Desktop review UI: human confirms or corrects fields → POST /review
-Record approved → eligible for export / connector write
-```
+| Concern          | Current choice / limit                                             | Decision         |
+| ---------------- | ------------------------------------------------------------------ | ---------------- |
+| Monorepo         | npm workspaces and TypeScript                                      | DEC-002          |
+| Database         | SQLite and PostgreSQL drivers; handwritten migrations              | DEC-003, DEC-013 |
+| Realtime         | In-process hub and authenticated SSE                               | DEC-006, DEC-016 |
+| Jobs             | Database jobs with one in-process worker; no distributed lease     | DEC-008, DEC-029 |
+| File storage     | Filesystem; S3 adapter not implemented                             | DEC-010          |
+| AI               | OCR provider port; local Tesseract or configured cloud endpoint    | DEC-007          |
+| Client platforms | React Native source and Electron/React source; release builds open | DEC-001, DEC-009 |
 
-### 3.3 Export and connector write
+## 5. Security boundaries
 
-```
-Approved record → UDM → mapping profile (destination fields + transforms)
-             → duplicate check (keys + fuzzy score)
-             → connector create/update/merge
-             → result logged in audit trail + job record
-```
+Public routes include login, registration, recovery, pairing completion and health; this is not an
+exhaustive route inventory. Other routes use user, device or API-key authentication and applicable
+role/tenant checks; see `apps/backend/src/http/guards.ts` and the individual routes. Do not infer
+that every action has the same guard or audit behavior from this overview.
 
-## 4. Technology choices
+Workers execute inside the backend process; connectors are not sandboxed and do not receive a
+separate short-lived internal service credential as an isolation mechanism. Connector credentials
+are encrypted using configured keys, with a legacy migration path. TLS termination and filesystem or
+backup encryption at rest must be supplied by deployment operators; uploaded files are not made
+encrypted merely by storing them under `STORAGE_PATH`. See `SECURITY.md` and the key-migration,
+connector-network and erasure runbooks for scope and limitations.
 
-| Concern            | Choice                                                                                 | Decision         |
-| ------------------ | -------------------------------------------------------------------------------------- | ---------------- |
-| Mobile             | React Native 0.86 / React 19                                                           | DEC-001          |
-| Monorepo           | npm workspaces + TypeScript                                                            | DEC-002          |
-| Database           | SQLite (dev/test) and PostgreSQL 16 (production); hand-written forward-only migrations | DEC-003, DEC-013 |
-| Interchange format | Universal Data Model (Zod + JSON Schema)                                               | DEC-004          |
-| Pairing            | Short-lived single-use QR token                                                        | DEC-005          |
-| Realtime           | Authenticated SSE (Socket.IO behind the same interface later)                          | DEC-006, DEC-016 |
-| AI                 | Provider abstraction, local-first                                                      | DEC-007          |
-| Jobs               | `jobs` table + in-process worker, idempotent jobs; shared queue is the scale-out step  | DEC-008, DEC-029 |
-| Desktop            | Electron + React                                                                       | DEC-009          |
-| File storage       | Filesystem under `STORAGE_PATH`; S3-compatible store is the scale-out step             | DEC-010, DEC-029 |
+## 6. Repository layout and placement
 
-## 5. Security zones
-
-1. **Public:** only `POST /auth/login`, `POST /auth/register`, `POST /pairing/complete`, `GET /health` (rate limited, no data exposure).
-2. **Authenticated user:** everything scoped to the user's organisation.
-3. **Privileged (admin/owner):** device revocation, connector credentials, retention, exports of bulk data. Every action audited.
-4. **Machine:** workers and connectors use short-lived internal credentials; the connector sandbox never receives the user's session token.
-
-Cross-cutting: TLS in transit, encryption at rest, tenant scoping on every query, audit log append-only.
-
-## 6. Target repository layout
-
-```
-intelligent-data-capture-platform/
-├── apps/
-│   ├── mobile/                 React Native app
-│   │   ├── src/{navigation,capture,queue,pairing,review,ui}
-│   │   └── android/ ios/
-│   ├── desktop/                Electron app
-│   │   └── src/{main,preload,renderer/{pairing,review,dashboard,mapping,devices}}
-│   └── backend/
-│       ├── src/{api,services,ai,connectors,realtime,jobs}
-│       └── prisma/{schema.prisma,migrations,seed.ts}
-├── packages/
-│   ├── shared/                 UDM, schemas, error codes, i18n
-│   └── connectors/             connector SDK + first-party connectors
-├── docs/                       OpenAPI spec, generated JSON schema, ADR archive
-├── uploads/                    Original source requirement documents
-├── .github/workflows/          CI
-├── tsconfig.base.json
-├── package.json                Workspaces + scripts
-└── <the root documentation files>
+```text
+apps/backend/src/{http,services,repositories,db,ai,realtime,storage,workflows,marketplace}
+apps/desktop/src/{main,api,components,pages,lib,marketplace,workflows}
+apps/mobile/src/{api,assist,auth,capture,pairing,screens,state,ui}
+packages/shared/src/         shared contracts and model
+packages/connectors/src/     connector contract and implementations
+docs/                        runbooks and reviewer briefs
+scripts/                     validation, maintenance and build tooling
 ```
 
-Placement rule: code used by two or more apps goes in `packages/`; code used by one app stays in that app. Never import across `apps/*`.
+Put a backend HTTP boundary in `http/routes`, business coordination in `services`, persistence in
+`repositories`/`db`, and share client-neutral contracts through `packages/shared`. Existing SQL
+and construction exceptions are described above; do not assume the ideal layering is fully enforced.
+Avoid imports between applications. Platform-specific implementation remains in its own app.
 
-## 7. Non-functional architecture notes
+## 7. Single-process constraints and scale-out
 
-- **Scalability:** API is stateless (scale horizontally); workers scale on queue depth; objects and database are managed services. No in-process session state.
-- **Reliability:** upload and job idempotency; retries with exponential backoff; DLQ for poison jobs; visible failure states.
-- **Observability:** structured JSON logs with request ID and tenant ID; metrics for queue depth, job latency, extraction failure rate, connector error rate; error tracking per environment.
-- **Local/offline:** mobile works offline for capture; local AI mode allows a deployment with no third-party calls (pending Q-004 for a fully standalone desktop).
-- **Multi-tenancy:** every table carries `organisation_id`; access always filtered by tenant in the data layer, not only in the UI.
+- Authentication and pairing rate-limit counters live in `AttemptLimiter` instances per process.
+  Entries are capped at 10,000 per instance, expired entries are swept on demand, and new keys are
+  refused when full. This bounds that map but permits capacity exhaustion to deny new attempts; an
+  edge limiter and monitoring are needed. Counters reset on restart and are not shared across replicas.
+- `InMemoryRealtimeHub` stores local subscribers and device callbacks, with no global subscriber
+  bound or cross-process event delivery. An event emitted in one process does not reach subscribers
+  connected to another. SSE connection cleanup is local; monitoring and connection limits are needed.
+- Worker recovery has no lease/heartbeat and may requeue an active job from another process.
+  Maintenance timers also run in each enabled process. Neither duplicate side effects nor shared
+  scheduler behavior has been validated for a multi-process deployment.
+- Moving to multiple replicas requires a supported PostgreSQL/shared-storage topology, shared rate
+  limiting and realtime delivery, a leased/owned worker queue and coordinated maintenance; it also
+  requires concurrency, failure-recovery and load tests before the topology is supported.
 
 ## 8. Known gaps
 
-- No application code, so none of the above is implemented.
-- Queue, storage and provider choices are recorded as decisions but not yet validated against a real provider.
-- Desktop standalone mode is undecided (`PRD.json` Q-004), which affects how much of the backend can run locally.
+Application code and automated tests exist, but significant release work remains: actual mobile
+native builds, packaged Electron runtime, real provider delivery/connectivity, monitoring and alerts,
+signed distribution, PostgreSQL-coordinated backup/restore, and real-user/OCR-corpus evidence.
+SQLite offline backup tooling exists but requires operator-managed quiescence and protected storage.
+`TASKS.md` tracks review progress; the historical reviewer briefs describe an older baseline and
+should not be treated as evidence that every requirement now passes.
