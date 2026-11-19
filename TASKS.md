@@ -214,3 +214,9 @@ synthetic tests cover migration rollback, key rotation and CLI gating. This is a
 for consumers and old binaries; migration requires stopped writers and a verified backup. Existing
 plaintext, historical copies, downstream outputs and production migration/rotation evidence remain
 open; see `docs/connector-config-migration.md` and the finding, not a claim of closure.
+
+Connector list/update and run-history responses now replace potentially sensitive historical error
+text with local guidance; schema responses validate their shape and strip extra properties. Stored
+historical errors and connector-controlled schema strings/preview values remain unsanitized. A
+separate two-process SQLite test now reproduces live-claim recovery and duplicate synthetic OCR
+using an artificially aged timestamp. P6 and P8 remain unmet; see R01 findings and recovery design.

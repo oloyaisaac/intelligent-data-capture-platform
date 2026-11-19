@@ -90,3 +90,24 @@ operators execute and verify migration; old database pages, WAL, replicas, backu
 errors and other connector outputs may retain secrets. Key-rotation and migration tests are synthetic,
 not a production rollout. Direct in-process connectors are still not isolated. Independent security
 review, production migration evidence and incident/rotation assessment remain open. P8 is unmet.
+
+### ARC-013 update — live recovery across two processes
+
+`worker-stale-process.test.ts` pauses synthetic OCR in one actual SQLite worker subprocess, ages its
+running job timestamp in the database, then starts a second actual worker. The second startup
+reclaims the still-live job and invokes OCR; the first then resumes. The test observes two OCR calls,
+two attempts and one durable extraction. This demonstrates P6 is still unmet across processes; it
+uses an artificially aged timestamp, not a real 30-second wait, real OCR or PostgreSQL. The test
+characterizes an unresolved defect and should be replaced with a safety regression when an approved
+recovery/ownership design is implemented.
+
+### ARC-016 / ARC-017 update — historical error and schema output boundaries
+
+Connector list/update DTOs and run history now substitute locally generated guidance for any stored
+error text, including historical raw errors. `connector-legacy-errors.test.ts` reproduces the old
+response leak with synthetic data; it also verifies historical values remain in the database. The
+schema endpoint now validates the declared field types and strips extra schema/field properties;
+`connector-boundary.test.ts` covers secret-bearing extra properties and a malformed type. This is
+not data-at-rest cleanup or an isolation boundary: historical rows, prior responses, logs, backups,
+destination-supplied schema strings, duplicate-preview values and direct in-process access remain
+potential exposure paths. Independent security review and P8 remain open.

@@ -31,7 +31,22 @@ import type { ConnectorRow, MappingProfileRow } from '../repositories/types';
 import type { AuthenticatedActor } from './auth-service';
 import type { SecretBox } from './crypto';
 import type { RealtimeHub } from '../realtime/hub';
+import { z } from 'zod';
 import { decodeConnectorConfig, encodeConnectorConfig } from './connector-config';
+
+// Strip non-contract properties from untrusted connector output. Contract strings remain
+// destination-supplied and may themselves contain sensitive data; this is not a sandbox.
+const DestinationSchema = z.object({
+  container: z.string(),
+  fields: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      type: z.enum(['string', 'number', 'date', 'boolean']),
+      required: z.boolean().optional(),
+    }),
+  ),
+});
 
 export function toConnectorDto(row: ConnectorRow) {
   return {
@@ -42,7 +57,11 @@ export function toConnectorDto(row: ConnectorRow) {
     // Arbitrary connector config can contain credentials; it is write-only, including legacy rows.
     config: {},
     lastHealthCheckAt: row.last_health_check_at,
-    lastError: row.last_error,
+    // Historical errors may contain connector-supplied secrets. Never trust persisted free text.
+    lastError:
+      row.last_error === null
+        ? null
+        : 'Connection check failed. Review the destination and connection settings.',
     createdAt: row.created_at,
   };
 }
@@ -202,9 +221,10 @@ export class ConnectorService {
     const row = await this.connectors.findById(actor.organisationId, id);
     if (!row) throw new AppError('NOT_FOUND', 'Connector not found.');
     try {
-      return await this.registry
+      const schema = await this.registry
         .get(row.type)
         .describeSchema(this.resolveConfig(row), this.context(actor));
+      return DestinationSchema.parse(schema);
     } catch {
       throw new AppError(
         'UNPROCESSABLE',
@@ -557,7 +577,11 @@ export class ConnectorService {
       documentId: row.document_id,
       operation: row.operation,
       status: row.status,
-      error: row.error,
+      // Older runs may contain raw connector exceptions, including credentials or record data.
+      error:
+        row.error === null
+          ? null
+          : 'Connector request failed. Check the destination for changes and review connection settings before retrying.',
       durationMs: row.duration_ms,
       createdAt: row.created_at,
     }));

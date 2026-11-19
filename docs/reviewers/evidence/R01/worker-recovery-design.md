@@ -54,3 +54,12 @@ persistence or all possible crash boundaries.
 
 A named technical owner must choose and review the design, and evidence must demonstrate the stated
 semantics. None of the above constitutes an owner-approved exception or independent reviewer sign-off.
+
+## Two-process active-claim reproduction
+
+`worker-stale-process.test.ts` uses two actual SQLite worker subprocesses and a paused synthetic OCR
+provider. After the test artificially ages the first process's still-running job, the second worker's
+startup recovery reclaims it and performs OCR; resuming the first produces no second durable
+extraction due to the publication guard, but two OCR calls and attempts occurred. This is a
+characterization of unsafe recovery, not a safety test or a PostgreSQL/real-provider result. It does
+not prove real wall-clock expiry, billing behavior or general crash safety.

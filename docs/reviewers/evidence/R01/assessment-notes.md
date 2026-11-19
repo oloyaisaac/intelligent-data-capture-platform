@@ -27,7 +27,8 @@ remain incomplete.
    do not make ten replicas supported.
 4. **Largest architectural risk?** For scaling the capture loop, DEC-029's single-process runtime
    coupled to age-only recovery is the most immediate architectural risk in this review: normal
-   claims are atomic, but stale recovery can reclaim active work and writes have no fencing. Reversal
+   claims are atomic and extraction publication is attempt-guarded, but stale recovery can reclaim
+   active work and external effects remain unfenced. Reversal
    requires coordinated ownership/leases, fencing and idempotent effects, shared realtime and rate
    limiting, shared storage, coordinated maintenance and failure-injection/operational tests. This
    is a qualitative assessment, not an estimate of effort or an owner-approved migration plan.

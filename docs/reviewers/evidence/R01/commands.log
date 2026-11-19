@@ -513,3 +513,21 @@ $ npm run format:check
 $ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-config-risk.test.ts
 Test Suites: 1 passed, 1 total; Tests: 2 passed, 2 total
 [exit 0; additional config-only credential case]
+
+# Historical connector error/schema boundary and live recovery characterization (current worktree)
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-legacy-errors.test.ts
+[exit 1 before fix; connector list exposed synthetic historical error]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-boundary.test.ts
+[exit 1 before fix; schema exposed synthetic extra properties]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-boundary.test.ts apps/backend/test/connector-legacy-errors.test.ts apps/backend/test/connector.test.ts
+Test Suites: 3 passed, 3 total; Tests: 15 passed, 15 total
+[exit 0]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/worker-stale-process.test.ts
+Test Suites: 1 passed, 1 total; Tests: 1 passed, 1 total
+[exit 0; demonstrates duplicate OCR, not a P6 pass]
+$ npm run typecheck --workspace @idcp/backend
+[exit 0]
+$ npm run verify
+Test Suites: 1 skipped, 58 passed, 58 of 59 total
+Tests:       4 skipped, 626 passed, 630 total
+[exit 0; PostgreSQL skipped locally; stale-process test characterizes a defect]
