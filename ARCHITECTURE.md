@@ -54,7 +54,7 @@ drivers. Literal SQL scans now find no statements in services or HTTP modules; a
 test checks common literal statements but cannot prove the absence of dynamically assembled SQL.
 The health route invokes a database probe, and many services still construct repositories in their
 constructors. Project, template, worker, API-key, workflow, organisation, export, batch, review,
-pairing and marketplace repositories are injected by the composition root. HTTP guards and
+pairing, marketplace and connector repositories are injected by the composition root. HTTP guards and
 event-stream authentication consult the auth service for the credential's organisation and live
 membership. Pairing completion, privacy erasure and encryption-migration write repositories are
 bound to transaction-scoped databases. The privacy owner eligibility checks still happen before the erasure

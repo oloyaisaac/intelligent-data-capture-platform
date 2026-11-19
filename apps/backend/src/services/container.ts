@@ -43,7 +43,12 @@ import {
 } from '../repositories/auth-repo';
 import { ApiKeysRepository } from '../repositories/apikey-repo';
 import { DashboardRepository } from '../repositories/dashboard-repo';
-import { ConnectorsRepository, ExportsRepository } from '../repositories/connector-repo';
+import {
+  ConnectorsRepository,
+  ConnectorRunsRepository,
+  ExportsRepository,
+  MappingProfilesRepository,
+} from '../repositories/connector-repo';
 import { DevicesRepository, PairingRepository } from '../repositories/device-repo';
 import { MarketplaceRepository } from '../repositories/marketplace-repo';
 import { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
@@ -178,7 +183,20 @@ export function buildServices(options: BuildServicesOptions): Services {
     hub,
     logger,
   );
-  const connectors = new ConnectorService(db, registry, secretBox, hub, logger);
+  const connectors = new ConnectorService(
+    {
+      connectors: new ConnectorsRepository(db),
+      mappings: new MappingProfilesRepository(db),
+      runs: new ConnectorRunsRepository(db),
+      documents: new DocumentsRepository(db),
+      reviews: new ReviewsRepository(db),
+      audit: new AuditRepository(db),
+    },
+    registry,
+    secretBox,
+    hub,
+    logger,
+  );
   const marketplaceTrust = loadMarketplaceTrust(config);
   const marketplace = new MarketplaceService(
     {

@@ -29,6 +29,12 @@ import {
   type MarketplaceServiceRepositories,
 } from '../src/services/marketplace-service';
 import { createTokenService } from '../src/auth/tokens';
+import { ConnectorRegistry } from '@idcp/connectors';
+import {
+  ConnectorService,
+  type ConnectorServiceRepositories,
+} from '../src/services/connector-service';
+import { createSecretBox } from '../src/services/crypto';
 
 const actor: AuthenticatedActor = {
   userId: 'user',
@@ -411,4 +417,40 @@ it('uses injected marketplace repositories and preserves tenant and role checks'
     service.install(actor, { packageId: 'package', connectorId: 'connector' }),
   ).rejects.toMatchObject({ code: 'ROLE_REQUIRED' });
   expect(repositories.installs.create).not.toHaveBeenCalled();
+});
+
+it('uses injected connector repositories and scopes missing connector operations to the actor', async () => {
+  const repositories: ConnectorServiceRepositories = {
+    connectors: {
+      create: jest.fn(),
+      delete: jest.fn(),
+      findById: jest.fn().mockResolvedValue(null),
+      list: jest.fn().mockResolvedValue([]),
+      recordHealthCheck: jest.fn(),
+      update: jest.fn(),
+    },
+    mappings: { create: jest.fn(), findById: jest.fn(), list: jest.fn() },
+    runs: { create: jest.fn(), listForConnector: jest.fn() },
+    documents: { findById: jest.fn() },
+    reviews: { findApprovedUdm: jest.fn() },
+    audit: { record: jest.fn() },
+  };
+  const service = new ConnectorService(
+    repositories,
+    new ConnectorRegistry(),
+    createSecretBox('test-encryption-key-with-adequate-length'),
+    new InMemoryRealtimeHub(),
+    logger,
+  );
+  expect(await service.list(actor)).toEqual([]);
+  expect(repositories.connectors.list).toHaveBeenCalledWith(actor.organisationId);
+  await expect(service.test(actor, 'other-org-connector')).rejects.toMatchObject({
+    code: 'NOT_FOUND',
+  });
+  expect(repositories.connectors.findById).toHaveBeenCalledWith(
+    actor.organisationId,
+    'other-org-connector',
+  );
+  expect(repositories.connectors.recordHealthCheck).not.toHaveBeenCalled();
+  expect(repositories.audit.record).not.toHaveBeenCalled();
 });

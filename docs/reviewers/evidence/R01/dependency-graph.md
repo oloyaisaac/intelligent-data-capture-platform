@@ -1,9 +1,9 @@
 # R01 dependency graph — interim evidence
 
 **Status: incomplete; not a G1 approval or reviewer sign-off.** This records an inspection of the
-working tree based on `82f17699069c4b27eefb635f6328b389f20f23ba`, including uncommitted
-organisation, export, batch, review, pairing and marketplace composition changes, and pairing
-transaction changes. Further boundary checks and the rest of the R01 evidence are still required.
+working tree based on `82f17699069c4b27eefb635f6328b389f20f23ba`, including
+organisation, export, batch, review, pairing, marketplace and connector composition changes, and
+pairing transaction changes. Further boundary checks and the rest of the R01 evidence are still required.
 
 ## Declared workspace edges
 
@@ -26,7 +26,7 @@ Node v22.22.3 and npm 10.9.8:
 
 ```text
 $ npx --yes madge@8 --circular --extensions ts,tsx --ts-config tsconfig.base.json --warning apps packages
-Processed 217 files (5.6s)
+Processed 217 files (4.9s)
 ✔ No circular dependency found!
 ```
 
