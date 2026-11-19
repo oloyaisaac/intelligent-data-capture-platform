@@ -48,6 +48,9 @@ export class MaintenanceService {
   private readonly erasureFiles: MaintenanceServiceRepositories['erasureFiles'];
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private generation = 0;
+  private stopping: Promise<void> | null = null;
+  private readonly activeRuns = new Set<Promise<MaintenanceReport>>();
 
   constructor(
     repositories: MaintenanceServiceRepositories,
@@ -61,6 +64,17 @@ export class MaintenanceService {
   }
 
   async runOnce(now: Date = new Date()): Promise<MaintenanceReport> {
+    if (this.stopping) await this.stopping;
+    const run = this.performOnce(now);
+    this.activeRuns.add(run);
+    try {
+      return await run;
+    } finally {
+      this.activeRuns.delete(run);
+    }
+  }
+
+  private async performOnce(now: Date): Promise<MaintenanceReport> {
     const report: MaintenanceReport = {
       retentionJobsEnqueued: 0,
       exportsExpired: 0,
@@ -155,15 +169,17 @@ export class MaintenanceService {
   /** Run shortly after boot, then on the configured interval. */
   start(bootDelayMs = 10_000): void {
     if (!this.config.MAINTENANCE_ENABLED || this.running) return;
+    if (this.stopping) throw new Error('Wait for maintenance to stop before restarting it.');
     this.running = true;
+    const generation = this.generation;
     const tick = async () => {
-      if (!this.running) return;
+      if (!this.running || this.generation !== generation) return;
       try {
         await this.runOnce();
       } catch (error) {
         this.logger.error('maintenance run failed', { error: (error as Error).message });
       }
-      if (this.running) {
+      if (this.running && this.generation === generation) {
         this.timer = setTimeout(tick, this.config.MAINTENANCE_INTERVAL_MS);
         this.timer.unref?.();
       }
@@ -176,10 +192,20 @@ export class MaintenanceService {
     });
   }
 
-  stop(): void {
+  /** Stop scheduling and let active database/storage work finish before shutdown. */
+  async stop(): Promise<void> {
+    if (this.stopping) return this.stopping;
     this.running = false;
+    this.generation += 1;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    const stopping = Promise.allSettled([...this.activeRuns]).then(() => undefined);
+    this.stopping = stopping;
+    try {
+      await stopping;
+    } finally {
+      if (this.stopping === stopping) this.stopping = null;
+    }
   }
 
   get isScheduled(): boolean {

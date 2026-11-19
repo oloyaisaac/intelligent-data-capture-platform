@@ -15,8 +15,9 @@ export interface CloudProviderOptions {
  * Cloud OCR/extraction provider (opt-in, DEC-007).
  *
  * Sends one page per request to an OpenAI-compatible chat-completions endpoint and expects text
- * back. Deliberately narrow: no provider SDK, no vendor types leaking, hard timeout and a hard
- * per-document cost ceiling read from configuration (PRD.json Q-001).
+ * back. Deliberately narrow: no provider SDK, no vendor types leaking, and a request timeout.
+ * The configured cost value is an after-the-fact warning threshold, not a spending ceiling: the
+ * provider request may already have incurred costs before usage is reported (PRD.json Q-001).
  */
 export class CloudVisionProvider implements OcrProvider {
   readonly name: string;
@@ -29,7 +30,7 @@ export class CloudVisionProvider implements OcrProvider {
   async ocr(input: OcrInput, context: { logger: Logger }): Promise<OcrResult> {
     if (this.options.maxCostMicrosPerDocument <= 0) {
       throw new ProviderUnavailableError(
-        'Cloud AI is disabled because no per-document spend cap is configured.',
+        'Cloud AI is disabled because no per-document cost warning threshold is configured.',
       );
     }
 
@@ -95,10 +96,13 @@ export class CloudVisionProvider implements OcrProvider {
       };
       const text = payload.choices?.[0]?.message?.content ?? '';
       const tokens = payload.usage?.total_tokens ?? 0;
-      // Conservative estimate: 5 micro-units per token. The cap check below prevents runaway spend.
+      // Rough estimate only; the warning is emitted after the request and does not limit spend.
       const costMicros = tokens * 5;
       if (costMicros > this.options.maxCostMicrosPerDocument) {
-        context.logger.warn('cloud AI cost exceeded the configured cap', { costMicros, tokens });
+        context.logger.warn('estimated cloud AI cost exceeded the configured warning threshold', {
+          costMicros,
+          tokens,
+        });
       }
 
       return {

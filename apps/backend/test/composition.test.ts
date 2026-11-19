@@ -117,9 +117,8 @@ it('runs and handles failed jobs with injected worker repositories and no databa
     jobs: {
       claimNext: jest.fn().mockResolvedValueOnce(job).mockResolvedValueOnce(null),
       requeueStale: jest.fn().mockResolvedValue(0),
-      markSucceeded: jest.fn().mockResolvedValue(undefined),
-      markFailed: jest.fn().mockResolvedValue(undefined),
-      findById: jest.fn(),
+      markSucceeded: jest.fn().mockResolvedValue(true),
+      markFailed: jest.fn().mockResolvedValue('queued'),
     },
     documents: { findById: jest.fn(), updateStatus: jest.fn() },
     extractions: { create: jest.fn(), replaceFields: jest.fn() },
@@ -140,12 +139,12 @@ it('runs and handles failed jobs with injected worker repositories and no databa
   expect(await worker.drain()).toBe(1);
   expect(repositories.orgs.findById).toHaveBeenCalledWith('org');
   expect(documentService.purgeExpired).toHaveBeenCalledWith('org', 30);
-  expect(repositories.jobs.markSucceeded).toHaveBeenCalledWith('job-1');
+  expect(repositories.jobs.markSucceeded).toHaveBeenCalledWith('job-1', 1);
 
   documentService.purgeExpired.mockRejectedValueOnce(new Error('purge unavailable'));
   await worker.processJob({ ...job, id: 'job-2' });
-  expect(repositories.jobs.markFailed).toHaveBeenCalledWith('job-2', 'purge unavailable');
-  expect(repositories.jobs.markSucceeded).not.toHaveBeenCalledWith('job-2');
+  expect(repositories.jobs.markFailed).toHaveBeenCalledWith('job-2', 1, 'purge unavailable');
+  expect(repositories.jobs.markSucceeded).not.toHaveBeenCalledWith('job-2', 1);
 });
 
 it('uses injected API-key repositories and rechecks membership in the key organisation', async () => {

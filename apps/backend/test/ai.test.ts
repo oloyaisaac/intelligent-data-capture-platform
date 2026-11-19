@@ -1,6 +1,8 @@
 import { classifyDocument, isClassificationUncertain } from '../src/ai/classify';
 import { extractFromText } from '../src/ai/extract';
 import { parseTsv } from '../src/ai/providers/tesseract';
+import { CloudVisionProvider } from '../src/ai/providers/cloud';
+import { createLogger } from '../src/logger';
 import { parseUdm } from '@idcp/shared';
 import { SAMPLE_ID_TEXT, SAMPLE_INVOICE_TEXT, SAMPLE_RECEIPT_TEXT } from './helpers';
 
@@ -171,5 +173,36 @@ describe('tesseract TSV parsing', () => {
     const parsed = parseTsv(tsv);
     expect(parsed.text).toBe('kept');
     expect(parsed.words).toHaveLength(1);
+  });
+});
+
+describe('cloud OCR cost reporting', () => {
+  it('warns after an estimated cost exceeds the configured threshold, rather than enforcing a spending cap', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ level: 'warn', sink: (line) => lines.push(line) });
+    const fetchImpl = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: 'invoice' } }],
+        usage: { total_tokens: 100 },
+      }),
+    }) as unknown as typeof fetch;
+    const provider = new CloudVisionProvider({
+      endpoint: 'https://example.com/ocr',
+      apiKey: 'test-key',
+      model: 'test-model',
+      maxCostMicrosPerDocument: 1,
+      fetchImpl,
+    });
+    const result = await provider.ocr(
+      { buffer: Buffer.from('synthetic'), mimeType: 'image/png' },
+      { logger },
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result.costMicros).toBe(500);
+    expect(result.text).toBe('invoice');
+    expect(lines.join('\n')).toContain(
+      'estimated cloud AI cost exceeded the configured warning threshold',
+    );
   });
 });

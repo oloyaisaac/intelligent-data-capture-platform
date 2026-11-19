@@ -26,6 +26,12 @@ scan that skipped `@idcp/shared/ids`. The declared internal dependency edges are
 evidence is recorded in `docs/reviewers/evidence/R01/dependency-graph.md`. These results do not prove
 that dynamic imports, external packages or undeclared cross-workspace dependencies have been fully
 assessed.
+Normal worker shutdown now waits for recovery and any active claimed job, avoids overlapping drains
+within one worker and does not schedule after stop during startup. Lifecycle tests and a real
+SIGTERM subprocess test fail on the prior implementation and pass with the change. Shutdown also
+awaits active maintenance sweeps. There is no shutdown deadline, and forced termination or another
+worker can still cause unsafe recovery; this does not satisfy P6.
+
 The job claim update now rechecks queued/runnable state after acquiring the target row's write lock,
 so a waiting claimant cannot claim the same already-updated row. Recovery now counts rows actually
 requeued, but it still models a stale active job being reclaimed. `job-claim-process.test.ts`
@@ -146,7 +152,7 @@ the new privileged renderer origin must not retain an unrestricted navigation pa
 ## Current verification baseline
 
 On the current R01 worktree, `npm run format:check`, the backend build and `npm run verify` passed:
-50 Jest suites and 591 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
+52 Jest suites and 600 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
 tests, typecheck, lint and contract checks. Focused coverage includes pairing rollback and concurrent
 requests, marketplace and composition boundaries, membership-scoped credentials,
 MFA invitation acceptance, recovery-code concurrency and rollback, SQLite transaction isolation,
@@ -167,3 +173,18 @@ a deployed PostgreSQL installation, an APK, an iOS build, or completion of revie
 tests. PostgreSQL, Compose and browser CI passed for commit `38cd0a3`, but Verify failed in its
 Jest step in [PR #28](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44537667203).
 Subsequent commits `02b1383` and `6d19f92` passed all checks, including the PostgreSQL JSON regression.
+
+R01's partial deployment-documentation sweep found that cloud OCR's configured cost value is only a
+post-request warning threshold, not a hard budget (ARC-022); operations guidance and a regression
+now state this explicitly. Actual cost enforcement, other document claims, and cross-review remain
+open. PR #29 CI on `2a536d8` passed Verify, browser, Compose and secret checks but failed the
+PostgreSQL suite in the maintenance fake-timer test: the timer assertion ran before the preceding
+real database step reached the mocked retention query. The revised timer test stubs its repository
+ports, avoiding fake-clock interference with network I/O. Local focused tests passed; PostgreSQL
+must be rerun in CI before treating this as resolved.
+
+ARC-013 partial progress: job success/failure writes now condition on the running claim attempt;
+obsolete failures do not mark documents failed. This protects the job row only. A deterministic
+recovery regression still produces two OCR calls and two extraction records when a live claim is
+recovered, so P6 remains unmet. The open design and required failure tests are described in
+`docs/reviewers/evidence/R01/worker-recovery-design.md`.

@@ -1,4 +1,7 @@
+import { MaintenanceRepository } from '../src/repositories/maintenance-repo';
 import { createHarness, registerAccount, type Harness } from './helpers';
+import { MaintenanceService } from '../src/services/maintenance-service';
+import { silentLogger } from '../src/logger';
 
 /**
  * Daily housekeeping (DEC-031).
@@ -15,11 +18,109 @@ describe('maintenance scheduler', () => {
   });
 
   afterEach(async () => {
-    harness.services.maintenance.stop();
+    await harness.services.maintenance.stop();
     await harness.close();
   });
 
   const maintenance = () => harness.services.maintenance;
+
+  it('waits for an active sweep on stop before allowing restart', async () => {
+    let release!: (
+      value: Awaited<ReturnType<MaintenanceRepository['organisationsWithRetention']>>,
+    ) => void;
+    let notifyStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+    const pending = new Promise<
+      Awaited<ReturnType<MaintenanceRepository['organisationsWithRetention']>>
+    >((resolve) => {
+      release = resolve;
+    });
+    const query = jest
+      .spyOn(MaintenanceRepository.prototype, 'organisationsWithRetention')
+      .mockImplementation(() => {
+        notifyStarted();
+        return pending;
+      });
+    try {
+      const sweep = maintenance().runOnce();
+      await started;
+      let stopped = false;
+      const stopping = maintenance()
+        .stop()
+        .then(() => {
+          stopped = true;
+        });
+      await Promise.resolve();
+      expect(stopped).toBe(false);
+      expect(() => maintenance().start(1)).toThrow('Wait for maintenance to stop');
+      release([]);
+      await sweep;
+      await stopping;
+      expect(stopped).toBe(true);
+      maintenance().start(60_000);
+      expect(maintenance().isScheduled).toBe(true);
+      await maintenance().stop();
+    } finally {
+      release([]);
+      query.mockRestore();
+    }
+  });
+
+  it('does not reschedule a sweep that finishes after stop', async () => {
+    jest.useFakeTimers();
+    let release!: (
+      value: Awaited<ReturnType<MaintenanceRepository['organisationsWithRetention']>>,
+    ) => void;
+    const pending = new Promise<
+      Awaited<ReturnType<MaintenanceRepository['organisationsWithRetention']>>
+    >((resolve) => {
+      release = resolve;
+    });
+    // Keep this timer test independent of real database I/O. Fake timers can block the
+    // PostgreSQL driver's network scheduling before the retention step is reached.
+    const query = jest.fn().mockReturnValue(pending);
+    const scheduler = new MaintenanceService(
+      {
+        jobs: { enqueue: jest.fn() },
+        maintenance: {
+          organisationsWithRetention: query,
+          findPendingPurge: jest.fn(),
+          expiredExports: jest.fn().mockResolvedValue([]),
+          markExportExpired: jest.fn(),
+          expirePairingSessions: jest.fn().mockResolvedValue(0),
+          deleteExpiredSessions: jest.fn().mockResolvedValue(0),
+          deleteSpentResetTokens: jest.fn().mockResolvedValue(0),
+        },
+        erasureFiles: {
+          listPending: jest.fn().mockResolvedValue([]),
+          isReferenced: jest.fn(),
+          complete: jest.fn(),
+          recordFailedAttempt: jest.fn(),
+        },
+      },
+      harness.config,
+      harness.storage,
+      silentLogger,
+    );
+    try {
+      scheduler.start(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(query).toHaveBeenCalledTimes(1);
+      const stopping = scheduler.stop();
+      release([]);
+      await stopping;
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(scheduler.isScheduled).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      release([]);
+      await scheduler.stop();
+      jest.useRealTimers();
+    }
+  });
 
   it('enqueues one retention purge per organisation, and does not duplicate it', async () => {
     const account = await registerAccount(harness, { email: 'retention@example.com' });
@@ -194,11 +295,11 @@ describe('maintenance scheduler', () => {
     expect((await maintenance().runOnce(now)).resetTokensDeleted).toBe(0);
   });
 
-  it('schedules itself only when enabled', () => {
+  it('schedules itself only when enabled', async () => {
     expect(maintenance().isScheduled).toBe(false);
     maintenance().start(1);
     expect(maintenance().isScheduled).toBe(true);
-    maintenance().stop();
+    await maintenance().stop();
     expect(maintenance().isScheduled).toBe(false);
   });
 });

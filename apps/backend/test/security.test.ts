@@ -39,7 +39,7 @@ describe('configuration (BACK-001)', () => {
     expect(() => loadConfig({ ...base, DB_DRIVER: 'postgres' })).toThrow(/DATABASE_URL/);
   });
 
-  it('refuses cloud AI without credentials or a spend cap (Q-001)', () => {
+  it('refuses cloud AI without credentials or a positive cost warning threshold (Q-001)', () => {
     expect(() => loadConfig({ ...base, AI_PROVIDER: 'cloud' })).toThrow(/AI_CLOUD_ENDPOINT/);
     expect(() =>
       loadConfig({

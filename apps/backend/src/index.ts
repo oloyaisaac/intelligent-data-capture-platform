@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     logger.info('shutting down', { signal });
     try {
-      services.maintenance.stop();
+      await services.maintenance.stop();
       await services.worker.stop();
       await app.close();
       await db.close();

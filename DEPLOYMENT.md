@@ -2,9 +2,10 @@
 
 How the platform goes from a laptop to production.
 
-> **Status:** nothing is deployed to a shared environment yet. A PostgreSQL-backed Docker Compose
-> path and CI build/health-smoke job are now defined; that job still needs to run successfully before
-> the artefact is verified. Hosting provider, region and domain remain owner decisions (`PRD.json` Q-003).
+> **Status:** no shared deployment is evidenced here. The PostgreSQL-backed Compose build and
+> health smoke passed in [CI at `fcc6206`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44549442653),
+> but this does not prove a production deployment, restore, real OCR quality or released artefacts.
+> Hosting provider, region and domain remain owner decisions (`PRD.json` Q-003).
 
 ---
 
@@ -19,6 +20,10 @@ How the platform goes from a laptop to production.
 Environments never share credentials, databases, storage buckets or API keys. Staging must never contain un-anonymised production documents.
 
 ## 2. Target infrastructure
+
+This diagram is aspirational, not the supported deployment: Redis, distributed worker ownership,
+shared rate limiting and object storage are not implemented. See `ARCHITECTURE.md` §7 before
+planning scale-out; the following diagram is not a validated implementation plan.
 
 ```
                      DNS (api.<domain>, app.<domain>)
@@ -63,9 +68,9 @@ push / PR → CI: install → typecheck → lint → test → build → Docker C
 ```
 
 CI now validates `docker-compose.yml`, builds the backend image, starts PostgreSQL, runs the image's
-migration service, and checks the API health endpoint. This build-and-smoke job is configured but
-must pass in GitHub Actions before the artefact is considered verified. CI still does **not** publish
-an image or deploy it; those release stages depend on the hosting-provider decision. A release is
+migration service, and checks the API health endpoint. The job has passed in CI for the cited
+commit; each new release must still pass its own checks. CI does **not** publish an image or deploy
+it; those release stages depend on the hosting-provider decision. A release is
 therefore still a manual operation on the target host (§4).
 
 Rules:
@@ -77,8 +82,8 @@ Rules:
 
 ## 4. Configuration and secrets
 
-Every key is documented in `.env.example`, and a test keeps that file equal to what the server reads
-(`apps/backend/test/config.test.ts`). Production values are injected from a secret manager, never
+Backend configuration keys are documented in `.env.example`, with a parity test against the server
+schema (`apps/backend/test/config.test.ts`). Production values should be injected from a secret manager, never
 committed. There is no Redis or object-store key because the shipped runtime has neither — see
 DEC-029 for the order in which they arrive.
 
@@ -88,21 +93,22 @@ failure and forwards `SIGTERM` — `systemd`, Docker with `--restart`, or a plat
 not run more than one replica against a SQLite file: the worker claims jobs transactionally, but two
 SQLite writers are not a supported topology.
 
-**Single-host PostgreSQL Compose path (CI runtime pending).** `docker-compose.yml` configures one
-API/worker container, PostgreSQL 16, a one-shot migration service, and a persistent filesystem
-document volume. The image includes Tesseract English data for the default local OCR provider. This
-is intended as a single-instance path, not a horizontally scalable topology; the actual image and
-Compose startup still await the CI smoke test. Managed PostgreSQL, shared object storage/queue,
-backup automation, image publishing, and provider-specific deployment are future work.
+**Single-host PostgreSQL Compose path.** `docker-compose.yml` configures one API/worker container,
+PostgreSQL 16, a one-shot migration service, and a persistent filesystem document volume. The
+image includes Tesseract English data for the default local OCR provider. The cited CI built and
+smoke-tested this path; it is not a production deployment or evidence of OCR quality. It is intended
+for one instance, not horizontal scaling. Managed PostgreSQL, shared object storage/queue, backup
+automation, image publishing, and provider-specific deployment remain future work.
 
-To try it, copy `.env.compose.example` to `.env.compose`, replace the example origins and both sample
-secrets with distinct random values, then run from the repository root. The JWT value in the example
-is the backend's known development default, which production startup rejects until you replace it:
+To try it, copy `.env.compose.example` to `.env.compose`, replace the example origins and all three
+sample secrets with distinct random values, then run from the repository root. The JWT and
+`ENCRYPTION_KEY` examples are known development defaults and are rejected by production startup:
 
 ```sh
 cp .env.compose.example .env.compose
 chmod 600 .env.compose
-# Edit .env.compose: use `openssl rand -hex 32` for POSTGRES_PASSWORD and JWT_SECRET.
+# Edit .env.compose: use separate `openssl rand -hex 32` values for POSTGRES_PASSWORD,
+# JWT_SECRET and ENCRYPTION_KEY.
 # The database password is interpolated into DATABASE_URL, so keep it URL-safe (hex is safe).
 docker compose --env-file .env.compose config --quiet
 docker compose --env-file .env.compose up --build --detach
@@ -117,22 +123,28 @@ without TLS. `docker compose down` preserves the named database and document vol
 `docker compose down --volumes` on a deployment** unless you intend to delete that data. Keep
 `.env.compose` outside version control and use a secret manager for a real production host.
 
-`SIGTERM` stops the worker, closes the HTTP server and closes the database. A job interrupted
-mid-extraction is re-queued the next time the worker starts (anything claimed more than 30 seconds
-before boot), so a restart is safe — the document returns to the queue instead of sitting in
-`processing` forever.
+On `SIGTERM`/`SIGINT`, shutdown waits for active maintenance and claimed worker work before
+closing the HTTP server and database. There is no application shutdown deadline; configure the
+supervisor's grace period accordingly. A forced kill may interrupt work. At startup, recovery
+requeues jobs whose claim is older than 30 seconds, but does not revisit newer claims later in the
+same run. Recovery is age-based and unfenced: overlapping workers can reclaim still-live work and
+repeat effects. Do not run overlapping replicas, and do not assume crash recovery or exactly-once
+execution. See `ARCHITECTURE.md` and R01 findings ARC-013/ARC-021.
 
-| Group          | Keys (see `.env.example`)                                                                                                                      |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime        | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                                  |
-| Database       | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                               |
-| Auth           | `JWT_SECRET`, `ENCRYPTION_KEY`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS` |
-| Storage        | `STORAGE_DRIVER` (`filesystem` today), `STORAGE_PATH`                                                                                          |
-| AI             | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`     |
-| Google         | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                                                                              |
-| Limits         | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_*`                                                                        |
-| Exports, jobs  | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                             |
-| Mobile/desktop | `API_BASE_URL` baked into each release artefact (public URL, never a secret); production `CORS_ORIGINS` must include `app://idcp` for Electron |
+| Group         | Keys (see `.env.example`)                                                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime       | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                                  |
+| Database      | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                               |
+| Auth          | `JWT_SECRET`, `ENCRYPTION_KEY`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS` |
+| Storage       | `STORAGE_DRIVER` (`filesystem` today), `STORAGE_PATH`                                                                                          |
+| AI            | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`     |
+| Limits        | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_*`                                                                        |
+| Exports, jobs | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                             |
+| Desktop build | `API_BASE_URL` baked into the desktop release artefact (public URL, never a secret); production `CORS_ORIGINS` must include `app://idcp`       |
+
+This table is a selection, not an exhaustive list. The Compose file forwards only the variables
+listed in its `environment` mapping; setting another key in `.env.compose` does not automatically
+pass it to the container. Inspect the mapping and configure any additional settings explicitly.
 
 Rotation: Before rotating `JWT_SECRET`, follow [the offline encryption-key migration runbook](docs/encryption-key-migration.md) and verify no connector credentials or MFA secrets still depend on the old JWT key. Rotating it too early can make those records unreadable. Rotation invalidates access tokens; users re-authenticate or refresh. Provider keys also require a managed rotation process.
 
@@ -176,8 +188,9 @@ no longer exist.
 2. Set the backend's production `CORS_ORIGINS` to include `app://idcp` (plus any browser origins that are actually used). The desktop renderer's custom `app://idcp` origin is sent by Chromium on API requests.
 3. Build per platform (Windows `.exe`/`.msi`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
 4. Sign (Authenticode on Windows; Developer ID + notarisation on macOS).
-5. Publish to the release channel; auto-update manifest served over HTTPS with signature verification.
-6. Support a `--no-auto-update` flag or config for controlled deployments.
+5. A signed release/update channel and manifest verification still need to be implemented and
+   tested before distribution. The current desktop update check is a placeholder; `IDCP_AUTO_UPDATE=off`
+   disables it, but does not provide a complete updater.
 
 **Mobile**
 
@@ -199,8 +212,11 @@ no longer exist.
 ## 9. Rollback
 
 1. Roll back the application to the previous image tag.
-2. Roll back the database only with the documented down-migration — or restore from the pre-deploy backup if data changed incompatibly.
-3. Roll back the auto-update channel by unpublishing the release and keeping the previous manifest.
+2. Migrations are forward-only; there is no documented down-migration. For incompatible data changes,
+   use a tested, coordinated database and document-storage restore from the pre-deploy backup, with
+   the appropriate keys. Assess data loss and stop writers before restoring.
+3. If a release channel is established, follow its tested rollback procedure; no signed
+   auto-update release channel is implemented or verified here.
 4. Communicate to affected users; record the incident in `CHANGELOG.md` and, if architectural, `DECISIONS.md`.
 
 ## 10. Operations
@@ -209,12 +225,15 @@ no longer exist.
 
 - `GET /api/v1/health` — `200` with `dependencies.db: "ok"`, or `503` with `"error"`. Suitable for an
   uptime check and for a supervisor's readiness probe.
-- Structured JSON logs on stdout (`time`, `level`, `message`, plus redacted context). Secrets, tokens,
-  document text and field values are redacted by key (`apps/backend/src/logger.ts`).
+- Structured JSON logs on stdout (`time`, `level`, `message`, plus context). Redaction is based on
+  context key names and is not comprehensive: arrays, error messages and arbitrary strings may
+  contain sensitive data. Do not assume logs are secret- or document-free; control inputs and access
+  and review output (`apps/backend/src/logger.ts`).
 - `X-Request-Id` on every response, echoed from the request when supplied — correlate a user's report
   with the log line by sending one yourself.
 - Application audit trail (`audit_logs`) for privileged actions, queryable through the API.
-- Graceful shutdown on `SIGTERM`/`SIGINT`, and interrupted jobs are re-queued on the next start.
+- Graceful shutdown waits for active worker and maintenance work on `SIGTERM`/`SIGINT`; see the
+  recovery and forced-kill limitations in §4.
 
 **What the operator must supply** (none of it exists in this repository yet)
 
@@ -224,13 +243,16 @@ no longer exist.
 - Log shipping and retention (30 days hot, 12 months archived) — logs are stdout only.
 - Storage monitoring on `STORAGE_PATH` and `SQLITE_PATH` disk usage; neither is reported by the app.
 - Certificate expiry monitoring, MFA on the host and the provider console, and access review.
-- Cost controls: `AI_MAX_COST_MICROS_PER_DOC` caps a single document; there is no per-organisation
-  spend total, alert or dashboard.
+- Cloud cost controls: `AI_MAX_COST_MICROS_PER_DOC` is required to enable cloud OCR, but only
+  triggers a warning on an estimated cost after a request has completed. It is not a spending cap;
+  missing usage is treated as zero, pricing is approximate, and there is no cumulative per-document
+  or per-organisation budget enforcement. Set provider-side limits and monitor billing before use.
 
 ## 11. Known gaps between this plan and the repository
 
-Ordered by what would hurt first. Everything here is deliberate and listed in `AGENT_STATE.md`;
-none of it is a bug the code hides.
+This is a non-exhaustive operational gap list, not an assertion that all gaps are deliberate or
+fully assessed. `AGENT_STATE.md` contains historical claims; consult the dated R01 evidence and the
+individual reviewer tasks for current findings.
 
 | Gap                                | Consequence today                                                                                                                                                                                                                                                       | Fix                                                                                                                                                      |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -238,11 +260,18 @@ none of it is a bug the code hides.
 | Backup operations not automated    | SQLite backup/restore tooling requires stopped writers and manual execution; PostgreSQL and volume backups remain operator-managed (§5).                                                                                                                                | Schedule protected off-host backups and rehearse restores for each deployed driver.                                                                      |
 | No metrics endpoint or alerting    | Only logs and the health check; "queue depth" and "p95 latency" are not measured                                                                                                                                                                                        | `/metrics` for queue depth, job outcomes, extraction latency                                                                                             |
 | Rate limiting is in-process memory | Resets on restart and does not cover a second instance; `TRUST_PROXY` is right behind the documented proxy, and must be `false` if you expose the API directly (DEC-033)                                                                                                | Shared limiter when a queue/cache exists                                                                                                                 |
-| No MFA                             | A stolen password is a full session                                                                                                                                                                                                                                     | TOTP plus recovery codes, and an admin reset path                                                                                                        |
-| Automation is in-process           | `MaintenanceService` (DEC-031) sweeps retention, exports, sessions, reset tokens and pairing codes. With several replicas every replica sweeps — idempotent, redundant                                                                                                  | Move behind a single elector before horizontal scaling (DEC-029)                                                                                         |
 | Development dependency advisories  | As of 2026-11-17, `npm audit` reports 6 moderate findings in the Electron packaging dependency chain via `minimatch` (GHSA-g3hv-75wg-m249). `npm audit --omit=dev` reports none and is gated in CI at moderate or above. Counts can change as advisories are published. | Monitor the full audit and upgrade or replace the packaging chain when a compatible fix is available; avoid untrusted glob patterns in packaging inputs. |
 | Signed installers not built        | Desktop/mobile distribution is manual (§7)                                                                                                                                                                                                                              | Release workflow per platform (DEC-022)                                                                                                                  |
-| No browser or device e2e           | Integration tests cover the API, nothing covers a real click path                                                                                                                                                                                                       | Playwright (desktop), Detox or Maestro (mobile)                                                                                                          |
+
+Additional gaps:
+
+- MFA enrollment, TOTP and one-use recovery codes exist. Loss of all factors lacks a verified
+  administrative recovery path; MFA is not a substitute for account recovery controls.
+- Maintenance runs in-process. Multiple schedulers are not proven safe, including purge enqueue
+  coordination; use one supported instance (DEC-031).
+- Playwright exercises browser journeys in CI; native mobile and packaged desktop end-to-end
+  tests are not established.
+- Worker crash recovery lacks ownership fencing; connector execution is not process-isolated.
 
 Struck off this list in the October 2026 hardening pass: the access log (structured `onResponse`
 line), the security headers (`nosniff`, `DENY`, `no-referrer`, CSP, permissions policy, COOP/CORP,
