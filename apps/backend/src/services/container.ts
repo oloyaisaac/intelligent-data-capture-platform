@@ -28,7 +28,7 @@ import { WorkflowService } from './workflow-service';
 import { Worker } from './worker';
 import { PrivacyService } from './privacy-service';
 import { MaintenanceService } from './maintenance-service';
-import { ProjectsRepository } from '../repositories/project-repo';
+import { InvitationsRepository, ProjectsRepository } from '../repositories/project-repo';
 import { TemplatesRepository } from '../repositories/template-repo';
 import {
   DocumentPagesRepository,
@@ -39,6 +39,8 @@ import { AuditRepository, JobsRepository } from '../repositories/system-repo';
 import {
   MembershipsRepository,
   OrganisationsRepository,
+  PasswordResetsRepository,
+  SessionsRepository,
   UsersRepository,
 } from '../repositories/auth-repo';
 import { ApiKeysRepository } from '../repositories/apikey-repo';
@@ -51,6 +53,9 @@ import {
 } from '../repositories/connector-repo';
 import { DevicesRepository, PairingRepository } from '../repositories/device-repo';
 import { MarketplaceRepository } from '../repositories/marketplace-repo';
+import { MaintenanceRepository } from '../repositories/maintenance-repo';
+import { ErasureFilesRepository } from '../repositories/erasure-files-repo';
+import { PrivacyRepository } from '../repositories/privacy-repo';
 import { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
 import { BatchesRepository } from '../repositories/batch-repo';
 import { WorkflowRunsRepository, WorkflowsRepository } from '../repositories/workflow-repo';
@@ -123,7 +128,34 @@ export function buildServices(options: BuildServicesOptions): Services {
   const registry = options.registry ?? new ConnectorRegistry();
 
   const mailer = options.mailer === undefined ? createMailer(config) : options.mailer;
-  const auth = new AuthService(db, config, tokens, hasher, logger, secretBox, mailer);
+  const auth = new AuthService(
+    {
+      orgs: new OrganisationsRepository(db),
+      users: new UsersRepository(db),
+      memberships: new MembershipsRepository(db),
+      sessions: new SessionsRepository(db),
+      audit: new AuditRepository(db),
+      invitations: new InvitationsRepository(db),
+      resets: new PasswordResetsRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            orgs: new OrganisationsRepository(tx),
+            users: new UsersRepository(tx),
+            memberships: new MembershipsRepository(tx),
+            sessions: new SessionsRepository(tx),
+            invitations: new InvitationsRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
+    },
+    config,
+    tokens,
+    hasher,
+    logger,
+    secretBox,
+    mailer,
+  );
   const pairing = new PairingService(
     {
       pairings: new PairingRepository(db),
@@ -143,7 +175,26 @@ export function buildServices(options: BuildServicesOptions): Services {
     hub,
     logger,
   );
-  const documents = new DocumentService(db, config, storage, hub, logger);
+  const documents = new DocumentService(
+    {
+      documents: new DocumentsRepository(db),
+      extractions: new ExtractionsRepository(db),
+      jobs: new JobsRepository(db),
+      audit: new AuditRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            documents: new DocumentsRepository(tx),
+            pages: new DocumentPagesRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
+    },
+    config,
+    storage,
+    hub,
+    logger,
+  );
   const batches = new BatchService(
     {
       batches: new BatchesRepository(db),
@@ -258,8 +309,33 @@ export function buildServices(options: BuildServicesOptions): Services {
     logger,
     templates,
   );
-  const privacy = new PrivacyService(db, storage, hasher, logger);
-  const maintenance = new MaintenanceService(db, config, storage, logger);
+  const privacy = new PrivacyService(
+    {
+      users: new UsersRepository(db),
+      privacy: new PrivacyRepository(db),
+      erasureFiles: new ErasureFilesRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            privacy: new PrivacyRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
+    },
+    storage,
+    hasher,
+    logger,
+  );
+  const maintenance = new MaintenanceService(
+    {
+      jobs: new JobsRepository(db),
+      maintenance: new MaintenanceRepository(db),
+      erasureFiles: new ErasureFilesRepository(db),
+    },
+    config,
+    storage,
+    logger,
+  );
 
   return {
     config,

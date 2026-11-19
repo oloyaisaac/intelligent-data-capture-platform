@@ -52,17 +52,19 @@ settings, and the health endpoint receives its version through configuration. Th
 direction is `http/routes` → domain `services` → persistence `repositories` → the `db` port and
 drivers. Literal SQL scans now find no statements in services or HTTP modules; a static regression
 test checks common literal statements but cannot prove the absence of dynamically assembled SQL.
-The health route invokes a database probe, and many services still construct repositories in their
-constructors. Project, template, worker, API-key, workflow, organisation, export, batch, review,
-pairing, marketplace and connector repositories are injected by the composition root. HTTP guards and
-event-stream authentication consult the auth service for the credential's organisation and live
-membership. Pairing completion, privacy erasure and encryption-migration write repositories are
-bound to transaction-scoped databases. The privacy owner eligibility checks still happen before the erasure
-transaction and are not protected from concurrent membership changes. Any further refactoring must
-preserve transaction boundaries and tenant scoping.
+The health route invokes a database probe. Service repositories are injected by the composition
+root, including transaction-scoped repositories used for registration, invitation acceptance,
+document upload, pairing completion and privacy erasure. The offline encryption-migration CLI is
+its own composition entry point and creates its transaction-scoped repository. A static test guards
+against direct repository construction in service modules, but does not establish that every adapter
+or dynamically constructed dependency is composed centrally. HTTP guards and event-stream
+authentication consult the auth service for the credential's organisation and live membership. The
+privacy owner eligibility checks still happen before the erasure transaction and are not protected
+from concurrent membership changes. Any further refactoring must preserve transaction boundaries
+and tenant scoping.
 
 `services/container.ts` builds the service graph and supplies storage, OCR and realtime adapters;
-individual services also construct repositories. SQLite and PostgreSQL are implemented behind the
+other entry points and factories also construct concrete implementations. SQLite and PostgreSQL are implemented behind the
 `Database` interface. SQLite uses Node's experimental `node:sqlite` and queues all operations on
 its shared connection around transaction-scoped callbacks; nested scoped transactions do not create
 savepoints. This does not establish cross-process safety. Migrations are handwritten in

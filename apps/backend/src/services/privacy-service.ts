@@ -1,13 +1,12 @@
 import { AppError, type DataExport, type EraseAccountResponse } from '@idcp/shared';
 import { randomUUID } from 'node:crypto';
-import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
 import type { Storage } from '../storage';
-import { AuditRepository } from '../repositories/system-repo';
-import { ErasureFilesRepository } from '../repositories/erasure-files-repo';
-import { UsersRepository } from '../repositories/auth-repo';
-import { PrivacyRepository } from '../repositories/privacy-repo';
+import type { AuditRepository } from '../repositories/system-repo';
+import type { ErasureFilesRepository } from '../repositories/erasure-files-repo';
+import type { UsersRepository } from '../repositories/auth-repo';
+import type { PrivacyRepository } from '../repositories/privacy-repo';
 import type { PasswordHasher } from '../auth/password';
 import type { AuthenticatedActor } from './auth-service';
 import { processErasureFiles } from './erasure-files';
@@ -23,18 +22,59 @@ import { processErasureFiles } from './erasure-files';
  * Neither reaches into another organisation: every query is scoped to the caller's user id, and
  * the documents returned are only those the caller uploaded.
  */
+export interface PrivacyTransactionRepositories {
+  privacy: Pick<
+    PrivacyRepository,
+    | 'lockDraftsForUser'
+    | 'documentPageKeys'
+    | 'enqueueFileDeletion'
+    | 'revokeSessions'
+    | 'revokeDevices'
+    | 'deletePasswordResets'
+    | 'revokeApiKeys'
+    | 'expirePairings'
+    | 'anonymiseInvitations'
+    | 'deleteDraft'
+    | 'anonymiseUser'
+    | 'renameOrganisation'
+  >;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
+export interface PrivacyServiceRepositories {
+  users: Pick<UsersRepository, 'findById'>;
+  privacy: Pick<
+    PrivacyRepository,
+    | 'organisationsForUser'
+    | 'documentsForUser'
+    | 'reviewsForUser'
+    | 'auditForUser'
+    | 'organisationsOwnedBy'
+    | 'ownersForOrganisation'
+  >;
+  erasureFiles: Pick<
+    ErasureFilesRepository,
+    'listPending' | 'isReferenced' | 'complete' | 'recordFailedAttempt' | 'countForUser'
+  >;
+  transaction<T>(run: (repositories: PrivacyTransactionRepositories) => Promise<T>): Promise<T>;
+}
+
 export class PrivacyService {
-  private readonly users: UsersRepository;
-  private readonly privacy: PrivacyRepository;
+  private readonly users: PrivacyServiceRepositories['users'];
+  private readonly privacy: PrivacyServiceRepositories['privacy'];
+  private readonly erasureFiles: PrivacyServiceRepositories['erasureFiles'];
+  private readonly transaction: PrivacyServiceRepositories['transaction'];
 
   constructor(
-    private readonly db: Database,
+    repositories: PrivacyServiceRepositories,
     private readonly storage: Storage,
     private readonly hasher: PasswordHasher,
     private readonly logger: Logger,
   ) {
-    this.users = new UsersRepository(db);
-    this.privacy = new PrivacyRepository(db);
+    this.users = repositories.users;
+    this.privacy = repositories.privacy;
+    this.erasureFiles = repositories.erasureFiles;
+    this.transaction = repositories.transaction;
   }
 
   async exportData(actor: AuthenticatedActor): Promise<DataExport> {
@@ -122,10 +162,10 @@ export class PrivacyService {
     }
 
     const anonymisedAt = nowIso();
-    const draftsRemoved = await this.db.transaction(async (tx) => {
+    const draftsRemoved = await this.transaction(async (repositories) => {
       // Lock selected rows on PostgreSQL so they cannot become approved while erasure is deleting
       // them. SQLite serialises the write transaction with BEGIN IMMEDIATE.
-      const records = new PrivacyRepository(tx);
+      const records = repositories.privacy;
       const drafts = await records.lockDraftsForUser(actor.userId);
       const fileKeys = new Set(drafts.map((row) => row.storage_key));
       for (const draft of drafts) {
@@ -160,7 +200,7 @@ export class PrivacyService {
       for (const { organisation_id: organisationId } of owned) {
         await records.renameOrganisation(organisationId, 'Erased organisation', nowIso());
       }
-      await new AuditRepository(tx).record({
+      await repositories.audit.record({
         organisationId: actor.organisationId,
         actorType: 'system',
         actorId: actor.userId,
@@ -176,8 +216,10 @@ export class PrivacyService {
     // failed delete leaves its row for the maintenance scheduler, not an untracked orphan.
     let pendingFileCount: number | null = null;
     try {
-      await processErasureFiles(this.db, this.storage, this.logger, { userId: actor.userId });
-      pendingFileCount = await new ErasureFilesRepository(this.db).countForUser(actor.userId);
+      await processErasureFiles(this.erasureFiles, this.storage, this.logger, {
+        userId: actor.userId,
+      });
+      pendingFileCount = await this.erasureFiles.countForUser(actor.userId);
     } catch {
       this.logger.error('could not check pending erasure file deletions', { userId: actor.userId });
     }

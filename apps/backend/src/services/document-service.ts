@@ -8,15 +8,14 @@ import {
   type DocumentType,
 } from '@idcp/shared';
 import type { Config } from '../config';
-import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
-import {
+import type {
   DocumentPagesRepository,
   DocumentsRepository,
   ExtractionsRepository,
 } from '../repositories/document-repo';
-import { JobsRepository, AuditRepository } from '../repositories/system-repo';
+import type { JobsRepository, AuditRepository } from '../repositories/system-repo';
 import type { DocumentRow } from '../repositories/types';
 import { buildStorageKey, extensionForMimeType, sniffMimeType, type Storage } from '../storage';
 import type { AuthenticatedActor } from './auth-service';
@@ -44,23 +43,47 @@ export interface UploadInput {
   projectId?: string | null;
 }
 
+export interface DocumentTransactionRepositories {
+  documents: Pick<DocumentsRepository, 'create'>;
+  pages: Pick<DocumentPagesRepository, 'create'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
+export interface DocumentServiceRepositories {
+  documents: Pick<
+    DocumentsRepository,
+    | 'findById'
+    | 'findByIdempotencyKey'
+    | 'findExpiredForPurge'
+    | 'list'
+    | 'softDelete'
+    | 'updateStatus'
+  >;
+  extractions: Pick<ExtractionsRepository, 'findLatestForDocument'>;
+  jobs: Pick<JobsRepository, 'enqueue'>;
+  audit: Pick<AuditRepository, 'record'>;
+  transaction<T>(run: (repositories: DocumentTransactionRepositories) => Promise<T>): Promise<T>;
+}
+
 export class DocumentService {
-  private readonly documents: DocumentsRepository;
-  private readonly extractions: ExtractionsRepository;
-  private readonly jobs: JobsRepository;
-  private readonly audit: AuditRepository;
+  private readonly documents: DocumentServiceRepositories['documents'];
+  private readonly extractions: DocumentServiceRepositories['extractions'];
+  private readonly jobs: DocumentServiceRepositories['jobs'];
+  private readonly audit: DocumentServiceRepositories['audit'];
+  private readonly transaction: DocumentServiceRepositories['transaction'];
 
   constructor(
-    private readonly db: Database,
+    repositories: DocumentServiceRepositories,
     private readonly config: Config,
     private readonly storage: Storage,
     private readonly hub: RealtimeHub,
     private readonly logger: Logger,
   ) {
-    this.documents = new DocumentsRepository(db);
-    this.extractions = new ExtractionsRepository(db);
-    this.jobs = new JobsRepository(db);
-    this.audit = new AuditRepository(db);
+    this.documents = repositories.documents;
+    this.extractions = repositories.extractions;
+    this.jobs = repositories.jobs;
+    this.audit = repositories.audit;
+    this.transaction = repositories.transaction;
   }
 
   /**
@@ -115,9 +138,8 @@ export class DocumentService {
 
     await this.storage.put(storageKey, input.buffer, mimeType);
 
-    const document = await this.db.transaction(async (tx) => {
-      const documents = new DocumentsRepository(tx);
-      const created = await documents.create({
+    const document = await this.transaction(async (repositories) => {
+      const created = await repositories.documents.create({
         organisationId: actor.organisationId,
         uploadedBy: actor.userId,
         deviceId: actor.deviceId ?? null,
@@ -131,7 +153,7 @@ export class DocumentService {
         projectId: input.projectId ?? null,
       });
 
-      await new DocumentPagesRepository(tx).create({
+      await repositories.pages.create({
         documentId: created.id,
         pageNumber: 1,
         storageKey,
@@ -139,7 +161,7 @@ export class DocumentService {
         height: null,
       });
 
-      await new AuditRepository(tx).record({
+      await repositories.audit.record({
         organisationId: actor.organisationId,
         actorType: actor.actorType,
         actorId: actor.userId,

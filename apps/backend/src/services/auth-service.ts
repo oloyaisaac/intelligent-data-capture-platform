@@ -19,18 +19,17 @@ import {
 import { randomBytes } from 'node:crypto';
 import { hashIp, hashToken, newToken } from '@idcp/shared/ids';
 import type { Config } from '../config';
-import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
-import {
+import type {
   MembershipsRepository,
   OrganisationsRepository,
   PasswordResetsRepository,
   SessionsRepository,
   UsersRepository,
 } from '../repositories/auth-repo';
-import { AuditRepository } from '../repositories/system-repo';
-import { InvitationsRepository } from '../repositories/project-repo';
+import type { AuditRepository } from '../repositories/system-repo';
+import type { InvitationsRepository } from '../repositories/project-repo';
 import type { InvitationRow } from '../repositories/types';
 import { validatePasswordStrength, type PasswordHasher } from '../auth/password';
 import type { TokenService } from '../auth/tokens';
@@ -65,17 +64,66 @@ function slugify(value: string): string {
   return base || 'org';
 }
 
+export interface AuthTransactionRepositories {
+  orgs: Pick<OrganisationsRepository, 'findById' | 'findBySlug' | 'create'>;
+  users: Pick<
+    UsersRepository,
+    'create' | 'findByIdForUpdate' | 'compareAndSetRecoveryHashes' | 'setPassword'
+  >;
+  memberships: Pick<MembershipsRepository, 'create' | 'findRoleForUpdate' | 'accept'>;
+  sessions: Pick<SessionsRepository, 'create'>;
+  invitations: Pick<InvitationsRepository, 'consume'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
+export interface AuthServiceRepositories {
+  orgs: Pick<OrganisationsRepository, 'findById'>;
+  users: Pick<
+    UsersRepository,
+    | 'create'
+    | 'findByEmail'
+    | 'findById'
+    | 'recordLogin'
+    | 'recordTermsAcceptance'
+    | 'setMfaSecret'
+    | 'enableMfa'
+    | 'disableMfa'
+    | 'setPassword'
+    | 'setRecoveryHashes'
+    | 'compareAndSetRecoveryHashes'
+  >;
+  memberships: Pick<
+    MembershipsRepository,
+    'create' | 'findActiveForOrganisation' | 'findForUser' | 'findId'
+  >;
+  sessions: Pick<
+    SessionsRepository,
+    'create' | 'findByIdForUser' | 'findByTokenHash' | 'listForUser' | 'revoke' | 'revokeAllForUser'
+  >;
+  audit: Pick<AuditRepository, 'record'>;
+  invitations: Pick<
+    InvitationsRepository,
+    'create' | 'findByTokenHash' | 'findForOrganisation' | 'listForOrganisation' | 'revoke'
+  >;
+  resets: Pick<
+    PasswordResetsRepository,
+    'create' | 'findByTokenHash' | 'invalidateOutstanding' | 'markUsed'
+  >;
+  transaction<T>(run: (repositories: AuthTransactionRepositories) => Promise<T>): Promise<T>;
+}
+
 export class AuthService {
-  private readonly orgs: OrganisationsRepository;
-  private readonly users: UsersRepository;
-  private readonly memberships: MembershipsRepository;
-  private readonly sessions: SessionsRepository;
-  private readonly audit: AuditRepository;
-  private readonly invitations: InvitationsRepository;
-  private readonly resets: PasswordResetsRepository;
+  private readonly orgs: AuthServiceRepositories['orgs'];
+  private readonly users: AuthServiceRepositories['users'];
+  private readonly memberships: AuthServiceRepositories['memberships'];
+  private readonly sessions: AuthServiceRepositories['sessions'];
+  private readonly audit: AuthServiceRepositories['audit'];
+  private readonly invitations: AuthServiceRepositories['invitations'];
+  private readonly resets: AuthServiceRepositories['resets'];
+  private readonly transaction: AuthServiceRepositories['transaction'];
 
   constructor(
-    private readonly db: Database,
+    repositories: AuthServiceRepositories,
     private readonly config: Config,
     private readonly tokens: TokenService,
     private readonly hasher: PasswordHasher,
@@ -84,13 +132,14 @@ export class AuthService {
     private readonly secrets: SecretBox,
     private readonly mailer: Mailer | null = null,
   ) {
-    this.orgs = new OrganisationsRepository(db);
-    this.users = new UsersRepository(db);
-    this.memberships = new MembershipsRepository(db);
-    this.sessions = new SessionsRepository(db);
-    this.audit = new AuditRepository(db);
-    this.invitations = new InvitationsRepository(db);
-    this.resets = new PasswordResetsRepository(db);
+    this.orgs = repositories.orgs;
+    this.users = repositories.users;
+    this.memberships = repositories.memberships;
+    this.sessions = repositories.sessions;
+    this.audit = repositories.audit;
+    this.invitations = repositories.invitations;
+    this.resets = repositories.resets;
+    this.transaction = repositories.transaction;
   }
 
   private async issueTokens(
@@ -101,9 +150,15 @@ export class AuthService {
     },
     membership: { organisation_id: string; role: Role },
     context: RequestContext,
-    db: Database = this.db,
+    repositories: {
+      orgs: Pick<OrganisationsRepository, 'findById'>;
+      sessions: Pick<SessionsRepository, 'create'>;
+    } = {
+      orgs: this.orgs,
+      sessions: this.sessions,
+    },
   ): Promise<TokenPair> {
-    const organisation = await new OrganisationsRepository(db).findById(membership.organisation_id);
+    const organisation = await repositories.orgs.findById(membership.organisation_id);
     const accessToken = this.tokens.signAccessToken({
       sub: user.id,
       org: membership.organisation_id,
@@ -114,7 +169,7 @@ export class AuthService {
       Date.now() + this.config.REFRESH_TOKEN_TTL_SECONDS * 1000,
     ).toISOString();
 
-    const session = await new SessionsRepository(db).create({
+    const session = await repositories.sessions.create({
       userId: user.id,
       organisationId: membership.organisation_id,
       refreshTokenHash: refresh.hash,
@@ -149,10 +204,8 @@ export class AuthService {
       throw new AppError('CONFLICT', 'That email address cannot be used. Try signing in instead.');
     }
 
-    return this.db.transaction(async (tx) => {
-      const orgs = new OrganisationsRepository(tx);
-      const users = new UsersRepository(tx);
-      const memberships = new MembershipsRepository(tx);
+    return this.transaction(async (repositories) => {
+      const { orgs, users, memberships } = repositories;
 
       let slug = slugify(input.organisationName);
       let suffix = 0;
@@ -179,7 +232,7 @@ export class AuthService {
         role: 'owner',
       });
 
-      await new AuditRepository(tx).record({
+      await repositories.audit.record({
         organisationId: organisation.id,
         actorType: 'user',
         actorId: user.id,
@@ -189,7 +242,7 @@ export class AuthService {
         metadata: { termsVersion: LEGAL_VERSION },
       });
 
-      return this.issueTokens(user, membership, context, tx);
+      return this.issueTokens(user, membership, context, repositories);
     });
   }
 
@@ -455,7 +508,10 @@ export class AuthService {
     user: { id: string; mfa_secret_enc: string | null; mfa_recovery_hashes: string | null },
     code: string,
     organisationId: string,
-    repositories: { users: UsersRepository; audit: AuditRepository } = {
+    repositories: {
+      users: Pick<UsersRepository, 'compareAndSetRecoveryHashes'>;
+      audit: Pick<AuditRepository, 'record'>;
+    } = {
       users: this.users,
       audit: this.audit,
     },
@@ -852,10 +908,8 @@ export class AuthService {
       ? null
       : await this.hasher.hash(input.password);
 
-    return this.db.transaction(async (tx) => {
-      const users = new UsersRepository(tx);
-      const memberships = new MembershipsRepository(tx);
-      const invitations = new InvitationsRepository(tx);
+    return this.transaction(async (repositories) => {
+      const { users, memberships, invitations, audit } = repositories;
       const user = await users.findByIdForUpdate(invitation.user_id);
       if (!user || user.disabled_at || user.password_hash !== initialUser.password_hash)
         throw invalid;
@@ -866,7 +920,6 @@ export class AuthService {
       );
       if (!membership) throw invalid;
       if (!(await invitations.consume(invitation.id, nowIso()))) throw invalid;
-      const audit = new AuditRepository(tx);
       if (
         user.mfa_enabled_at &&
         (!input.code ||
@@ -887,7 +940,7 @@ export class AuthService {
         targetId: invitation.user_id,
         ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
       });
-      return this.issueTokens(user, membership, context, tx);
+      return this.issueTokens(user, membership, context, repositories);
     });
   }
 

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { loadEncryptionMigrationConfig } from '../config';
 import { migrateEncryptionKeys } from '../services/encryption-migration';
+import { EncryptionMigrationRepository } from '../repositories/encryption-migration-repo';
 import { PostgresDatabase } from './postgres';
 import { SqliteDatabase } from './sqlite';
 import type { Database } from './database';
@@ -28,11 +29,16 @@ async function main(): Promise<void> {
     db = new SqliteDatabase({ path: config.SQLITE_PATH });
   }
   try {
-    const report = await migrateEncryptionKeys(db, {
-      encryptionSecret: config.ENCRYPTION_KEY,
-      sourceSecret,
-      mode,
-    });
+    const report = await migrateEncryptionKeys(
+      {
+        transaction: (run) => db.transaction((tx) => run(new EncryptionMigrationRepository(tx))),
+      },
+      {
+        encryptionSecret: config.ENCRYPTION_KEY,
+        sourceSecret,
+        mode,
+      },
+    );
     console.log(JSON.stringify(report));
     // A check is an actionable gate: a nonzero result means the old key must not be discarded.
     if (mode === 'check' && (report.connectors.legacy || report.mfa.legacy)) process.exitCode = 2;

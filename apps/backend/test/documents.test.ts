@@ -1,3 +1,4 @@
+import { AuditRepository } from '../src/repositories/system-repo';
 import {
   createHarness,
   drainWorker,
@@ -35,6 +36,31 @@ describe('documents: upload, validation and extraction', () => {
       [body.id],
     );
     expect(stored?.mime_type).toBe('image/png');
+  });
+
+  it('rolls back document and page rows if upload auditing fails', async () => {
+    const account = await registerAccount(harness);
+    const audit = jest
+      .spyOn(AuditRepository.prototype, 'record')
+      .mockRejectedValueOnce(new Error('audit unavailable'));
+    try {
+      const response = await uploadDocument(harness, account, {
+        content: fakePng('transaction rollback'),
+      });
+      expect(response.statusCode).toBe(500);
+    } finally {
+      audit.mockRestore();
+    }
+    const docs = await harness.db.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM documents WHERE organisation_id = ?',
+      [account.organisationId],
+    );
+    const jobs = await harness.db.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM jobs WHERE organisation_id = ?',
+      [account.organisationId],
+    );
+    expect(Number(docs?.count)).toBe(0);
+    expect(Number(jobs?.count)).toBe(0);
   });
 
   it('accepts a PDF', async () => {
