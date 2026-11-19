@@ -68,6 +68,7 @@ The filesystem layout is not itself proof of dependency direction.
 - `apps/backend/src/db/postgres.ts`
 - `apps/backend/src/db/seed-cli.ts`
 - `apps/backend/src/db/sqlite.ts`
+- `apps/backend/src/db/worker-recovery-cli.ts` — offline operator CLI composing a database and jobs repository.
 
 ### `apps/backend/src/http/`
 
