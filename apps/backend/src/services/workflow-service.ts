@@ -282,8 +282,9 @@ export class WorkflowService {
   /**
    * Executes one action.
    *
-   * `notify` is recorded as an output rather than delivered: this deployment has no mail transport,
-   * and pretending an email was sent would be a lie in the run log.
+   * `notify` only records an output; it is not wired to the optional SMTP mailer. The connector and
+   * export branches also record placeholder text rather than actually dispatching those operations.
+   * Their output strings must not be treated as evidence of delivery or queueing.
    */
   private async execute(
     run: WorkflowRunRow,

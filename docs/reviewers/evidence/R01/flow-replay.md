@@ -6,7 +6,7 @@ creates and parses a pairing QR payload, exchanges it for a device credential, u
 credential and an idempotency key, checks file bytes, drains the worker, corrects and approves an
 extraction, downloads a CSV export and sends the approved record through a local CSV connector.
 It also observes hub events and retries before and after approval. The local SQLite run passed.
-The full backend suite in PostgreSQL CI must also pass for this revision.
+The full backend suite passed against PostgreSQL in [CI for `8b3e054`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44547470620); this includes the replay and the forced concurrent-upload regression.
 
 The initial replay failed before remediation: a retry returned the same document but created a
 second extraction job, resulting in two OCR calls. Upload now atomically records document, page,

@@ -53,7 +53,14 @@ return an existing job without requeueing. Local regressions cover sequential an
 requests, failed enqueue rollback and an ambiguous commit response. File storage remains outside
 the database transaction and cleanup is best effort; crashes or uncertain commits can leave orphans.
 Legacy rows without an extraction job return an actionable conflict rather than silently scheduling
-work. These changes do not resolve worker recovery or prove exactly-once effects.
+work. The complete PostgreSQL backend suite and all other CI checks passed for this change in
+[CI for `8b3e054`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44547470620).
+These changes do not resolve worker recovery or prove exactly-once effects.
+
+R01's documentation inspection also found that workflow send/export actions report placeholder
+"queued" output without dispatching anything, and notify does not deliver a message (ARC-019).
+This feature-correctness issue is handed to R02 and remains open; callers must not treat completed
+workflow runs as evidence of delivery. The historical handover and DEC-026/028 now carry caveats.
 
 Pairing completion now locks the session before checking status and expiry, and creates the device,
 claims the token and records the audit in one transaction; the event is published after commit.

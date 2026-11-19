@@ -507,6 +507,12 @@ owner opts out; unattended runs of destructive actions are possible only by expl
 and are audited (`workflow.run_approved`). Rules cannot branch — a condition list is one AND — and
 `notify` does not deliver anything until a mail transport exists.
 
+**Implementation note:** SMTP is now available for other flows, but workflow `notify` is not wired
+up to it. More importantly, `send_to_connector` and `create_export` currently return placeholder
+strings saying they were queued without dispatching either operation; their reported completion is
+not proof that anything was sent or exported. See the R01 findings and route this feature-correctness
+issue to R02. The historical decision above is not a guarantee that all of its proposed effects ship.
+
 ---
 
 ## DEC-027 — Voice is a consent gate and a transcript, never a recording
@@ -571,6 +577,11 @@ phone has no language picker: it follows the device language, which is the behav
 operator in the field expects, and the desktop's picker covers shared workstations. Right-to-left is
 verified by the direction helper and the logical-property test rather than by a shipped RTL locale,
 because none of the three supported languages is RTL yet.
+
+**Implementation note:** Catalogue coverage does not establish that every visible string uses the
+catalogue. For example, `apps/mobile/src/screens/PairingScreen.tsx` and
+`apps/desktop/src/pages/ExportsPage.tsx` contain literal English UI text. Translation coverage,
+accessibility and real RTL rendering still need their respective reviews.
 
 ---
 

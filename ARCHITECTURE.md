@@ -119,7 +119,10 @@ These are code paths to exercise, not claims of completed device or production v
    API accepts human corrections and approval. Events are sent to local SSE subscribers.
 3. **Export and connector write:** approved records can be exported or sent through configured
    mapping and connector operations. External systems and side effects need their own reconciliation
-   and idempotency guarantees; a local job claim is not an exactly-once guarantee.
+   and idempotency guarantees; a local job claim is not an exactly-once guarantee. Workflow action
+   execution is a separate path: its connector-send and export actions currently record placeholder
+   output without dispatching the operation, and its notify action does not deliver a notification.
+   A completed workflow run is therefore not evidence that these effects occurred.
 
 ## 4. Technology and decisions
 
