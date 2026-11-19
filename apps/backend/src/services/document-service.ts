@@ -45,7 +45,10 @@ export interface UploadInput {
 }
 
 export interface DocumentTransactionRepositories {
-  documents: Pick<DocumentsRepository, 'createIfAbsent' | 'findByIdempotencyKey'>;
+  documents: Pick<
+    DocumentsRepository,
+    'createIfAbsent' | 'findByIdempotencyKey' | 'findById' | 'queueForReprocess'
+  >;
   pages: Pick<DocumentPagesRepository, 'create'>;
   jobs: Pick<JobsRepository, 'enqueue' | 'latestExtractionForDocument'>;
   audit: Pick<AuditRepository, 'record'>;
@@ -224,7 +227,9 @@ export class DocumentService {
     const job = await jobs.latestExtractionForDocument(document.organisation_id, document.id);
     if (!job) {
       // Legacy rows created before atomic upload/job creation require explicit operator action.
-      throw conflict('The previous upload has no extraction job. Reprocess it before retrying.');
+      throw conflict(
+        'The previous upload has no extraction job. An operator must reconcile it before retrying.',
+      );
     }
     return { document: toDocumentSummary(document), jobId: job.id, duplicate: true };
   }
@@ -307,24 +312,30 @@ export class DocumentService {
   }
 
   async reprocess(actor: AuthenticatedActor, id: string): Promise<{ jobId: string }> {
-    const document = await this.documents.findById(actor.organisationId, id);
-    if (!document || document.deleted_at) throw new AppError('NOT_FOUND', 'Document not found.');
-
-    await this.documents.updateStatus(id, 'queued');
-    const job = await this.jobs.enqueue({
-      organisationId: actor.organisationId,
-      type: 'extract_document',
-      documentId: id,
+    return this.transaction(async (repositories) => {
+      if (!(await repositories.documents.queueForReprocess(actor.organisationId, id))) {
+        const document = await repositories.documents.findById(actor.organisationId, id);
+        if (!document || document.deleted_at)
+          throw new AppError('NOT_FOUND', 'Document not found.');
+        throw conflict(
+          'This document is queued or processing, or already has an active extraction.',
+        );
+      }
+      const job = await repositories.jobs.enqueue({
+        organisationId: actor.organisationId,
+        type: 'extract_document',
+        documentId: id,
+      });
+      await repositories.audit.record({
+        organisationId: actor.organisationId,
+        actorType: actor.actorType,
+        actorId: actor.userId,
+        action: 'document.reprocessed',
+        targetType: 'document',
+        targetId: id,
+      });
+      return { jobId: job.id };
     });
-    await this.audit.record({
-      organisationId: actor.organisationId,
-      actorType: actor.actorType,
-      actorId: actor.userId,
-      action: 'document.reprocessed',
-      targetType: 'document',
-      targetId: id,
-    });
-    return { jobId: job.id };
   }
 
   /** Soft delete: the record disappears from the app; the purge job removes the bytes. */

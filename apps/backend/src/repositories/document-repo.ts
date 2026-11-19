@@ -143,6 +143,58 @@ export class DocumentsRepository {
     ]);
   }
 
+  /** Reserve a document for reprocessing in the same transaction that enqueues its new job. */
+  async queueForReprocess(organisationId: string, id: string): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      `UPDATE documents SET status = 'queued', updated_at = ?
+       WHERE organisation_id = ? AND id = ? AND deleted_at IS NULL
+         AND status NOT IN ('queued', 'processing')
+         AND NOT EXISTS (
+           SELECT 1 FROM jobs WHERE document_id = ? AND organisation_id = ?
+             AND type = 'extract_document' AND status IN ('queued', 'running')
+         ) RETURNING id`,
+      [nowIso(), organisationId, id, id, organisationId],
+    );
+    return row !== null;
+  }
+
+  /** Call with a locked running job inside a transaction; never revive a deleted or reviewed row. */
+  beginProcessing(organisationId: string, id: string): Promise<DocumentRow | null> {
+    return this.db.one<DocumentRow>(
+      `UPDATE documents SET status = 'processing', updated_at = ?
+       WHERE organisation_id = ? AND id = ? AND deleted_at IS NULL
+         AND status IN ('queued', 'processing') RETURNING *`,
+      [nowIso(), organisationId, id],
+    );
+  }
+
+  /** Publish only while the document is still in processing; the transaction holds the row lock. */
+  async finishProcessing(
+    organisationId: string,
+    id: string,
+    status: 'needs_review' | 'extracted',
+    documentType: DocumentType,
+  ): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      `UPDATE documents SET status = ?, document_type = ?, updated_at = ?
+       WHERE organisation_id = ? AND id = ? AND deleted_at IS NULL AND status = 'processing'
+       RETURNING id`,
+      [status, documentType, nowIso(), organisationId, id],
+    );
+    return row !== null;
+  }
+
+  /** Called in the job-failure transaction; do not overwrite deleted or reviewed documents. */
+  async failProcessing(organisationId: string, id: string): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      `UPDATE documents SET status = 'failed', updated_at = ?
+       WHERE organisation_id = ? AND id = ? AND deleted_at IS NULL AND status = 'processing'
+       RETURNING id`,
+      [nowIso(), organisationId, id],
+    );
+    return row !== null;
+  }
+
   /** Records a reviewer-confirmed classification without touching the lifecycle status. */
   async updateAnyDocumentType(id: string, documentType: DocumentType): Promise<void> {
     await this.db.execute('UPDATE documents SET document_type = ?, updated_at = ? WHERE id = ?', [

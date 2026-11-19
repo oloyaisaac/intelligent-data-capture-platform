@@ -297,10 +297,16 @@ export function buildServices(options: BuildServicesOptions): Services {
   const worker = new Worker(
     {
       jobs: new JobsRepository(db),
-      documents: new DocumentsRepository(db),
-      extractions: new ExtractionsRepository(db),
-      pages: new DocumentPagesRepository(db),
       orgs: new OrganisationsRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            jobs: new JobsRepository(tx),
+            documents: new DocumentsRepository(tx),
+            extractions: new ExtractionsRepository(tx),
+            pages: new DocumentPagesRepository(tx),
+          }),
+        ),
     },
     config,
     storage,

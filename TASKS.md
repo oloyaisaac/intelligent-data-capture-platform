@@ -183,8 +183,10 @@ real database step reached the mocked retention query. The revised timer test st
 ports, avoiding fake-clock interference with network I/O. Local focused tests passed; PostgreSQL
 must be rerun in CI before treating this as resolved.
 
-ARC-013 partial progress: job success/failure writes now condition on the running claim attempt;
-obsolete failures do not mark documents failed. This protects the job row only. A deterministic
-recovery regression still produces two OCR calls and two extraction records when a live claim is
-recovered, so P6 remains unmet. The open design and required failure tests are described in
-`docs/reviewers/evidence/R01/worker-recovery-design.md`.
+ARC-013 partial progress: extraction publication now commits job success, page OCR, extraction,
+fields and document status together under the current claim attempt; guarded failure status is also
+transactional. Reprocessing a queued or running document now returns 409 and the reprocess status,
+job and audit commit together. The former stale-claim reproduction produced two OCR calls and two
+extraction rows; it now produces two OCR calls and one committed row. Unfenced OCR costs, purge,
+pre-existing distinct jobs, crash recovery and wider multi-worker safety remain unresolved, so P6
+is unmet. See `docs/reviewers/evidence/R01/worker-recovery-design.md`.

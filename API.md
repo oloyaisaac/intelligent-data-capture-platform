@@ -196,15 +196,15 @@ Errors: `422 PAIRING_TOKEN_EXPIRED`, `422 PAIRING_TOKEN_USED`, `404 PAIRING_SESS
 
 ## 5. Documents
 
-| Method | Path                       | Purpose                                                                      |
-| ------ | -------------------------- | ---------------------------------------------------------------------------- |
-| POST   | `/documents`               | Upload a document (multipart: `file`, optional `documentType`, `templateId`) |
-| GET    | `/documents`               | List/filter (`status`, `type`, `deviceId`, `from`, `to`)                     |
-| GET    | `/documents/:id`           | Metadata + processing status                                                 |
-| GET    | `/documents/:id/file`      | Stream the original image (authorised, never public)                         |
-| GET    | `/documents/:id/result`    | Current extraction (UDM + flattened fields/tables)                           |
-| POST   | `/documents/:id/reprocess` | Re-run extraction (admin/reviewer)                                           |
-| DELETE | `/documents/:id`           | Soft delete, then purge per retention policy                                 |
+| Method | Path                       | Purpose                                                                               |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------- |
+| POST   | `/documents`               | Upload a document (multipart: `file`, optional `documentType`, `templateId`)          |
+| GET    | `/documents`               | List/filter (`status`, `type`, `deviceId`, `from`, `to`)                              |
+| GET    | `/documents/:id`           | Metadata + processing status                                                          |
+| GET    | `/documents/:id/file`      | Stream the original image (authorised, never public)                                  |
+| GET    | `/documents/:id/result`    | Current extraction (UDM + flattened fields/tables)                                    |
+| POST   | `/documents/:id/reprocess` | Re-run extraction (admin/reviewer); returns 409 while extraction is queued or running |
+| DELETE | `/documents/:id`           | Soft delete, then purge per retention policy                                          |
 
 `POST /documents` — requires `Idempotency-Key`; max 20 MB per image, JPEG/PNG/PDF/HEIC.
 

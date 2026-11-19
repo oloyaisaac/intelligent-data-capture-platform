@@ -190,7 +190,7 @@ describe('documents: upload, validation and extraction', () => {
     await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [id]);
     const retry = await uploadDocument(harness, account, options);
     expect(retry.statusCode).toBe(409);
-    expect(retry.json<{ error: { message: string } }>().error.message).toContain('Reprocess');
+    expect(retry.json<{ error: { message: string } }>().error.message).toContain('operator');
     const jobs = await harness.db.one<{ count: number }>(
       'SELECT COUNT(*) AS count FROM jobs WHERE document_id = ?',
       [id],
@@ -400,6 +400,57 @@ Thank you for your purchase`);
     });
     expect(reprocess.statusCode).toBe(202);
     expect(reprocess.json<{ jobId: string }>().jobId).toBeTruthy();
+  });
+
+  it('admits only one concurrent reprocess request and atomically records its job and audit', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account, { content: fakePng('reprocess race') });
+    const documentId = upload.json<{ id: string }>().id;
+    await drainWorker(harness);
+    const request = () =>
+      harness.api.json('POST', `/api/v1/documents/${documentId}/reprocess`, {
+        token: account.accessToken,
+      });
+    const responses = await Promise.all([request(), request()]);
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([202, 409]);
+    const jobs = await new JobsRepository(harness.db).listForDocument(documentId);
+    expect(jobs).toHaveLength(2);
+    expect(jobs.filter((job) => job.status === 'queued')).toHaveLength(1);
+    const audit = await harness.db.query(
+      'SELECT id FROM audit_logs WHERE target_id = ? AND action = ?',
+      [documentId, 'document.reprocessed'],
+    );
+    expect(audit).toHaveLength(1);
+  });
+
+  it('rolls back the queued status and new job if reprocess auditing fails', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account, {
+      content: fakePng('reprocess rollback'),
+    });
+    const documentId = upload.json<{ id: string }>().id;
+    await drainWorker(harness);
+    const before = await harness.db.one<{ status: string }>(
+      'SELECT status FROM documents WHERE id = ?',
+      [documentId],
+    );
+    const fail = jest
+      .spyOn(AuditRepository.prototype, 'record')
+      .mockRejectedValueOnce(new Error('audit unavailable'));
+    try {
+      const response = await harness.api.json('POST', `/api/v1/documents/${documentId}/reprocess`, {
+        token: account.accessToken,
+      });
+      expect(response.statusCode).toBe(500);
+    } finally {
+      fail.mockRestore();
+    }
+    const after = await harness.db.one<{ status: string }>(
+      'SELECT status FROM documents WHERE id = ?',
+      [documentId],
+    );
+    expect(after?.status).toBe(before?.status);
+    expect(await new JobsRepository(harness.db).listForDocument(documentId)).toHaveLength(1);
   });
 
   it('soft-deletes and then hides a document', async () => {

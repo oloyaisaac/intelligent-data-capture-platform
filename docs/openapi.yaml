@@ -977,6 +977,8 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
         '202': { description: Queued }
+        '404': { description: Document not found or deleted }
+        '409': { description: An extraction is already queued or running }
   /documents/{id}/review:
     post:
       tags: [Review]

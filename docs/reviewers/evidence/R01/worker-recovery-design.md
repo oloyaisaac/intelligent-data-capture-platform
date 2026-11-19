@@ -7,12 +7,18 @@ See ARC-013 and ARC-021 in `findings.md`. P6 remains unmet.
 
 `claimNext` atomically claims a queued job and increments its attempt. At startup,
 `requeueStale` uses only claim age; it cannot tell a long-running live worker from a dead one.
-A recent crashed claim is not revisited in the same process. Guarded success/failure updates reject
-an old attempt after recovery, but OCR, page text, extraction and field writes, document status,
-notifications and retention purge happen independently before completion. An old worker can still
-write after a newer claim; the focused synthetic regression in `worker-recovery.test.ts` demonstrates
-two extraction rows, not merely a theoretical duplicate. An unclean crash can also occur between
-any two writes. The supported single-worker topology reduces overlap but does not prove idempotence.
+A recent crashed claim is not revisited in the same process. The extraction start validates the
+attempt under a job lock; the publication transaction guards job success and commits page text,
+extraction, field and final document status together. Guarded final failure and document status also
+commit together. Reprocess requests now reserve the document, enqueue the job and audit atomically,
+and reject queued or running work. A synthetic recovery regression that previously produced two
+extractions now commits one, but still performs two OCR calls. OCR, billing, notifications and
+retention purge are outside this publication transaction. Existing or externally inserted distinct
+jobs for a document, concurrent review/reprocess interactions, ambiguous commit acknowledgement,
+process crashes and overlapping deployments require further analysis and testing. The supported
+single-worker topology reduces overlap but does not prove idempotence. A document stranded in
+`queued` or `processing` without an active job cannot use the guarded reprocess endpoint; operators
+must reconcile that legacy/inconsistent state, and a safe supported repair path remains open.
 
 ## Necessary design decisions before claiming P6
 

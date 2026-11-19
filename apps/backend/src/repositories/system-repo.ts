@@ -66,6 +66,16 @@ export class JobsRepository {
     );
   }
 
+  /** Lock and validate a claim inside a transaction, serialising against recovery on PostgreSQL. */
+  async lockRunning(id: string, attempt: number): Promise<boolean> {
+    const lock = this.db.driver === 'postgres' ? ' FOR UPDATE' : '';
+    const row = await this.db.one<{ id: string }>(
+      `SELECT id FROM jobs WHERE id = ? AND status = 'running' AND attempts = ?${lock}`,
+      [id, attempt],
+    );
+    return row !== null;
+  }
+
   /** Guard the job row against completion by a claim that has been recovered or replaced. */
   async markSucceeded(id: string, attempt: number): Promise<boolean> {
     const updated = await this.db.one<{ id: string }>(

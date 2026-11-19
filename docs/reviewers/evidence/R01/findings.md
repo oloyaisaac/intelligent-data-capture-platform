@@ -25,7 +25,19 @@ a rejected failure does not mark a document failed or emit a failure event. See
 `apps/backend/src/repositories/system-repo.ts` (`markSucceeded`, `markFailed`),
 `services/worker.ts` (`processJob`), and the regression cases in `worker-recovery.test.ts` and
 `worker-lifecycle.test.ts`. This is not a lease or owner token, does not fence other rows or external
-side effects, and does not solve crash recovery. A deterministic test pauses one extraction,
-recovers and processes its live claim, then resumes it: two OCR calls and two extraction records
-are still produced. The test uses one process and synthetic OCR, not a process crash or a real
-external provider. P6 and ARC-013 remain open.
+side effects, and does not solve crash recovery. At that revision, a deterministic test paused one
+extraction, recovered and processed its live claim, then resumed it: two OCR calls and two
+extraction records resulted. The test uses one process and synthetic OCR, not a process crash or a
+real external provider. P6 and ARC-013 remained open.
+
+### ARC-013 update — transactional extraction publication
+
+The same synthetic test now commits one extraction after both OCR calls. The worker validates the
+claim before setting processing state and commits guarded job success, document status, page OCR,
+extraction and fields together; dead job and document failure status also commit together. Added
+failure-injection rollback/retry, competing recovery, and deletion-during-OCR tests. Reprocess now
+returns 409 for an active extraction and reserves the document, enqueues and audits in a transaction;
+concurrent-request and audit-rollback regressions cover it. Older or manually inserted overlapping
+jobs, cross-job review races, duplicate OCR cost, nondurable events, retention, real crashes and
+owner/lease semantics remain unproven. Local SQLite results are available; PostgreSQL CI must pass
+before claiming that driver was verified for these changes. P6 remains open.
