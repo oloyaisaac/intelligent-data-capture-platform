@@ -129,3 +129,9 @@ provider and absence of direct concrete-provider imports in the pipeline; focuse
 pass. This is one adapter seam, not proof that every adapter is composed in a single root. Database
 and HTTP factories and offline migration entry points remain separate, and broader P5 review is
 still required. No real cloud request or OCR engine was tested by this change.
+
+The SMTP transport factory also moved from the service layer to `adapters/smtp-mailer.ts`, leaving
+`services/mailer.ts` as the interface and composing the adapter from the service container. Focused
+SMTP/auth tests passed using a local fixture, and a static service-layer check rejects direct
+`nodemailer` imports. This does not prohibit dynamic imports, make SMTP acceptance a delivery
+receipt, prove a production mail server, or establish the rest of P5.

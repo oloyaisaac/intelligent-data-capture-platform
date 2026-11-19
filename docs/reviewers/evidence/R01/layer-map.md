@@ -36,6 +36,10 @@ The filesystem layout is not itself proof of dependency direction.
 - `apps/backend/src/index.ts`
 - `apps/backend/src/logger.ts`
 
+### `apps/backend/src/adapters/`
+
+- `apps/backend/src/adapters/smtp-mailer.ts` — SMTP transport adapter; the mailer port remains in `services/mailer.ts`.
+
 ### `apps/backend/src/ai/`
 
 - `apps/backend/src/ai/classify.ts`
@@ -55,6 +59,7 @@ The filesystem layout is not itself proof of dependency direction.
 ### `apps/backend/src/db/`
 
 - `apps/backend/src/db/database.ts`
+- `apps/backend/src/db/connector-config-migration-cli.ts`
 - `apps/backend/src/db/encryption-migration-cli.ts`
 - `apps/backend/src/db/health.ts`
 - `apps/backend/src/db/index.ts`
@@ -100,6 +105,7 @@ The filesystem layout is not itself proof of dependency direction.
 - `apps/backend/src/repositories/apikey-repo.ts`
 - `apps/backend/src/repositories/auth-repo.ts`
 - `apps/backend/src/repositories/batch-repo.ts`
+- `apps/backend/src/repositories/connector-config-migration-repo.ts`
 - `apps/backend/src/repositories/connector-repo.ts`
 - `apps/backend/src/repositories/dashboard-repo.ts`
 - `apps/backend/src/repositories/device-repo.ts`
@@ -121,6 +127,8 @@ The filesystem layout is not itself proof of dependency direction.
 - `apps/backend/src/services/api-key-service.ts`
 - `apps/backend/src/services/auth-service.ts`
 - `apps/backend/src/services/batch-service.ts`
+- `apps/backend/src/services/connector-config-migration.ts`
+- `apps/backend/src/services/connector-config.ts`
 - `apps/backend/src/services/connector-service.ts`
 - `apps/backend/src/services/container.ts`
 - `apps/backend/src/services/crypto.ts`

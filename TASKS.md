@@ -230,3 +230,7 @@ R01 P5 partial progress: concrete OCR provider construction now belongs to the s
 root rather than the extraction pipeline. Focused tests cover provider selection, fake injection
 and the pipeline import boundary. Other factories and offline entry points remain separate; this
 does not establish the full P5 passing condition.
+
+The SMTP mailer implementation now resides in an adapter module, while the service layer retains
+only its mailer interface and the composition root selects the implementation. Local SMTP fixture
+and auth tests pass; this is another partial P5 seam, not a production delivery test or sign-off.
