@@ -6,11 +6,10 @@ import {
   type Role,
 } from '@idcp/shared';
 import { hashToken, newToken } from '@idcp/shared/ids';
-import type { Database } from '../db/database';
 import type { Logger } from '../logger';
-import { ApiKeysRepository } from '../repositories/apikey-repo';
-import { AuditRepository } from '../repositories/system-repo';
-import { MembershipsRepository } from '../repositories/auth-repo';
+import type { ApiKeysRepository } from '../repositories/apikey-repo';
+import type { AuditRepository } from '../repositories/system-repo';
+import type { MembershipsRepository } from '../repositories/auth-repo';
 import type { ApiKeyRow } from '../repositories/types';
 import type { AuthenticatedActor } from './auth-service';
 
@@ -53,18 +52,24 @@ export interface ApiKeyPrincipal {
   keyId: string;
 }
 
+export interface ApiKeyServiceRepositories {
+  keys: Pick<ApiKeysRepository, 'create' | 'list' | 'revoke' | 'findByHash' | 'touch'>;
+  memberships: Pick<MembershipsRepository, 'findActiveForOrganisation'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
 export class ApiKeyService {
-  private readonly keys: ApiKeysRepository;
-  private readonly memberships: MembershipsRepository;
-  private readonly audit: AuditRepository;
+  private readonly keys: ApiKeyServiceRepositories['keys'];
+  private readonly memberships: ApiKeyServiceRepositories['memberships'];
+  private readonly audit: ApiKeyServiceRepositories['audit'];
 
   constructor(
-    db: Database,
+    repositories: ApiKeyServiceRepositories,
     private readonly logger: Logger,
   ) {
-    this.keys = new ApiKeysRepository(db);
-    this.memberships = new MembershipsRepository(db);
-    this.audit = new AuditRepository(db);
+    this.keys = repositories.keys;
+    this.memberships = repositories.memberships;
+    this.audit = repositories.audit;
   }
 
   async create(

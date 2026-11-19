@@ -13,6 +13,7 @@ import {
 import {
   ConnectorRegistry,
   applyMapping,
+  type ConnectorContext,
   type ConnectorRecord,
   type ConnectorWriteResult,
   type MappedField,
@@ -85,8 +86,8 @@ export class ConnectorService {
     }
     try {
       connector.validateConfig(input.config);
-    } catch (error) {
-      throw badRequest((error as Error).message);
+    } catch {
+      throw badRequest('Connector configuration is invalid. Review the connection settings.');
     }
 
     const encrypted =
@@ -124,8 +125,8 @@ export class ConnectorService {
     if (patch.config) {
       try {
         this.registry.get(current.type).validateConfig(patch.config);
-      } catch (error) {
-        throw badRequest((error as Error).message);
+      } catch {
+        throw badRequest('Connector configuration is invalid. Review the connection settings.');
       }
     }
 
@@ -157,16 +158,38 @@ export class ConnectorService {
   async test(actor: AuthenticatedActor, id: string) {
     const row = await this.connectors.findById(actor.organisationId, id);
     if (!row) throw new AppError('NOT_FOUND', 'Connector not found.');
-    const connector = this.registry.get(row.type);
-    const result = await connector.healthCheck(this.resolveConfig(row), this.context(actor));
-    await this.connectors.recordHealthCheck(id, result.ok, result.error ?? null);
+    let ok = false;
+    try {
+      const connector = this.registry.get(row.type);
+      const result = await connector.healthCheck(this.resolveConfig(row), this.context(actor));
+      ok = result.ok === true;
+    } catch {
+      // Exceptions and returned error strings may contain credentials or destination data.
+    }
+    const result = ok
+      ? { ok: true as const }
+      : {
+          ok: false as const,
+          error: 'Connection check failed. Review the destination and connection settings.',
+        };
+    if (!ok) this.logger.warn('connector health check failed', { connectorId: id });
+    await this.connectors.recordHealthCheck(id, result.ok, result.ok ? null : result.error);
     return result;
   }
 
   async describeSchema(actor: AuthenticatedActor, id: string) {
     const row = await this.connectors.findById(actor.organisationId, id);
     if (!row) throw new AppError('NOT_FOUND', 'Connector not found.');
-    return this.registry.get(row.type).describeSchema(this.resolveConfig(row), this.context(actor));
+    try {
+      return await this.registry
+        .get(row.type)
+        .describeSchema(this.resolveConfig(row), this.context(actor));
+    } catch {
+      throw new AppError(
+        'UNPROCESSABLE',
+        'Could not load the destination schema. Review the connection settings.',
+      );
+    }
   }
 
   async listMappings(actor: AuthenticatedActor) {
@@ -258,6 +281,9 @@ export class ConnectorService {
     let status: 'succeeded' | 'skipped_duplicate' | 'failed' = 'failed';
     let summary = '';
     let writeResult: ConnectorWriteResult = { created: 0, updated: 0, skipped: 0, summary: '' };
+    // Only this locally constructed policy error is safe to expose; connector exceptions,
+    // including AppErrors, can contain credentials or destination data.
+    let policyFailure: AppError | null = null;
 
     try {
       // Duplicate check against the destination itself, when the connector can read (DUP-001).
@@ -284,10 +310,11 @@ export class ConnectorService {
             status = 'skipped_duplicate';
             summary = 'A matching record already exists; skipped.';
           } else if (!connector.update) {
-            throw new AppError(
+            policyFailure = new AppError(
               'CONFLICT',
               `The ${connectorRow.type} connector cannot update existing rows. Change the duplicate policy to skip or append.`,
             );
+            throw policyFailure;
           }
         }
       }
@@ -330,7 +357,11 @@ export class ConnectorService {
         }
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Connector failed.';
+      const safePolicyFailure =
+        policyFailure !== null && error === policyFailure ? policyFailure : null;
+      const message =
+        safePolicyFailure?.message ??
+        'Connector request failed. Check the destination for changes and review connection settings before retrying.';
       await this.runs.create({
         organisationId: actor.organisationId,
         connectorId,
@@ -356,8 +387,8 @@ export class ConnectorService {
         documentId,
         status: 'failed',
       });
-      this.logger.warn('connector run failed', { connectorId, error: message });
-      throw error instanceof AppError ? error : new AppError('UNPROCESSABLE', message);
+      this.logger.warn('connector run failed', { connectorId, documentId });
+      throw safePolicyFailure ?? new AppError('UNPROCESSABLE', message);
     }
 
     const run = await this.runs.create({
@@ -432,7 +463,6 @@ export class ConnectorService {
 
     const keys = JSON.parse(mappingRow.duplicate_keys) as string[];
     const connector = this.registry.get(connectorRow.type);
-    const config = this.resolveConfig(connectorRow);
 
     if (!connector.read) {
       throw new AppError(
@@ -456,12 +486,20 @@ export class ConnectorService {
     }
 
     const lookup = connector.search ?? connector.read;
-    const existing = await lookup.call(
-      connector,
-      { limit: 500, where: pickWhere(mapped.values, keys) },
-      config,
-      this.context(actor),
-    );
+    let existing: ConnectorRecord[];
+    try {
+      existing = await lookup.call(
+        connector,
+        { limit: 500, where: pickWhere(mapped.values, keys) },
+        this.resolveConfig(connectorRow),
+        this.context(actor),
+      );
+    } catch {
+      throw new AppError(
+        'UNPROCESSABLE',
+        'Could not check the destination for duplicates. Review the connection settings.',
+      );
+    }
 
     const scored = existing
       .map((item) => {
@@ -513,11 +551,20 @@ export class ConnectorService {
     return { ...config, ...credentials };
   }
 
-  private context(actor: AuthenticatedActor) {
+  private context(actor: AuthenticatedActor): ConnectorContext {
+    // Connector messages and context are untrusted and may contain credentials or record data.
+    // Preserve severity, not connector-supplied text; this does not sandbox in-process code.
+    const diagnostic = (level: 'info' | 'warn' | 'debug' | 'error') => () =>
+      this.logger[level]('connector diagnostic', { organisationId: actor.organisationId });
     return {
       organisationId: actor.organisationId,
-      logger: this.logger,
-    } satisfies { organisationId: string; logger: Logger };
+      logger: {
+        info: diagnostic('info'),
+        warn: diagnostic('warn'),
+        debug: diagnostic('debug'),
+        error: diagnostic('error'),
+      },
+    };
   }
 }
 

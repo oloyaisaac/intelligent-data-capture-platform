@@ -53,8 +53,9 @@ direction is `http/routes` → domain `services` → persistence `repositories` 
 drivers. Literal SQL scans now find no statements in services or HTTP modules; a static regression
 test checks common literal statements but cannot prove the absence of dynamically assembled SQL.
 The health route invokes a database probe, and many services still construct repositories in their
-constructors. Project and template repositories are injected by the composition root. HTTP guards
-and event-stream authentication consult the auth service for the credential's organisation and live
+constructors. Project, template, worker, API-key and workflow repositories are injected by the
+composition root. HTTP guards and event-stream authentication consult the auth service for the
+credential's organisation and live
 membership. The privacy erasure and encryption-migration write repositories are bound to
 transaction-scoped databases. The privacy owner eligibility checks still happen before the erasure
 transaction and are not protected from concurrent membership changes. Any further refactoring must
@@ -82,8 +83,11 @@ requeued without a lease or heartbeat even if another process is still processin
 `packages/shared` contains the UDM, validation, errors, formatting and shared contracts used by the
 clients and backend. `packages/connectors` defines the connector contract and first-party adapters.
 These connectors run **in the backend process**, with no process, filesystem or network sandbox.
-Some connector-run errors are caught and recorded, but that is not isolation from malicious code,
-resource exhaustion or all possible failures. HTTP connector destination checks and their limits are
+Some connector-run errors are caught and recorded; validation, health, schema, duplicate-preview and
+send failures return safe messages, and the supplied connector logger discards connector-provided
+text and context. This trades diagnostic detail for reduced disclosure. It does not sanitize existing
+records, successful outputs or logging outside the supplied logger, and it is not isolation from
+malicious code, resource exhaustion or all possible failures. HTTP connector destination checks and their limits are
 documented in `docs/connector-network-security.md`; SQL and filesystem destinations are not protected
 by those HTTP controls. Marketplace signature verification does not turn code into a sandbox.
 
