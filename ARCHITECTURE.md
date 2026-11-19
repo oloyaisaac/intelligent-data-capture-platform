@@ -53,11 +53,11 @@ direction is `http/routes` → domain `services` → persistence `repositories` 
 drivers. Literal SQL scans now find no statements in services or HTTP modules; a static regression
 test checks common literal statements but cannot prove the absence of dynamically assembled SQL.
 The health route invokes a database probe, and many services still construct repositories in their
-constructors. Project, template, worker, API-key and workflow repositories are injected by the
-composition root. HTTP guards and event-stream authentication consult the auth service for the
-credential's organisation and live
-membership. The privacy erasure and encryption-migration write repositories are bound to
-transaction-scoped databases. The privacy owner eligibility checks still happen before the erasure
+constructors. Project, template, worker, API-key, workflow, organisation, export, batch, review,
+pairing and marketplace repositories are injected by the composition root. HTTP guards and
+event-stream authentication consult the auth service for the credential's organisation and live
+membership. Pairing completion, privacy erasure and encryption-migration write repositories are
+bound to transaction-scoped databases. The privacy owner eligibility checks still happen before the erasure
 transaction and are not protected from concurrent membership changes. Any further refactoring must
 preserve transaction boundaries and tenant scoping.
 
@@ -104,7 +104,9 @@ These are code paths to exercise, not claims of completed device or production v
 
 1. **Pairing:** an authenticated desktop requests `/api/v1/pairing/sessions`; its QR payload carries
    an endpoint and short-lived token. The mobile client sends the token and device details to
-   `/api/v1/pairing/complete` and receives a device credential. Pairing emits a process-local event.
+   `/api/v1/pairing/complete` and receives a device credential. Completion locks the session,
+   checks its status and expiry, and commits the device, token claim and audit together. It emits
+   a non-durable process-local event after commit; a lost response requires a new pairing session.
 2. **Capture and review:** the mobile client queues a capture and uploads with an idempotency key.
    The API stores a file and document/job metadata. The worker runs OCR and extraction; the review
    API accepts human corrections and approval. Events are sent to local SSE subscribers.

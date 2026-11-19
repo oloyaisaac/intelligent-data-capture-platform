@@ -1,5 +1,18 @@
 import { parsePairingQrPayload } from '@idcp/shared';
 import { createHarness, fakePng, registerAccount, type Harness } from './helpers';
+import { AuditRepository } from '../src/repositories/system-repo';
+import { PairingRepository } from '../src/repositories/device-repo';
+import type { Database } from '../src/db/database';
+
+it('locks the pairing row for PostgreSQL within the transaction', async () => {
+  const one = jest.fn().mockResolvedValue(null);
+  const db = { driver: 'postgres', one } as unknown as Database;
+  await new PairingRepository(db).lockByTokenHash('test-hash');
+  expect(one).toHaveBeenCalledWith(
+    'SELECT * FROM pairing_sessions WHERE token_hash = ? FOR UPDATE',
+    ['test-hash'],
+  );
+});
 
 describe('QR pairing and devices', () => {
   let harness: Harness;
@@ -79,6 +92,82 @@ describe('QR pairing and devices', () => {
     const replay = await completePairing(session.token, 'Phone B');
     expect(replay.statusCode).toBe(422);
     expect(replay.json<{ error: { code: string } }>().error.code).toBe('PAIRING_TOKEN_USED');
+  });
+
+  it('rolls back the claim and device if pairing audit fails', async () => {
+    const account = await registerAccount(harness);
+    const session = await createSession(account.accessToken);
+    const events: string[] = [];
+    const unsubscribe = harness.hub.subscribe({ organisationId: account.organisationId }, (event) =>
+      events.push(event),
+    );
+    const audit = jest
+      .spyOn(AuditRepository.prototype, 'record')
+      .mockRejectedValueOnce(new Error('audit unavailable'));
+    try {
+      expect((await completePairing(session.token)).statusCode).toBe(500);
+      audit.mockRestore();
+      const state = await harness.db.one<{ status: string; device_id: string | null }>(
+        'SELECT status, device_id FROM pairing_sessions WHERE id = ?',
+        [session.id],
+      );
+      expect(state).toEqual({ status: 'pending', device_id: null });
+      const count = await harness.db.one<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM devices WHERE organisation_id = ?',
+        [account.organisationId],
+      );
+      expect(Number(count?.count)).toBe(0);
+      expect(events).not.toContain('device:paired');
+      expect((await completePairing(session.token)).statusCode).toBe(201);
+      expect(events.filter((event) => event === 'device:paired')).toHaveLength(1);
+    } finally {
+      audit.mockRestore();
+      unsubscribe();
+    }
+  });
+
+  it('rolls back a created device if the atomic claim fails', async () => {
+    const account = await registerAccount(harness);
+    const session = await createSession(account.accessToken);
+    const claim = jest.spyOn(PairingRepository.prototype, 'claim').mockResolvedValueOnce(false);
+    try {
+      const response = await completePairing(session.token);
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'PAIRING_TOKEN_USED' } });
+    } finally {
+      claim.mockRestore();
+    }
+    const state = await harness.db.one<{ status: string; device_id: string | null }>(
+      'SELECT status, device_id FROM pairing_sessions WHERE id = ?',
+      [session.id],
+    );
+    expect(state).toEqual({ status: 'pending', device_id: null });
+    const count = await harness.db.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM devices WHERE organisation_id = ?',
+      [account.organisationId],
+    );
+    expect(Number(count?.count)).toBe(0);
+    expect((await completePairing(session.token)).statusCode).toBe(201);
+  });
+
+  it('does not create an extra device when the same token is scanned concurrently', async () => {
+    const account = await registerAccount(harness);
+    const session = await createSession(account.accessToken);
+    const results = await Promise.all([
+      completePairing(session.token, 'Concurrent A'),
+      completePairing(session.token, 'Concurrent B'),
+    ]);
+    expect(results.map((response) => response.statusCode).sort()).toEqual([201, 422]);
+    const count = await harness.db.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM devices WHERE organisation_id = ?',
+      [account.organisationId],
+    );
+    expect(Number(count?.count)).toBe(1);
+    const audits = await harness.db.one<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM audit_logs WHERE organisation_id = ? AND action = 'device.paired'",
+      [account.organisationId],
+    );
+    expect(Number(audits?.count)).toBe(1);
   });
 
   it('rejects an expired pairing token (PAIR-001)', async () => {

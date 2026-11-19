@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHarness, registerAccount, type Harness, type TestAccount } from './helpers';
 import { MarketplaceService } from '../src/services/marketplace-service';
+import { MarketplaceRepository } from '../src/repositories/marketplace-repo';
+import { ConnectorsRepository } from '../src/repositories/connector-repo';
+import { AuditRepository } from '../src/repositories/system-repo';
 import { loadMarketplaceTrust } from '../src/marketplace/load-catalogue';
 import { loadConfig } from '../src/config';
 import type { AuthenticatedActor } from '../src/services/auth-service';
@@ -28,6 +31,12 @@ describe('connector marketplace (MARKET-001)', () => {
   let publicKey: KeyObject;
   let privateKey: KeyObject;
   let catalogue: MarketplacePackage[];
+
+  const repositories = () => ({
+    installs: new MarketplaceRepository(harness.db),
+    connectors: new ConnectorsRepository(harness.db),
+    audit: new AuditRepository(harness.db),
+  });
 
   const signManifest = (pkg: MarketplacePackage): MarketplacePackage => ({
     ...pkg,
@@ -202,7 +211,7 @@ describe('connector marketplace (MARKET-001)', () => {
     it('fails closed with the default unsigned catalogue and no publisher key', async () => {
       const account = await registerAccount(harness);
       const connectorId = await hubspotConnector(account, 'Default untrusted');
-      const service = new MarketplaceService(harness.db, harness.services.logger);
+      const service = new MarketplaceService(repositories(), harness.services.logger);
       const listing = await service.list(actorFor(account));
       const pkg = listing.items.find((entry) => entry.id === 'hubspot-crm')!;
       expect(pkg.signatureVerified).toBe(false);
@@ -340,7 +349,7 @@ describe('connector marketplace (MARKET-001)', () => {
         pkg.id === 'hubspot-crm' ? { ...pkg, signature: null } : pkg,
       );
       const service = new MarketplaceService(
-        harness.db,
+        repositories(),
         harness.services.logger,
         unsigned,
         publicKey,
@@ -350,7 +359,7 @@ describe('connector marketplace (MARKET-001)', () => {
       ).rejects.toThrow(/not signed by a trusted publisher/i);
 
       const tamperedService = new MarketplaceService(
-        harness.db,
+        repositories(),
         harness.services.logger,
         tampered(),
         publicKey,
@@ -368,7 +377,7 @@ describe('connector marketplace (MARKET-001)', () => {
       const v2 = signManifest({ ...base, version: '1.1.0' });
       const actor = actorFor(account);
       const service = new MarketplaceService(
-        harness.db,
+        repositories(),
         harness.services.logger,
         [v1, v2],
         publicKey,
@@ -378,7 +387,7 @@ describe('connector marketplace (MARKET-001)', () => {
       const revoked = signManifest({ ...v1, status: 'revoked', revokedReason: 'Unsafe' });
       for (const activeCatalogue of [[revoked, v2], [v2]]) {
         const changed = new MarketplaceService(
-          harness.db,
+          repositories(),
           harness.services.logger,
           activeCatalogue,
           publicKey,
@@ -404,7 +413,7 @@ describe('connector marketplace (MARKET-001)', () => {
       const v2 = signManifest({ ...base, version: '1.1.0' });
 
       const service = new MarketplaceService(
-        harness.db,
+        repositories(),
         harness.services.logger,
         [v1, v2],
         publicKey,

@@ -9,11 +9,10 @@ import {
 } from '@idcp/shared';
 import { hashIp, hashToken, newToken } from '@idcp/shared/ids';
 import type { Config } from '../config';
-import type { Database } from '../db/database';
 import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
-import { DevicesRepository, PairingRepository } from '../repositories/device-repo';
-import { AuditRepository } from '../repositories/system-repo';
+import type { DevicesRepository, PairingRepository } from '../repositories/device-repo';
+import type { AuditRepository } from '../repositories/system-repo';
 import type { DeviceRow } from '../repositories/types';
 import type { TokenService } from '../auth/tokens';
 import type { AuthenticatedActor } from './auth-service';
@@ -31,21 +30,39 @@ export function toDeviceDto(row: DeviceRow): Device {
   };
 }
 
+export interface PairingTransactionRepositories {
+  pairings: Pick<PairingRepository, 'lockByTokenHash' | 'claim'>;
+  devices: Pick<DevicesRepository, 'create'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
+export interface PairingServiceRepositories {
+  pairings: Pick<PairingRepository, 'create' | 'expireStale' | 'findById'>;
+  devices: Pick<
+    DevicesRepository,
+    'listForOrganisation' | 'rename' | 'findById' | 'revoke' | 'findByCredentialHash' | 'touch'
+  >;
+  audit: Pick<AuditRepository, 'record'>;
+  transaction<T>(run: (repositories: PairingTransactionRepositories) => Promise<T>): Promise<T>;
+}
+
 export class PairingService {
-  private readonly pairings: PairingRepository;
-  private readonly devices: DevicesRepository;
-  private readonly audit: AuditRepository;
+  private readonly pairings: PairingServiceRepositories['pairings'];
+  private readonly devices: PairingServiceRepositories['devices'];
+  private readonly audit: PairingServiceRepositories['audit'];
+  private readonly transaction: PairingServiceRepositories['transaction'];
 
   constructor(
-    db: Database,
+    repositories: PairingServiceRepositories,
     private readonly config: Config,
     private readonly tokens: TokenService,
     private readonly hub: RealtimeHub,
     private readonly logger: Logger,
   ) {
-    this.pairings = new PairingRepository(db);
-    this.devices = new DevicesRepository(db);
-    this.audit = new AuditRepository(db);
+    this.pairings = repositories.pairings;
+    this.devices = repositories.devices;
+    this.audit = repositories.audit;
+    this.transaction = repositories.transaction;
   }
 
   /** PAIR-001: the desktop asks for a short-lived pairing session and renders it as a QR code. */
@@ -94,45 +111,47 @@ export class PairingService {
     context: { ip?: string } = {},
   ): Promise<CompletePairingResponse> {
     await this.pairings.expireStale();
-    const session = await this.pairings.findByTokenHash(hashToken(input.token));
-    if (!session) {
-      throw unprocessable('That pairing code is not valid. Generate a new one on your computer.');
-    }
-    if (session.status === 'completed') {
-      throw new AppError('PAIRING_TOKEN_USED', 'That pairing code has already been used.');
-    }
-    if (session.status === 'expired' || session.expires_at <= nowIso()) {
-      throw new AppError(
-        'PAIRING_TOKEN_EXPIRED',
-        'That pairing code has expired. Generate a new one.',
-      );
-    }
+    const { session, device, credential } = await this.transaction(async (repositories) => {
+      // Wait for any competing claim before checking status and expiration.
+      const session = await repositories.pairings.lockByTokenHash(hashToken(input.token));
+      if (!session) {
+        throw unprocessable('That pairing code is not valid. Generate a new one on your computer.');
+      }
+      if (session.status === 'completed') {
+        throw new AppError('PAIRING_TOKEN_USED', 'That pairing code has already been used.');
+      }
+      if (session.status === 'expired' || session.expires_at <= nowIso()) {
+        throw new AppError(
+          'PAIRING_TOKEN_EXPIRED',
+          'That pairing code has expired. Generate a new one.',
+        );
+      }
 
-    const credential = this.tokens.createDeviceCredential();
-    const device = await this.devices.create({
-      organisationId: session.organisation_id,
-      userId: session.created_by,
-      name: input.device.name,
-      platform: input.device.platform,
-      appVersion: input.device.appVersion ?? null,
-      credentialHash: credential.hash,
-    });
-
-    const claimed = await this.pairings.claim(session.id, device.id);
-    if (!claimed) {
-      // Lost the race against another scan of the same code.
-      throw new AppError('PAIRING_TOKEN_USED', 'That pairing code has already been used.');
-    }
-
-    await this.audit.record({
-      organisationId: session.organisation_id,
-      actorType: 'device',
-      actorId: device.id,
-      action: 'device.paired',
-      targetType: 'device',
-      targetId: device.id,
-      ipHash: context.ip ? hashIp(context.ip) : null,
-      metadata: { platform: device.platform, name: device.name },
+      const credential = this.tokens.createDeviceCredential();
+      const device = await repositories.devices.create({
+        organisationId: session.organisation_id,
+        userId: session.created_by,
+        name: input.device.name,
+        platform: input.device.platform,
+        appVersion: input.device.appVersion ?? null,
+        credentialHash: credential.hash,
+      });
+      const claimed = await repositories.pairings.claim(session.id, device.id);
+      if (!claimed) {
+        // The transaction rolls back this device if another scan won the claim.
+        throw new AppError('PAIRING_TOKEN_USED', 'That pairing code has already been used.');
+      }
+      await repositories.audit.record({
+        organisationId: session.organisation_id,
+        actorType: 'device',
+        actorId: device.id,
+        action: 'device.paired',
+        targetType: 'device',
+        targetId: device.id,
+        ipHash: context.ip ? hashIp(context.ip) : null,
+        metadata: { platform: device.platform, name: device.name },
+      });
+      return { session, device, credential };
     });
 
     this.hub.toOrganisation(session.organisation_id, 'device:paired', {

@@ -36,8 +36,18 @@ import {
   ExtractionsRepository,
 } from '../repositories/document-repo';
 import { AuditRepository, JobsRepository } from '../repositories/system-repo';
-import { MembershipsRepository, OrganisationsRepository } from '../repositories/auth-repo';
+import {
+  MembershipsRepository,
+  OrganisationsRepository,
+  UsersRepository,
+} from '../repositories/auth-repo';
 import { ApiKeysRepository } from '../repositories/apikey-repo';
+import { DashboardRepository } from '../repositories/dashboard-repo';
+import { ConnectorsRepository, ExportsRepository } from '../repositories/connector-repo';
+import { DevicesRepository, PairingRepository } from '../repositories/device-repo';
+import { MarketplaceRepository } from '../repositories/marketplace-repo';
+import { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
+import { BatchesRepository } from '../repositories/batch-repo';
 import { WorkflowRunsRepository, WorkflowsRepository } from '../repositories/workflow-repo';
 
 export interface Services {
@@ -109,19 +119,73 @@ export function buildServices(options: BuildServicesOptions): Services {
 
   const mailer = options.mailer === undefined ? createMailer(config) : options.mailer;
   const auth = new AuthService(db, config, tokens, hasher, logger, secretBox, mailer);
-  const pairing = new PairingService(db, config, tokens, hub, logger);
+  const pairing = new PairingService(
+    {
+      pairings: new PairingRepository(db),
+      devices: new DevicesRepository(db),
+      audit: new AuditRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            pairings: new PairingRepository(tx),
+            devices: new DevicesRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
+    },
+    config,
+    tokens,
+    hub,
+    logger,
+  );
   const documents = new DocumentService(db, config, storage, hub, logger);
-  const batches = new BatchService(db, hub, documents, logger);
+  const batches = new BatchService(
+    {
+      batches: new BatchesRepository(db),
+      documents: new DocumentsRepository(db),
+      projects: new ProjectsRepository(db),
+      audit: new AuditRepository(db),
+    },
+    hub,
+    documents,
+    logger,
+  );
   const projects = new ProjectService(
     { projects: new ProjectsRepository(db), audit: new AuditRepository(db) },
     logger,
   );
-  const reviews = new ReviewService(db, hub, logger);
-  const exports = new ExportService(db, config, storage, hub, logger);
+  const reviews = new ReviewService(
+    {
+      documents: new DocumentsRepository(db),
+      extractions: new ExtractionsRepository(db),
+      reviews: new ReviewsRepository(db),
+      changes: new ReviewChangesRepository(db),
+      audit: new AuditRepository(db),
+      organisations: new OrganisationsRepository(db),
+    },
+    hub,
+    logger,
+  );
+  const exports = new ExportService(
+    {
+      documents: new DocumentsRepository(db),
+      reviews: new ReviewsRepository(db),
+      exports: new ExportsRepository(db),
+      audit: new AuditRepository(db),
+    },
+    config,
+    storage,
+    hub,
+    logger,
+  );
   const connectors = new ConnectorService(db, registry, secretBox, hub, logger);
   const marketplaceTrust = loadMarketplaceTrust(config);
   const marketplace = new MarketplaceService(
-    db,
+    {
+      installs: new MarketplaceRepository(db),
+      connectors: new ConnectorsRepository(db),
+      audit: new AuditRepository(db),
+    },
     logger,
     marketplaceTrust.catalogue,
     marketplaceTrust.publicKey,
@@ -136,7 +200,14 @@ export function buildServices(options: BuildServicesOptions): Services {
     },
     logger,
   );
-  const organisation = new OrganisationService(db);
+  const organisation = new OrganisationService({
+    orgs: new OrganisationsRepository(db),
+    users: new UsersRepository(db),
+    memberships: new MembershipsRepository(db),
+    audit: new AuditRepository(db),
+    jobs: new JobsRepository(db),
+    dashboard: new DashboardRepository(db),
+  });
   const templates = new TemplateService(
     {
       templates: new TemplatesRepository(db),
