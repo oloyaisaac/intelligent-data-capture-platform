@@ -49,18 +49,21 @@ node dist/connector-config-migration.js --check --confirm-offline
 
 For a checkout with dependencies installed, substitute
 `npm run db:connector-config --workspace=@idcp/backend --` for the `node` command. The report has
-counts only: `plaintext` counts legacy rows and `alreadyEncrypted` counts the new format. A check
-exits **2** when any plaintext row remains, **0** when none remain; apply exits **0** on successful
-transaction and **1** on failure. Both check and apply verify that every scanned credential payload
-can be decrypted; apply verifies the persisted config and credential values before committing. A
+counts only: `plaintext` counts legacy rows, `alreadyEncrypted` counts the new format, and
+`sourceKey` counts ciphertexts requiring the supplied source key rather than the target key. These
+counts can overlap. A check exits **2** if plaintext or source-key rows remain, and **0** only when
+neither remains; apply exits **0** on successful transaction and **1** on failure. Both check and
+apply verify that every scanned credential payload can be decrypted; apply rewrites source-key rows
+and verifies all persisted config and credential values using the target key alone before committing. A
 failure rolls back all updates. Errors are intentionally generic to avoid printing secrets. Recheck
 while offline and require zero plaintext rows before deploying the new binary everywhere and
 performing a controlled connector smoke test. Never treat a check on one database as proof for other
 replicas or retained backups.
 
-Already-encrypted configurations are not re-keyed by this command, even when read using a fallback
-key. Use `docs/encryption-key-migration.md` to rotate keys, and keep old keys while needed for
-backups. Configuration migration does not erase plaintext from SQLite pages/WAL, PostgreSQL dead
+Connector configurations encrypted with the supplied source key are re-keyed by this command;
+MFA and other encrypted records are not. Use `docs/encryption-key-migration.md` for the broader
+key-rotation procedure, and keep old keys while needed for backups. Configuration migration does
+not erase plaintext from SQLite pages/WAL, PostgreSQL dead
 tuples/WAL/replicas, snapshots, logs, exports or backups. Follow the appropriate platform-specific
 secure disposal and retention procedures; rotating affected credentials is often necessary.
 

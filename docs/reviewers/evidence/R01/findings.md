@@ -135,3 +135,14 @@ The SMTP transport factory also moved from the service layer to `adapters/smtp-m
 SMTP/auth tests passed using a local fixture, and a static service-layer check rejects direct
 `nodemailer` imports. This does not prohibit dynamic imports, make SMTP acceptance a delivery
 receipt, prove a production mail server, or establish the rest of P5.
+
+### ARC-023 update — offline-only source key rollout hazard
+
+A synthetic SQLite CLI regression exposed a migration-check gap: a new-format connector envelope
+could be readable only with `ENCRYPTION_MIGRATION_SOURCE_KEY`, not the runtime's target or JWT
+fallback, yet `--check` returned exit 0. The check now counts source-key ciphertexts and exits 2;
+apply re-encrypts both legacy configurations and new-format source-key envelopes, verifies all
+values with the target key alone in the transaction, and a later check requires both counts to be
+zero. `connector-config-migration.test.ts` reproduces the prior false clean result and tests the
+corrected CLI. This is synthetic and does not migrate MFA or prove a production rollout. Historical
+backups still require their original keys. ARC-023 and independent security review remain open.

@@ -35,11 +35,14 @@ async function main(): Promise<void> {
         transaction: (run) =>
           db.transaction((tx) => run(new ConnectorConfigMigrationRepository(tx))),
       },
-      createSecretBox(config.ENCRYPTION_KEY, sourceSecret),
+      {
+        read: createSecretBox(config.ENCRYPTION_KEY, sourceSecret),
+        target: createSecretBox(config.ENCRYPTION_KEY),
+      },
       mode,
     );
     console.log(JSON.stringify(report));
-    if (mode === 'check' && report.plaintext > 0) process.exitCode = 2;
+    if (mode === 'check' && (report.plaintext > 0 || report.sourceKey > 0)) process.exitCode = 2;
   } finally {
     await db.close();
   }

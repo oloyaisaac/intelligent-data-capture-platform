@@ -570,3 +570,19 @@ $ npm run verify
 Test Suites: 1 skipped, 60 passed, 60 of 61 total
 Tests:       4 skipped, 630 passed, 634 total
 [exit 0; PostgreSQL skipped locally; P6/P8 remain unmet]
+
+# Offline connector-config migration target-key verification (current worktree)
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-config-migration.test.ts
+[exit 1 before fix: source-key-only new-format row incorrectly produced clean exit 0]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-config-migration.test.ts apps/backend/test/encryption-migration.test.ts
+Test Suites: 2 passed, 2 total; Tests: 12 passed, 12 total
+[exit 0; synthetic data; CLI subprocess uses SQLite]
+$ npm run typecheck --workspace @idcp/backend
+[exit 0]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-config-migration.test.ts
+Test Suites: 1 passed, 1 total; Tests: 6 passed, 6 total
+[exit 0; includes a driver-backed target-key re-encryption case]
+$ npm run verify
+Test Suites: 1 skipped, 60 passed, 60 of 61 total
+Tests:       4 skipped, 632 passed, 636 total
+[exit 0; PostgreSQL skipped locally]

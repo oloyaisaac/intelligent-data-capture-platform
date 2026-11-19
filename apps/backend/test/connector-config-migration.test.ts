@@ -9,7 +9,7 @@ function migrate(db: Database, box: ReturnType<typeof createSecretBox>, mode: 'c
     {
       transaction: (run) => db.transaction((tx) => run(new ConnectorConfigMigrationRepository(tx))),
     },
-    box,
+    { read: box, target: box },
     mode,
   );
 }
@@ -45,6 +45,7 @@ it('checks, migrates and verifies legacy configurations without changing credent
       mode: 'check',
       alreadyEncrypted: 1,
       plaintext: 1,
+      sourceKey: 0,
     });
     const before = await harness.db.one<{ config: string }>(
       'SELECT config FROM connectors WHERE id = ?',
@@ -55,6 +56,7 @@ it('checks, migrates and verifies legacy configurations without changing credent
       mode: 'apply',
       alreadyEncrypted: 1,
       plaintext: 1,
+      sourceKey: 0,
     });
     const row = await harness.db.one<{ config: string; credentials_encrypted: string }>(
       'SELECT config, credentials_encrypted FROM connectors WHERE id = ?',
@@ -70,11 +72,13 @@ it('checks, migrates and verifies legacy configurations without changing credent
       mode: 'check',
       alreadyEncrypted: 2,
       plaintext: 0,
+      sourceKey: 0,
     });
     expect(await migrate(harness.db, box, 'apply')).toEqual({
       mode: 'apply',
       alreadyEncrypted: 2,
       plaintext: 0,
+      sourceKey: 0,
     });
   } finally {
     await harness.close();
@@ -209,5 +213,130 @@ it('requires an offline acknowledgement and gates a SQLite rollout until configs
     expect(JSON.parse(final.stdout).plaintext).toBe(0);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it('does not report a clean migration while new-format config needs an offline-only source key', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const { SqliteDatabase } = await import('../src/db/sqlite');
+  const { applyMigrations } = await import('../src/db/migrations');
+  const { encodeConnectorConfig } = await import('../src/services/connector-config');
+  const directory = await mkdtemp(join(tmpdir(), 'idcp-config-key-migration-'));
+  const path = join(directory, 'db.sqlite');
+  const target = 'target-encryption-key-0123456789abcdef';
+  const source = 'old-external-source-key-0123456789abcdef';
+  const jwt = 'different-runtime-jwt-key-0123456789abcdef';
+  const db = new SqliteDatabase({ path });
+  try {
+    await applyMigrations(db);
+    const now = new Date().toISOString();
+    await db.execute(
+      'INSERT INTO organisations (id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      ['org', 'Test', 'test', now, now],
+    );
+    const parts = {
+      config: { secret: 'source-only-secret' },
+      credentials: { token: 'source-only-token' },
+    };
+    const encoded = encodeConnectorConfig(createSecretBox(source), 'org', parts);
+    await db.execute(
+      `INSERT INTO connectors (id, organisation_id, type, name, config, credentials_encrypted, created_at, updated_at) VALUES (?, ?, 'csv', 'fixture', ?, ?, ?, ?)`,
+      ['one', 'org', JSON.stringify(encoded.config), encoded.credentialsEncrypted, now, now],
+    );
+    await db.close();
+    const root = join(__dirname, '../../..');
+    const cli = join(root, 'apps/backend/src/db/connector-config-migration-cli.ts');
+    const tsx = join(root, 'node_modules/tsx/dist/cli.mjs');
+    const run = (...args: string[]) =>
+      spawnSync(process.execPath, [tsx, cli, ...args], {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_ENV: 'test',
+          DB_DRIVER: 'sqlite',
+          SQLITE_PATH: path,
+          JWT_SECRET: jwt,
+          ENCRYPTION_KEY: target,
+          ENCRYPTION_MIGRATION_SOURCE_KEY: source,
+        },
+      });
+    const check = run('--check', '--confirm-offline');
+    expect(check.status).toBe(2);
+    expect(JSON.parse(check.stdout)).toMatchObject({ plaintext: 0, sourceKey: 1 });
+    expect(run('--apply', '--confirm-offline').status).toBe(0);
+    const final = run('--check', '--confirm-offline');
+    expect(final.status).toBe(0);
+    expect(JSON.parse(final.stdout)).toMatchObject({ plaintext: 0, sourceKey: 0 });
+    const verified = new SqliteDatabase({ path });
+    try {
+      const row = await verified.one<{ credentials_encrypted: string }>(
+        'SELECT credentials_encrypted FROM connectors WHERE id = ?',
+        ['one'],
+      );
+      expect(
+        JSON.parse(createSecretBox(target).decrypt(row!.credentials_encrypted, 'org')),
+      ).toEqual(parts);
+    } finally {
+      await verified.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('re-keys source-only new-format envelopes within the database transaction', async () => {
+  const harness = await createHarness();
+  try {
+    const account = await registerAccount(harness);
+    const source = 'source-envelope-key-0123456789abcdef';
+    const target = 'target-envelope-key-0123456789abcdef';
+    const { encodeConnectorConfig } = await import('../src/services/connector-config');
+    const parts = { config: { secret: 'source-config' }, credentials: { token: 'source-token' } };
+    const encoded = encodeConnectorConfig(createSecretBox(source), account.organisationId, parts);
+    const now = new Date().toISOString();
+    await harness.db.execute(
+      `INSERT INTO connectors (id, organisation_id, type, name, config, credentials_encrypted, created_at, updated_at) VALUES (?, ?, 'csv', 'source', ?, ?, ?, ?)`,
+      [
+        'source-row',
+        account.organisationId,
+        JSON.stringify(encoded.config),
+        encoded.credentialsEncrypted,
+        now,
+        now,
+      ],
+    );
+    const transaction = {
+      transaction: <T>(run: (records: ConnectorConfigMigrationRepository) => Promise<T>) =>
+        harness.db.transaction((tx) => run(new ConnectorConfigMigrationRepository(tx))),
+    };
+    const boxes = { read: createSecretBox(target, source), target: createSecretBox(target) };
+    expect(await migrateConnectorConfigs(transaction, boxes, 'check')).toMatchObject({
+      plaintext: 0,
+      alreadyEncrypted: 1,
+      sourceKey: 1,
+    });
+    expect(await migrateConnectorConfigs(transaction, boxes, 'apply')).toMatchObject({
+      plaintext: 0,
+      alreadyEncrypted: 1,
+      sourceKey: 1,
+    });
+    expect(await migrateConnectorConfigs(transaction, boxes, 'check')).toMatchObject({
+      plaintext: 0,
+      alreadyEncrypted: 1,
+      sourceKey: 0,
+    });
+    const row = await harness.db.one<{ credentials_encrypted: string }>(
+      'SELECT credentials_encrypted FROM connectors WHERE id = ?',
+      ['source-row'],
+    );
+    expect(
+      JSON.parse(boxes.target.decrypt(row!.credentials_encrypted, account.organisationId)),
+    ).toEqual(parts);
+  } finally {
+    await harness.close();
   }
 });

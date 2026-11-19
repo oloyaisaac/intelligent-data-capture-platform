@@ -234,3 +234,8 @@ does not establish the full P5 passing condition.
 The SMTP mailer implementation now resides in an adapter module, while the service layer retains
 only its mailer interface and the composition root selects the implementation. Local SMTP fixture
 and auth tests pass; this is another partial P5 seam, not a production delivery test or sign-off.
+
+The offline connector-config check previously could return clean for an envelope decryptable only
+with an offline source key unavailable at runtime. It now reports source-key rows, requires them to
+be migrated, and verifies the result using the target key alone. This covers connector data only;
+MFA and historical backups still need the separate key-rotation procedure.
