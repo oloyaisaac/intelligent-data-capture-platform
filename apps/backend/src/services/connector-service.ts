@@ -342,27 +342,28 @@ export class ConnectorService {
             keys,
             reviewedFields: reviewed,
           });
-          writeResult = await connector.update!(
-            [{ values: merged.values }],
-            keys,
-            this.resolveConfig(connectorRow),
-            context,
+          writeResult = safeWriteResult(
+            await connector.update!(
+              [{ values: merged.values }],
+              keys,
+              this.resolveConfig(connectorRow),
+              context,
+            ),
           );
           summary = merged.conflicts.length
             ? `${writeResult.summary}; kept ${merged.conflicts.length} reviewed value(s)`
             : writeResult.summary;
           status = 'succeeded';
         } else if (matchedRow && policy === 'update') {
-          writeResult = await connector.update!(
-            [record],
-            keys,
-            this.resolveConfig(connectorRow),
-            context,
+          writeResult = safeWriteResult(
+            await connector.update!([record], keys, this.resolveConfig(connectorRow), context),
           );
           status = 'succeeded';
           summary = writeResult.summary;
         } else {
-          writeResult = await connector.create([record], this.resolveConfig(connectorRow), context);
+          writeResult = safeWriteResult(
+            await connector.create([record], this.resolveConfig(connectorRow), context),
+          );
           status = 'succeeded';
           summary = `${writeResult.summary}`;
         }
@@ -577,6 +578,25 @@ export class ConnectorService {
       },
     };
   }
+}
+
+/** Never persist or return connector-supplied free text or extra properties on successful writes. */
+function safeWriteResult(value: unknown): ConnectorWriteResult {
+  if (!value || typeof value !== 'object') throw new Error('Invalid connector write result');
+  const result = value as Record<string, unknown>;
+  const counts = [result.created, result.updated, result.skipped];
+  if (
+    !counts.every((count) => typeof count === 'number' && Number.isSafeInteger(count) && count >= 0)
+  ) {
+    throw new Error('Invalid connector write counts');
+  }
+  const [created, updated, skipped] = counts as [number, number, number];
+  return {
+    created,
+    updated,
+    skipped,
+    summary: `Destination reported ${created} created, ${updated} updated, and ${skipped} skipped.`,
+  };
 }
 
 export function toMappingDto(row: MappingProfileRow) {

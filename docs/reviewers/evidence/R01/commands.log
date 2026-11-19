@@ -480,3 +480,15 @@ $ node --version; npm --version
 v22.22.3
 10.9.8
 [exit 0]
+
+# PR #30 connector write-success boundary and plaintext-config characterization (current worktree)
+$ npm run typecheck --workspace @idcp/backend
+[exit 0]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-config-risk.test.ts
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+[exit 0; characterizes known exposure, not a security pass]
+$ npm run verify
+Test Suites: 1 skipped, 55 passed, 55 of 56 total
+Tests:       4 skipped, 619 passed, 623 total
+[exit 0; local PostgreSQL suite skipped; verification is not R01 sign-off]

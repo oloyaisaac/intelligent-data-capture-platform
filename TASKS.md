@@ -200,3 +200,10 @@ elapsed-time, PostgreSQL crash behavior or all crash points. A document with no 
 can now be explicitly reprocessed even if its status was left queued or processing; concurrent
 repairs serialize on the document lock. A job still marked running remains a blocker, not proof of
 safe automatic recovery.
+
+R01 connector boundary review found ARC-023: connector `config` is stored and returned as plaintext,
+and HubSpot currently requires its token there even if `credentials` is supplied. A synthetic
+characterization test reproduces the exposure; it is not a fix. Review existing records, backups and
+credential rotation, and design a connector-specific secret contract and migration before production
+use. Successful connector write results now discard untrusted summary text and validate counts, but
+schema/preview output, historical records and in-process connector isolation remain open.

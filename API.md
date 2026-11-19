@@ -286,7 +286,7 @@ Every change is stored in `review_changes` with the actor and the previous value
 | POST     | `/exports`               | Create an export job (`format`: `xlsx` \| `csv`, plus filters) |
 | GET      | `/exports/:id`           | Status + expiring download URL                                 |
 | GET      | `/exports`               | Export history                                                 |
-| GET      | `/connectors`            | List connectors (secrets never returned)                       |
+| GET      | `/connectors`            | List connectors (config is returned; see security warning)     |
 | POST     | `/connectors`            | Create connector                                               |
 | PATCH    | `/connectors/:id`        | Update or disable                                              |
 | DELETE   | `/connectors/:id`        | Remove connector and its credentials                           |
@@ -295,6 +295,11 @@ Every change is stored in `review_changes` with the actor and the previous value
 | GET/POST | `/mapping-profiles`      | List/create mapping profiles                                   |
 | PATCH    | `/mapping-profiles/:id`  | Update mapping, duplicate policy                               |
 | POST     | `/documents/:id/send`    | Send an approved record through a connector                    |
+
+**Connector security warning:** `config` is stored and returned as plaintext. The separate
+`credentials` field is encrypted and omitted from responses, but connector validation currently
+examines only `config`; HubSpot therefore requires its token there. Do not configure real HubSpot
+tokens through this path until the issue is fixed. See `SECURITY.md` and R01 finding ARC-023.
 
 `POST /documents/:id/send`
 

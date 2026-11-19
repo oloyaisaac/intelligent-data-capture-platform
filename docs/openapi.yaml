@@ -1363,7 +1363,8 @@ paths:
   /connectors:
     get:
       tags: [Connectors]
-      summary: Configured connectors (credentials are never returned)
+      summary: Configured connectors
+      description: The encrypted credentials field is not returned, but secrets placed in config are stored and returned as plaintext; see SECURITY.md and R01 ARC-023.
       operationId: listConnectors
       responses:
         '200': { description: Connectors }

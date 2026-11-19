@@ -44,8 +44,16 @@ compatibility changes and limitations.
 - All configuration comes from environment variables (see `.env.example`).
 - Production secrets live in the platform's secret manager, injected at deploy time — never in the repository or a built artefact.
 - Secrets are separated per environment (dev/staging/production) and rotated on suspected exposure.
-- Secrets are **never** logged, never returned by the API and never included in error messages.
-- Connector credentials are stored encrypted (`connectors.credentials_encrypted`), decrypted only in the worker at the moment of use.
+- Secrets must not be logged, returned by the API or included in error messages. This is a security
+  requirement, **not an established guarantee**; see the connector configuration exception below
+  and R01 findings ARC-016, ARC-017 and ARC-023.
+- Values supplied in the connector `credentials` field are encrypted in
+  `connectors.credentials_encrypted` and decrypted in the backend when used. **Known gap:** values
+  supplied in `config` are stored as plaintext and returned to authenticated organisation users.
+  HubSpot validation currently requires its token in `config` even if it is supplied in
+  `credentials`. Do not configure real HubSpot tokens through this path until fixed. Review access
+  to connector listings and database backups, and assess rotation of any exposed credentials.
+  Other connector config fields, including database connection strings, require the same review.
 - If a secret is committed by mistake: rotate it immediately, purge it from history, and record the incident.
 
 ## 4. Authentication

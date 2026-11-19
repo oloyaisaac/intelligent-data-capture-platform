@@ -1,7 +1,7 @@
 # R01 findings — interim register
 
-**Incomplete:** this is not the full R01 review, a G1 decision or reviewer sign-off. Evidence refers
-to the current worktree based on `82f17699069c4b27eefb635f6328b389f20f23ba`. No named
+**Incomplete:** this is not the full R01 review, a G1 decision or reviewer sign-off. Findings
+span multiple revisions; later updates identify the relevant revision or current worktree. No named
 owner has accepted these findings or provided a dated exception.
 
 | ID      | Severity | Evidence                                                                                                                                              | Finding and impact                                                                                                                                                                                                                                                                                                                                                             | Reproduce / next action                                                                                                                                                                                                                                                                     | Owner                                             |
@@ -42,5 +42,33 @@ concurrent-repair, lock-interleaving, active-job and audit-rollback regressions 
 SIGKILL subprocess test additionally covers one SQLite crash point during publication and recovery
 after artificially aging the claim; it does not establish crash safety generally. Older or manually
 inserted overlapping jobs, cross-job review races, duplicate OCR cost, nondurable events, retention
-and owner/lease semantics remain unproven. The preceding implementation passed PostgreSQL CI on
-`50470a4`; the revised repair locking needs its own CI run. P6 remains open.
+and owner/lease semantics remain unproven. The revised repair locking and subprocess test passed CI on `e115a8e`, including the PostgreSQL
+suite; the subprocess crash test itself uses SQLite. P6 remains open.
+
+### ARC-017 update — connector write success values
+
+Create, update and merge results are now reduced to validated nonnegative safe-integer counts and a
+locally generated summary; connector-supplied summary text and extra properties are not persisted or
+returned. Invalid results fail with the existing warning to check the destination, which may already
+have changed. `connector-success-boundary.test.ts` exercises create and update, invalid counts, run
+records and the supplied logger with a synthetic secret. This does not prevent intentional numeric
+covert channels or direct in-process access, sanitize successful schema/duplicate-preview data,
+clean historical rows, or establish process isolation. ARC-017 and P8 remain open.
+
+### ARC-023 — HIGH: plaintext secrets in connector configuration
+
+`ConnectorService.create` validates only `config` and stores it as plaintext; `toConnectorDto`
+returns that config. HubSpot's validation requires a `token` in config even when a token is supplied
+in the separately encrypted `credentials` field. `connector-config-risk.test.ts` characterizes the
+issue with a synthetic token, demonstrating a 400 for credentials-only creation, followed by token
+exposure in the stored row, creation response and connector list. This test records a defect and
+must be replaced with a security regression when fixed, not treated as an acceptable contract.
+Other connectors accept secrets in config (including SQL connection strings), and arbitrary config
+cannot reliably be sanitized by matching a few key names. Existing rows, historical responses,
+logs and backups may already contain secrets. Owners should assess access and rotation.
+
+A fix requires an explicit connector-specific public/secret configuration contract, validation of
+the merged effective config, secure create and patch semantics, an atomic migration and rollback
+plan for existing rows, consistent precedence, and tests for old and new records and all connector
+types. Merely changing documentation, hiding some DTO keys or encrypting the separate credentials
+field does not resolve this exposure. Owner: unassigned; backend security and connector owners.
