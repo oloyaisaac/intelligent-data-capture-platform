@@ -53,7 +53,8 @@ it('observes shared sessions but separate limiters and SSE across two API replic
         stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
-          NODE_ENV: 'test',
+          // Test mode defaults to per-process MemoryStorage, not the shared filesystem adapter.
+          NODE_ENV: 'development',
           DB_DRIVER: 'sqlite',
           SQLITE_PATH: path,
           STORAGE_DRIVER: 'filesystem',
@@ -176,6 +177,13 @@ it('observes shared sessions but separate limiters and SSE across two API replic
         })
       ).status,
     ).toBe(200);
+    const file = await fetch(`${bases[1]}/documents/${first.id}/file`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(file.status).toBe(200);
+    expect(Buffer.from(await file.arrayBuffer())).toEqual(
+      Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+    );
 
     const wrong = { email, password: 'wrong password' };
     expect((await request(bases[0]!, '/auth/login', wrong)).status).toBe(401);

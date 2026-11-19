@@ -41,7 +41,12 @@ Convention: `DEC-###` · status `Proposed | Accepted | Superseded by DEC-###`.
 
 **Alternatives considered:** MongoDB (flexible documents, weaker multi-entity consistency and reporting); Firebase Firestore (fast start, but vendor lock-in, weak relational queries and costly audit/reporting patterns); SQLite only (fine for a local desktop mode, not for multi-tenant hosting).
 
-**Consequences:** Requires migrations (Prisma) and a hosted database in production. SQLite may still be used for a future local-only desktop mode.
+**Consequences (historical):** Requires migrations (Prisma) and a hosted database in production. SQLite may still be used for a future local-only desktop mode.
+
+**Implementation note:** Prisma was not adopted; handwritten migrations and both database drivers
+are described in DEC-013. SQLite is the current local default, and the PostgreSQL path is exercised
+in CI. The shared schema stores UDM JSON as text; JSONB and a hosted production deployment are not
+established by this decision.
 
 ---
 
@@ -103,7 +108,11 @@ Convention: `DEC-###` · status `Proposed | Accepted | Superseded by DEC-###`.
 
 **Alternatives considered:** Synchronous processing (simpler, times out on large documents, poor mobile experience).
 
-**Consequences:** Need a queue (Redis-backed), job status transitions, and per-item status visible in mobile and desktop. Every job status change is bounded by the states in `DATABASE.md`.
+**Consequences (historical):** Need a queue (Redis-backed), job status transitions, and per-item status visible in mobile and desktop. Every job status change is bounded by the states in `DATABASE.md`.
+
+**Implementation note:** The shipped queue uses the database jobs table, not Redis (DEC-029).
+Upload idempotency and atomic job claims do not establish exactly-once job effects; stale recovery
+can requeue live work and multiple workers are not supported.
 
 ---
 
@@ -128,6 +137,10 @@ Convention: `DEC-###` · status `Proposed | Accepted | Superseded by DEC-###`.
 **Alternatives considered:** Storing blobs in PostgreSQL (simple but bloats backups and hurts performance); local disk (not durable or scalable).
 
 **Consequences:** Deletion must purge both storage objects and rows (`SEC-001`). Access to objects is always brokered through the API, never public buckets.
+
+**Implementation note:** The current storage adapter uses a local filesystem, not S3; selecting S3
+fails configuration validation. Lifecycle rules, encryption at rest and complete deletion are not
+established by this decision. See `ARCHITECTURE.md` and `docs/backup-restore.md` for limitations.
 
 ---
 
@@ -181,6 +194,12 @@ repositories on SQLite so the divergence is caught. There is no Prisma, so migra
 hand-written and reviewed rather than generated. Postgres-specific behaviour (concurrent writes,
 JSONB query performance, connection pooling) is exercised only in production until a Postgres service
 exists in CI.
+
+**Implementation note:** The preceding text is historical: the PostgreSQL backend suite now runs
+in CI. Queries use `RETURNING` where supported by both current drivers and some repository queries
+branch on the database driver for PostgreSQL row locks; see `repositories/device-repo.ts` and
+`repositories/privacy-repo.ts`. The database port exposes the driver name. CI is not evidence of a
+production deployment or of JSONB performance.
 
 ---
 

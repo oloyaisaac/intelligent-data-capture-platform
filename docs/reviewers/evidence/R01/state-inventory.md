@@ -20,7 +20,8 @@ connection, request-buffer, timer, client and operating-system state still requi
 `apps/backend/test/replica-process.test.ts` launches two actual backend subprocesses with workers and
 maintenance disabled, sharing a synthetic SQLite file, filesystem storage and signing key. It
 registers via A, signs in via B, uses B's access token on A, uploads on both, and observes each
-replica's own SSE event but not the other replica's event in a short observation window. It also
-exhausts a two-attempt login limit on A and observes that B still accepts another attempt. This is
+replica's own SSE event but not the other replica's event in a short observation window. It verifies
+that B can read the file uploaded on A from the shared filesystem. It also exhausts a two-attempt
+login limit on A and observes that B still accepts another attempt. This is
 a focused demonstration of process-local differences, not proof of all replica behaviours, an
 exhaustive inventory, a load test, or the required two-worker 20-document exercise.
