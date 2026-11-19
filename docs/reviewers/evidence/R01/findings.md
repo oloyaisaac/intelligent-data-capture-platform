@@ -120,3 +120,12 @@ and the API process exits with the fixture's code before sending a response. Thi
 reproduction of P8 failure, not a successful isolation test; it exercises SQLite and a synthetic
 in-process connector. A separately enforced process/security boundary and review of privileges,
 resource limits, network access and external effects are still required.
+
+### ARC-015 update — OCR provider composition
+
+Concrete cloud and Tesseract provider selection moved from the extraction pipeline into
+`services/container.ts`. `provider-composition.test.ts` checks selection, injection of a fake
+provider and absence of direct concrete-provider imports in the pipeline; focused AI tests also
+pass. This is one adapter seam, not proof that every adapter is composed in a single root. Database
+and HTTP factories and offline migration entry points remain separate, and broader P5 review is
+still required. No real cloud request or OCR engine was tested by this change.

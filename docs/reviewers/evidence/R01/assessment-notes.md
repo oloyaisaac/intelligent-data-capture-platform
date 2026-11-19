@@ -13,10 +13,10 @@ remain incomplete.
    release compatibility and the broad `Services` object still require engineering judgement.
 2. **Only one composition root?** No. `services/container.ts` assembles most service dependencies,
    but `index.ts` calls the database and HTTP factories, `db/index.ts` selects and constructs
-   database adapters, `ai/pipeline.ts` constructs OCR providers, and the offline encryption-migration
-   CLI composes its own transaction repository. The realtime route now uses an optional port
-   capability instead of casting to the in-memory hub; service-level repository injection is also
-   progress, but neither establishes P5.
+   database adapters, and the offline migration CLIs compose their own transaction repositories.
+   OCR provider construction has moved from `ai/pipeline.ts` to `services/container.ts`; the pipeline
+   now receives only the provider port. The realtime route uses an optional port capability rather
+   than casting to the in-memory hub. These improvements do not by themselves establish P5.
 3. **Ten API replicas?** There is no validated order of failure under load; likely first-visible
    divergences depend on traffic routing. With process-local storage, a replica may not find a file
    uploaded elsewhere. Even on shared filesystem storage, SSE reaches only the emitting process's

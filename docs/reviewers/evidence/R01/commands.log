@@ -548,3 +548,14 @@ $ npm run verify
 Test Suites: 1 skipped, 59 passed, 59 of 60 total
 Tests:       4 skipped, 627 passed, 631 total
 [exit 0; PostgreSQL skipped locally; fatal-connector and stale-worker tests characterize defects]
+
+# OCR provider composition (current worktree)
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/provider-composition.test.ts apps/backend/test/ai.test.ts apps/backend/test/composition.test.ts
+Test Suites: 3 passed, 3 total; Tests: 36 passed, 36 total
+[exit 0; no real provider used]
+$ npm run typecheck --workspace @idcp/backend
+[exit 0]
+$ npm run verify
+Test Suites: 1 skipped, 60 passed, 60 of 61 total
+Tests:       4 skipped, 629 passed, 633 total
+[exit 0; PostgreSQL skipped locally; characterization tests do not prove P6/P8]

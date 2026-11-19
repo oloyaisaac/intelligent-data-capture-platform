@@ -10,8 +10,6 @@ import {
 import type { Logger } from '../logger';
 import { classifyDocument } from './classify';
 import { extractFromText } from './extract';
-import { CloudVisionProvider } from './providers/cloud';
-import { TesseractProvider } from './providers/tesseract';
 import type { OcrProvider, OcrWord } from './providers/types';
 
 export interface PipelineInput {
@@ -120,27 +118,5 @@ export async function runExtractionPipeline(
     costMicros: ocr.costMicros,
     ocrText: ocr.text,
     words: ocr.words,
-  };
-}
-
-/** Chooses the OCR provider for the current configuration (AI-004). */
-export function createProviderFactory(config: {
-  AI_PROVIDER: 'local' | 'cloud';
-  TESSERACT_BIN: string;
-  AI_CLOUD_ENDPOINT?: string;
-  AI_CLOUD_API_KEY?: string;
-  AI_CLOUD_MODEL: string;
-  AI_MAX_COST_MICROS_PER_DOC: number;
-}): () => OcrProvider {
-  return () => {
-    if (config.AI_PROVIDER === 'cloud') {
-      return new CloudVisionProvider({
-        endpoint: config.AI_CLOUD_ENDPOINT as string,
-        apiKey: config.AI_CLOUD_API_KEY as string,
-        model: config.AI_CLOUD_MODEL,
-        maxCostMicrosPerDocument: config.AI_MAX_COST_MICROS_PER_DOC,
-      });
-    }
-    return new TesseractProvider(config.TESSERACT_BIN);
   };
 }

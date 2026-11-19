@@ -7,7 +7,8 @@ import { MemoryStorage, type Storage, FilesystemStorage } from '../storage';
 import { createTokenService, AttemptLimiter, type TokenService } from '../auth/tokens';
 import { argon2Hasher, type PasswordHasher } from '../auth/password';
 import { InMemoryRealtimeHub, type RealtimeHub } from '../realtime/hub';
-import { createProviderFactory } from '../ai/pipeline';
+import { CloudVisionProvider } from '../ai/providers/cloud';
+import { TesseractProvider } from '../ai/providers/tesseract';
 import type { OcrProvider } from '../ai/providers/types';
 import { createSecretBox, type SecretBox } from './crypto';
 import { AuthService } from './auth-service';
@@ -106,6 +107,19 @@ export interface BuildServicesOptions {
   mailer?: Mailer | null;
 }
 
+/** Concrete OCR adapters are selected at the composition root, not in the domain pipeline. */
+export function createOcrProvider(config: Config): OcrProvider {
+  if (config.AI_PROVIDER === 'cloud') {
+    return new CloudVisionProvider({
+      endpoint: config.AI_CLOUD_ENDPOINT as string,
+      apiKey: config.AI_CLOUD_API_KEY as string,
+      model: config.AI_CLOUD_MODEL,
+      maxCostMicrosPerDocument: config.AI_MAX_COST_MICROS_PER_DOC,
+    });
+  }
+  return new TesseractProvider(config.TESSERACT_BIN);
+}
+
 export function buildServices(options: BuildServicesOptions): Services {
   const { config, db } = options;
   const logger = options.logger ?? createLogger({ level: config.LOG_LEVEL });
@@ -113,7 +127,7 @@ export function buildServices(options: BuildServicesOptions): Services {
     options.storage ??
     (config.NODE_ENV === 'test' ? new MemoryStorage() : new FilesystemStorage(config.STORAGE_PATH));
   const hub = options.hub ?? new InMemoryRealtimeHub(logger);
-  const provider = options.provider ?? createProviderFactory(config)();
+  const provider = options.provider ?? createOcrProvider(config);
   const hasher = options.hasher ?? argon2Hasher;
 
   const tokens = createTokenService({

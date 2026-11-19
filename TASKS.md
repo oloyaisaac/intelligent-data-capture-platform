@@ -225,3 +225,8 @@ using an artificially aged timestamp. P6 and P8 remain unmet; see R01 findings a
 A disposable API subprocess regression now demonstrates ARC-014 directly: a synthetic connector
 can terminate its host via `process.exit` while handling a health check. Ordinary thrown-exception
 tests do not address this; P8 requires a separately enforced isolation boundary and remains unmet.
+
+R01 P5 partial progress: concrete OCR provider construction now belongs to the service composition
+root rather than the extraction pipeline. Focused tests cover provider selection, fake injection
+and the pipeline import boundary. Other factories and offline entry points remain separate; this
+does not establish the full P5 passing condition.
