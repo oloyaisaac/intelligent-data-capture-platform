@@ -22,7 +22,8 @@ No reviewer completion file has been created. The protocol requires every assign
 be completed before one can be written. Existing programme gates remain unapproved until their
 required evidence and sign-offs are complete. The R01 Madge scan using `tsconfig.base.json`
 reported no cycles in 221 processed files and no skipped-file warnings; it supersedes the earlier
-scan that skipped `@idcp/shared/ids`. The declared internal dependency edges are acyclic; interim
+scan that skipped `@idcp/shared/ids`. A later scan processed 237 files with no cycles or skipped-file
+warnings. The declared internal dependency edges are acyclic; interim
 evidence is recorded in `docs/reviewers/evidence/R01/dependency-graph.md`. These results do not prove
 that dynamic imports, external packages or undeclared cross-workspace dependencies have been fully
 assessed.
@@ -220,3 +221,7 @@ text with local guidance; schema responses validate their shape and strip extra 
 historical errors and connector-controlled schema strings/preview values remain unsanitized. A
 separate two-process SQLite test now reproduces live-claim recovery and duplicate synthetic OCR
 using an artificially aged timestamp. P6 and P8 remain unmet; see R01 findings and recovery design.
+
+A disposable API subprocess regression now demonstrates ARC-014 directly: a synthetic connector
+can terminate its host via `process.exit` while handling a health check. Ordinary thrown-exception
+tests do not address this; P8 requires a separately enforced isolation boundary and remains unmet.

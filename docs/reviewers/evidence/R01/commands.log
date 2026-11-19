@@ -531,3 +531,20 @@ $ npm run verify
 Test Suites: 1 skipped, 58 passed, 58 of 59 total
 Tests:       4 skipped, 626 passed, 630 total
 [exit 0; PostgreSQL skipped locally; stale-process test characterizes a defect]
+$ npx --yes madge@8 --circular --extensions ts,tsx --ts-config tsconfig.base.json apps packages
+Processed 235 files (2.5s)
+No circular dependency found!
+[exit 0; static scan does not prove absence of dynamic dependencies]
+$ npm test -- --runInBand --selectProjects backend --runTestsByPath apps/backend/test/connector-fatal-process.test.ts
+Test Suites: 1 passed, 1 total; Tests: 1 passed, 1 total
+[exit 0; test demonstrates host termination and P8 failure]
+$ npm run typecheck --workspace @idcp/backend
+[exit 0]
+$ npx --yes madge@8 --circular --extensions ts,tsx --ts-config tsconfig.base.json --warning apps packages
+Processed 237 files (2.5s)
+No circular dependency found!
+[exit 0; no skipped-file warnings emitted; static scan does not prove dynamic dependencies]
+$ npm run verify
+Test Suites: 1 skipped, 59 passed, 59 of 60 total
+Tests:       4 skipped, 627 passed, 631 total
+[exit 0; PostgreSQL skipped locally; fatal-connector and stale-worker tests characterize defects]

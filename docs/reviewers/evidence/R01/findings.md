@@ -111,3 +111,12 @@ schema endpoint now validates the declared field types and strips extra schema/f
 not data-at-rest cleanup or an isolation boundary: historical rows, prior responses, logs, backups,
 destination-supplied schema strings, duplicate-preview values and direct in-process access remain
 potential exposure paths. Independent security review and P8 remain open.
+
+### ARC-014 update — fatal connector process reproduction
+
+`connector-fatal-process.test.ts` launches a disposable backend API process with an injected test
+connector. When the real connector health-check route invokes it, the connector calls `process.exit`
+and the API process exits with the fixture's code before sending a response. This is an explicit
+reproduction of P8 failure, not a successful isolation test; it exercises SQLite and a synthetic
+in-process connector. A separately enforced process/security boundary and review of privileges,
+resource limits, network access and external effects are still required.
