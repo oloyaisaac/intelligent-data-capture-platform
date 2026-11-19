@@ -40,6 +40,7 @@ Compose smoke test in [PR #28 CI](https://github.com/oloyaisaac/intelligent-data
 but its Verify job failed during Jest tests. Full job logs were unavailable from this sandbox, and
 local reproduction passed and the subsequent [commit `02b1383` CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44539157606) passed all checks. The earlier failure remains undiagnosed; the CI test step now reports
 failed Jest cases as GitHub annotations without changing its exit code.
+A later [CI run for `202c558`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44541153577) passed PostgreSQL, Compose and browser checks but failed Verify: the batch byte-budget integration test exceeded 30 seconds. The same test passed six local repeats. A test-client teardown change and a new unfinished-client regression are pending CI verification; the original timeout's precise cause is not proven.
 This does not establish multi-worker safety; P6 remains unmet.
 
 Pairing completion now locks the session before checking status and expiry, and creates the device,
@@ -123,7 +124,7 @@ the new privileged renderer origin must not retain an unrestricted navigation pa
 ## Current verification baseline
 
 On the current R01 worktree, `npm run format:check`, the backend build and `npm run verify` passed:
-49 Jest suites and 583 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
+49 Jest suites and 584 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
 tests, typecheck, lint and contract checks. Focused coverage includes pairing rollback and concurrent
 requests, marketplace and composition boundaries, membership-scoped credentials,
 MFA invitation acceptance, recovery-code concurrency and rollback, SQLite transaction isolation,

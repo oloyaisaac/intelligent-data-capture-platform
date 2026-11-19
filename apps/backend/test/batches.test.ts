@@ -2,6 +2,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { request as httpRequest } from 'node:http';
 import type { MultipartFile } from '@fastify/multipart';
 import { spoolBatchParts } from '../src/http/routes/batch-upload';
 import { MAX_BATCH_FILES } from '../src/services/batch-service';
@@ -264,45 +265,135 @@ describe('BATCH-001 batch upload', () => {
 
   it('enforces the whole-request byte budget while spooling and cleans partial uploads', async () => {
     const boundedHarness = await createHarness({ MAX_REQUEST_MB: '1', MAX_UPLOAD_MB: '1' });
+    const isolatedTemp = await mkdtemp(join(tmpdir(), 'idcp-budget-root-'));
+    const previousTemp = process.env.TMPDIR;
+    process.env.TMPDIR = isolatedTemp;
     try {
       const account = await registerAccount(boundedHarness);
-      const beforeTempDirs = new Set(
-        (await readdir(tmpdir())).filter((name) => name.startsWith('idcp-batch-')),
+      // Use an explicit, closable HTTP connection: a rejected upload may leave fetch's
+      // streaming request body in flight, delaying server teardown on slower CI runners.
+      const boundary = 'idcp-budget-test';
+      const filePart = Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="large.bin"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+        ),
+        Buffer.alloc(400 * 1024),
+        Buffer.from('\r\n'),
+      ]);
+      const payload = Buffer.concat([
+        filePart,
+        filePart,
+        filePart,
+        Buffer.from(`--${boundary}--\r\n`),
+      ]);
+      const response = await new Promise<{ status: number | undefined; body: string }>(
+        (resolveResult, reject) => {
+          const request = httpRequest(`${boundedHarness.baseUrl}/api/v1/batches`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${account.accessToken}`,
+              'content-type': `multipart/form-data; boundary=${boundary}`,
+              'content-length': payload.length,
+              connection: 'close',
+            },
+          });
+          const timeout = setTimeout(
+            () => request.destroy(new Error('batch rejection timed out')),
+            10_000,
+          );
+          request.once('error', (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+          request.once('response', (message) => {
+            const chunks: Buffer[] = [];
+            message.on('data', (chunk: Buffer) => chunks.push(chunk));
+            message.on('end', () => {
+              clearTimeout(timeout);
+              resolveResult({
+                status: message.statusCode,
+                body: Buffer.concat(chunks).toString('utf8'),
+              });
+              request.destroy();
+            });
+          });
+          request.end(payload);
+        },
       );
-      const form = new FormData();
-      for (let index = 0; index < 3; index += 1) {
-        form.append(
-          'files',
-          new Blob([Buffer.alloc(400 * 1024)], { type: 'application/octet-stream' }),
-          `large-${index}.bin`,
-        );
-      }
-
-      const response = await fetch(`${boundedHarness.baseUrl}/api/v1/batches`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${account.accessToken}` },
-        body: form,
-      });
       expect(response.status).toBe(413);
-      expect(await response.json()).toMatchObject({
+      expect(JSON.parse(response.body)).toMatchObject({
         error: {
           code: 'PAYLOAD_TOO_LARGE',
           message: 'The batch exceeds the 1 MB request limit.',
         },
       });
-      const afterTempDirs = new Set(
-        (await readdir(tmpdir())).filter((name) => name.startsWith('idcp-batch-')),
-      );
-      expect([...afterTempDirs].filter((name) => !beforeTempDirs.has(name))).toEqual([]);
+      expect(await readdir(isolatedTemp)).toEqual([]);
 
       const batches = await boundedHarness.api.json('GET', '/api/v1/batches', {
         token: account.accessToken,
       });
       expect(batches.json<{ items: unknown[] }>().items).toHaveLength(0);
     } finally {
-      await boundedHarness.close();
+      try {
+        await boundedHarness.close();
+      } finally {
+        if (previousTemp === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = previousTemp;
+        await rm(isolatedTemp, { recursive: true, force: true });
+      }
     }
   });
+
+  it('rejects an over-budget batch before a slow client finishes sending', async () => {
+    const boundedHarness = await createHarness({ MAX_REQUEST_MB: '1', MAX_UPLOAD_MB: '1' });
+    try {
+      const account = await registerAccount(boundedHarness);
+      const boundary = 'idcp-slow-batch';
+      const url = new URL(`${boundedHarness.baseUrl}/api/v1/batches`);
+      const result = await new Promise<{ status: number | undefined; body: string }>(
+        (resolveResult, reject) => {
+          const request = httpRequest(url, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${account.accessToken}`,
+              'content-type': `multipart/form-data; boundary=${boundary}`,
+            },
+          });
+          const timeout = setTimeout(
+            () => request.destroy(new Error('server did not reject the unfinished request')),
+            5000,
+          );
+          request.once('error', (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+          request.once('response', (response) => {
+            const chunks: Buffer[] = [];
+            response.on('data', (chunk: Buffer) => chunks.push(chunk));
+            response.on('end', () => {
+              clearTimeout(timeout);
+              resolveResult({
+                status: response.statusCode,
+                body: Buffer.concat(chunks).toString('utf8'),
+              });
+              request.destroy();
+            });
+          });
+          const header = `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="part.bin"\r\nContent-Type: application/octet-stream\r\n\r\n`;
+          for (let i = 0; i < 3; i += 1) {
+            request.write(header);
+            request.write(Buffer.alloc(400 * 1024));
+            if (i < 2) request.write('\r\n');
+          }
+          // Intentionally omit the final boundary and request.end(): the server must reject on size.
+        },
+      );
+      expect(result.status).toBe(413);
+      expect(JSON.parse(result.body)).toMatchObject({ error: { code: 'PAYLOAD_TOO_LARGE' } });
+    } finally {
+      await boundedHarness.close();
+    }
+  }, 12_000);
 
   it('assigns a batch to a project and can read it back', async () => {
     const account = await registerAccount(harness);

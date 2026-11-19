@@ -329,6 +329,10 @@ building SMTP delivery now (out of scope, and untested without a mail server).
 **Consequences:** There is no "resend" that produces the same link — a new invitation is a new row.
 `GET /invitations` never returns tokens, so a lost link means revoke and invite again.
 
+**Implementation note:** SMTP delivery is now supported when explicitly configured; the creator
+still receives the link for manual delivery if email fails. Acceptance now also checks credentials
+and MFA for existing accounts and performs the consume and membership changes transactionally.
+
 ---
 
 ## DEC-020 — Duplicate preview is a read, and merges never overrule a human
@@ -629,6 +633,10 @@ than hidden. The generic 202 means a support agent cannot tell a customer whethe
 registered from this endpoint, which is intended. `apps/backend/test/auth-recovery.test.ts` asserts the
 indistinguishable response, the single use and the session revocation.
 
+**Implementation note:** SMTP delivery is now available when configured; production does not return
+reset links to the caller. Mail delivery requires operator configuration and an actual mail service;
+tests using a local SMTP server do not establish production delivery.
+
 ---
 
 ## DEC-031 — Retention and housekeeping run in-process, on an interval, and are safe to run twice
@@ -655,6 +663,12 @@ somebody happens to look at).
 wasteful rather than wrong, and it is another entry in the list of things that must change before
 horizontal scaling (`DEC-029`). The defaults are mirrored in `legal/PRIVACY.md` and asserted by
 `npm run test:legal`, so changing a retention default without changing the policy fails CI.
+
+**Implementation note:** The stated blanket boundedness and multi-replica idempotence are not
+established. For example, retention scheduling checks for a pending job before enqueueing without
+cross-process coordination; concurrent schedulers can enqueue duplicates. Several sweep queries
+have no explicit per-run bound. Only the single-process topology is supported; see
+`services/maintenance-service.ts`, `repositories/maintenance-repo.ts` and the R01 state inventory.
 
 ---
 
