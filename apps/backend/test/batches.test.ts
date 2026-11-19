@@ -359,10 +359,13 @@ describe('BATCH-001 batch upload', () => {
               'content-type': `multipart/form-data; boundary=${boundary}`,
             },
           });
-          const timeout = setTimeout(
-            () => request.destroy(new Error('server did not reject the unfinished request')),
-            5000,
-          );
+          const timeout = setTimeout(() => {
+            const error = new Error(
+              'server did not reject the unfinished request within 5 seconds',
+            );
+            request.destroy(error);
+            reject(error);
+          }, 5000);
           request.once('error', (error) => {
             clearTimeout(timeout);
             reject(error);
@@ -370,6 +373,10 @@ describe('BATCH-001 batch upload', () => {
           request.once('response', (response) => {
             const chunks: Buffer[] = [];
             response.on('data', (chunk: Buffer) => chunks.push(chunk));
+            response.once('error', (error) => {
+              clearTimeout(timeout);
+              reject(error);
+            });
             response.on('end', () => {
               clearTimeout(timeout);
               resolveResult({
@@ -391,9 +398,13 @@ describe('BATCH-001 batch upload', () => {
       expect(result.status).toBe(413);
       expect(JSON.parse(result.body)).toMatchObject({ error: { code: 'PAYLOAD_TOO_LARGE' } });
     } finally {
+      // The deliberately unfinished request can otherwise keep the server's socket open during
+      // teardown, especially if the peer hasn't observed the close yet. This is test cleanup, not
+      // a substitute for the response deadline above.
+      boundedHarness.app.server.closeAllConnections();
       await boundedHarness.close();
     }
-  }, 12_000);
+  }, 30_000);
 
   it('assigns a batch to a project and can read it back', async () => {
     const account = await registerAccount(harness);

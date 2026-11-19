@@ -126,7 +126,14 @@ jobs:
         run: npm run db:migrate
 
       - name: Run the complete backend suite against PostgreSQL
-        run: npm run test:postgres
+        run: |
+          set +e
+          npm run test:postgres -- --reporters=default --json --outputFile=/tmp/idcp-postgres-jest-results.json
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            node scripts/report-jest-failures.mjs /tmp/idcp-postgres-jest-results.json
+          fi
+          exit "$status"
 
   container:
     name: Backend container build and Compose smoke test
