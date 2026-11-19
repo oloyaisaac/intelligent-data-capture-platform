@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { JobsRepository } from '../src/repositories/system-repo';
-import { createHarness, registerAccount, type ApiResponse, type Harness } from './helpers';
+import {
+  createHarness,
+  registerAccount,
+  uploadDocument,
+  type ApiResponse,
+  type Harness,
+} from './helpers';
 
 const postgresEnabled = process.env.IDCP_TEST_DB_DRIVER === 'postgres';
 const postgresDescribe = postgresEnabled ? describe : describe.skip;
@@ -117,6 +123,25 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
       if (completion) await completion.catch(() => undefined);
     }
   }, 30_000);
+
+  it('preserves question marks in a document extraction JSON parameter', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account);
+    expect(upload.statusCode).toBe(201);
+    const documentId = upload.json<{ id: string }>().id;
+    const extractionId = randomUUID();
+    const json = JSON.stringify({ question: 'How much?', nested: ['?', 'literal $1 ?'] });
+    await harness.db.execute(
+      `INSERT INTO extractions (id, document_id, organisation_id, attempt, udm, udm_version, provider, confidence, needs_review, cost_micros, created_at)
+       VALUES (?, ?, ?, 1, ?, 'test', 'fixture', 1, 1, 0, ?)`,
+      [extractionId, documentId, account.organisationId, json, new Date().toISOString()],
+    );
+    const row = await harness.db.one<{ udm: string; literal_question: string }>(
+      "SELECT udm, '?' AS literal_question FROM extractions WHERE id = ? AND document_id = ?",
+      [extractionId, documentId],
+    );
+    expect(row).toEqual({ udm: json, literal_question: '?' });
+  });
 
   it('applies migrations and executes placeholder queries, transactions, and an API health check', async () => {
     expect(harness.db.driver).toBe('postgres');

@@ -35,7 +35,7 @@ worker side effects, recovery or audits. The PostgreSQL lock-contention regressi
 PostgreSQL and Docker are unavailable locally. This branch's commit `38cd0a3` passed the complete backend suite against PostgreSQL and the
 Compose smoke test in [PR #28 CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44537667203),
 but its Verify job failed during Jest tests. Full job logs were unavailable from this sandbox, and
-local reproduction passed; the cause remains under investigation. The CI test step now reports
+local reproduction passed and the subsequent [commit `02b1383` CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44539157606) passed all checks. The earlier failure remains undiagnosed; the CI test step now reports
 failed Jest cases as GitHub annotations without changing its exit code.
 This does not establish multi-worker safety; P6 remains unmet.
 
@@ -129,7 +129,9 @@ privacy erasure rollback. Local transaction-scoping and lock-ordering checks use
 doubles; they are not PostgreSQL integration tests. PostgreSQL claim and pairing contention tests
 were skipped locally but the complete backend suite passed on commit `38cd0a3` in PR #28 CI,
 including the auth, document, privacy, maintenance and migration composition changes. The separate
-Verify job failed during Jest tests on that commit, and the cause remains under investigation. On the earlier
+Verify job failed during Jest tests on that commit; all checks subsequently passed on `02b1383`,
+without identifying the earlier failure. A new PostgreSQL JSON-question-mark regression is awaiting
+CI. On the earlier
 worktree, the built offline encryption-migration CLI passed check, apply and a second check against an
 empty, newly migrated synthetic SQLite database; encrypted-record migration and rollback are covered
 by Jest integration tests. `npm ci` skipped the Electron binary download. The test run emitted
@@ -137,4 +139,4 @@ existing React `act` and jsdom navigation warnings. This is not evidence of a pa
 a deployed PostgreSQL installation, an APK, an iOS build, or completion of reviewer-specific runtime
 tests. PostgreSQL, Compose and browser CI passed for commit `38cd0a3`, but Verify failed in its
 Jest step in [PR #28](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44537667203).
-The earlier commit `780b5ff` passed all CI checks.
+Subsequent commit `02b1383` passed all checks; the new PostgreSQL JSON regression has not yet run in CI.
