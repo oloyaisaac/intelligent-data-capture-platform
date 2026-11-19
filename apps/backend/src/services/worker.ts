@@ -31,20 +31,23 @@ import type { TemplateService } from './template-service';
 export const RECOVERY_GRACE_MS = 30_000;
 
 /** Repository operations used by the worker, supplied by the composition root. */
-export interface WorkerRepositories {
-  jobs: Pick<JobsRepository, 'claimNext' | 'requeueStale' | 'markSucceeded' | 'markFailed'>;
-  documents: Pick<DocumentsRepository, 'findById' | 'updateStatus'>;
+export interface WorkerTransactionRepositories {
+  jobs: Pick<JobsRepository, 'lockRunning' | 'markSucceeded' | 'markFailed'>;
+  documents: Pick<DocumentsRepository, 'beginProcessing' | 'finishProcessing' | 'failProcessing'>;
   extractions: Pick<ExtractionsRepository, 'create' | 'replaceFields'>;
   pages: Pick<DocumentPagesRepository, 'upsertOcr'>;
+}
+
+export interface WorkerRepositories {
+  jobs: Pick<JobsRepository, 'claimNext' | 'requeueStale' | 'markSucceeded' | 'markFailed'>;
   orgs: Pick<OrganisationsRepository, 'findById'>;
+  transaction<T>(run: (repositories: WorkerTransactionRepositories) => Promise<T>): Promise<T>;
 }
 
 export class Worker {
   private readonly jobs: WorkerRepositories['jobs'];
-  private readonly documents: WorkerRepositories['documents'];
-  private readonly extractions: WorkerRepositories['extractions'];
-  private readonly pages: WorkerRepositories['pages'];
   private readonly orgs: WorkerRepositories['orgs'];
+  private readonly transaction: WorkerRepositories['transaction'];
 
   private running = false;
   private timer: NodeJS.Timeout | null = null;
@@ -64,10 +67,8 @@ export class Worker {
     private readonly templates?: Pick<TemplateService, 'extractionFields'>,
   ) {
     this.jobs = repositories.jobs;
-    this.documents = repositories.documents;
-    this.extractions = repositories.extractions;
-    this.pages = repositories.pages;
     this.orgs = repositories.orgs;
+    this.transaction = repositories.transaction;
   }
 
   /**
@@ -183,8 +184,9 @@ export class Worker {
     try {
       switch (job.type) {
         case 'extract_document':
+          // Extraction finalises its claim atomically with the database-side effects.
           await this.extractDocument(job);
-          break;
+          return;
         case 'retention_purge':
           await this.purge(job);
           break;
@@ -196,15 +198,30 @@ export class Worker {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Job failed.';
-      const outcome = await this.jobs.markFailed(job.id, job.attempts, message);
-      if (!outcome) {
+      const failure =
+        job.type === 'extract_document' && job.document_id
+          ? await this.transaction(async (repositories) => {
+              const outcome = await repositories.jobs.markFailed(job.id, job.attempts, message);
+              const documentFailed =
+                outcome === 'dead'
+                  ? await repositories.documents.failProcessing(
+                      job.organisation_id,
+                      job.document_id!,
+                    )
+                  : false;
+              return { outcome, documentFailed };
+            })
+          : {
+              outcome: await this.jobs.markFailed(job.id, job.attempts, message),
+              documentFailed: false,
+            };
+      if (!failure.outcome) {
         this.logger.warn('job failure ignored for an obsolete claim', { jobId: job.id });
         return;
       }
       this.logger.warn('job failed', { jobId: job.id, type: job.type, error: message });
 
-      if (job.document_id && outcome === 'dead') {
-        await this.documents.updateStatus(job.document_id, 'failed');
+      if (failure.documentFailed) {
         this.hub.toOrganisation(job.organisation_id, 'document:failed', {
           documentId: job.document_id,
           code: 'EXTRACTION_FAILED',
@@ -218,14 +235,17 @@ export class Worker {
     const documentId = job.document_id;
     if (!documentId) throw new Error('extract_document job has no document.');
 
-    const document = await this.documents.findById(job.organisation_id, documentId);
-    if (!document) throw new Error('Document no longer exists.');
-    if (document.deleted_at) {
-      this.logger.debug('skipping deleted document', { documentId });
+    const document = await this.transaction(async (repositories) => {
+      if (!(await repositories.jobs.lockRunning(job.id, job.attempts))) return null;
+      const row = await repositories.documents.beginProcessing(job.organisation_id, documentId);
+      if (!row) await repositories.jobs.markSucceeded(job.id, job.attempts);
+      return row;
+    });
+    if (!document) {
+      this.logger.debug('skipping obsolete claim or unavailable document', { documentId });
       return;
     }
 
-    await this.documents.updateStatus(documentId, 'processing');
     this.hub.toOrganisation(job.organisation_id, 'job:progress', {
       jobId: job.id,
       documentId,
@@ -235,8 +255,6 @@ export class Worker {
 
     const buffer = await this.storage.get(document.storage_key);
     const payload = JSON.parse(job.payload) as { documentTypeHint?: string };
-    const organisation = await this.orgs.findById(job.organisation_id);
-
     // A template tells the extractor which fields this organisation expects (TPL-001). Without
     // one, extraction stays purely heuristic.
     const hint =
@@ -261,49 +279,59 @@ export class Worker {
       { provider: this.provider, logger: this.logger },
     );
 
+    const needsReview = requiresReview(result.udm, this.config.AI_REVIEW_CONFIDENCE_THRESHOLD);
+    const extraction = await this.transaction(async (repositories) => {
+      // Marking the job first locks its row until commit, preventing recovery from changing the
+      // claim while the document and extraction writes are in progress. A rollback restores it.
+      if (!(await repositories.jobs.markSucceeded(job.id, job.attempts))) return null;
+      if (
+        !(await repositories.documents.finishProcessing(
+          job.organisation_id,
+          documentId,
+          needsReview ? 'needs_review' : 'extracted',
+          result.udm.documentType,
+        ))
+      )
+        return null;
+      await repositories.pages.upsertOcr(documentId, 1, result.ocrText, result.words);
+      const created = await repositories.extractions.create({
+        documentId,
+        organisationId: job.organisation_id,
+        udm: result.udm,
+        udmVersion: result.udm.udmVersion,
+        provider: result.provider,
+        confidence: result.udm.documentTypeConfidence,
+        needsReview: result.udm.needsReview,
+        latencyMs: result.latencyMs,
+        costMicros: result.costMicros,
+      });
+      await repositories.extractions.replaceFields(
+        created.id,
+        Object.entries(result.udm.fields).map(([path, field]) => ({
+          fieldPath: path,
+          fieldLabel: field.label ?? null,
+          value: field.value,
+          confidence: field.confidence,
+          needsReview:
+            field.needsReview === true ||
+            field.confidence < this.config.AI_REVIEW_CONFIDENCE_THRESHOLD,
+          bbox: field.bbox ?? null,
+          pageNumber: field.page ?? 1,
+        })),
+      );
+      return created;
+    });
+    if (!extraction) {
+      this.logger.debug('discarded obsolete extraction result', { documentId, jobId: job.id });
+      return;
+    }
+
     this.hub.toOrganisation(job.organisation_id, 'job:progress', {
       jobId: job.id,
       documentId,
       stage: 'extraction',
       percent: 80,
     });
-
-    await this.pages.upsertOcr(documentId, 1, result.ocrText, result.words);
-
-    const extraction = await this.extractions.create({
-      documentId,
-      organisationId: job.organisation_id,
-      udm: result.udm,
-      udmVersion: result.udm.udmVersion,
-      provider: result.provider,
-      confidence: result.udm.documentTypeConfidence,
-      needsReview: result.udm.needsReview,
-      latencyMs: result.latencyMs,
-      costMicros: result.costMicros,
-    });
-
-    // Keep the flattened projection in step with the UDM (DATABASE.md §4).
-    await this.extractions.replaceFields(
-      extraction.id,
-      Object.entries(result.udm.fields).map(([path, field]) => ({
-        fieldPath: path,
-        fieldLabel: field.label ?? null,
-        value: field.value,
-        confidence: field.confidence,
-        needsReview:
-          field.needsReview === true ||
-          field.confidence < this.config.AI_REVIEW_CONFIDENCE_THRESHOLD,
-        bbox: field.bbox ?? null,
-        pageNumber: field.page ?? 1,
-      })),
-    );
-
-    const needsReview = requiresReview(result.udm, this.config.AI_REVIEW_CONFIDENCE_THRESHOLD);
-    await this.documents.updateStatus(
-      documentId,
-      needsReview ? 'needs_review' : 'extracted',
-      result.udm.documentType,
-    );
 
     this.hub.toOrganisation(job.organisation_id, 'document:extracted', {
       documentId,
@@ -325,7 +353,6 @@ export class Worker {
       });
     }
 
-    void organisation;
     this.logger.info('document extracted', {
       documentId,
       provider: result.provider,

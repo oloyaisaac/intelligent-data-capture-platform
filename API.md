@@ -196,15 +196,15 @@ Errors: `422 PAIRING_TOKEN_EXPIRED`, `422 PAIRING_TOKEN_USED`, `404 PAIRING_SESS
 
 ## 5. Documents
 
-| Method | Path                       | Purpose                                                                      |
-| ------ | -------------------------- | ---------------------------------------------------------------------------- |
-| POST   | `/documents`               | Upload a document (multipart: `file`, optional `documentType`, `templateId`) |
-| GET    | `/documents`               | List/filter (`status`, `type`, `deviceId`, `from`, `to`)                     |
-| GET    | `/documents/:id`           | Metadata + processing status                                                 |
-| GET    | `/documents/:id/file`      | Stream the original image (authorised, never public)                         |
-| GET    | `/documents/:id/result`    | Current extraction (UDM + flattened fields/tables)                           |
-| POST   | `/documents/:id/reprocess` | Re-run extraction (admin/reviewer)                                           |
-| DELETE | `/documents/:id`           | Soft delete, then purge per retention policy                                 |
+| Method | Path                       | Purpose                                                                               |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------- |
+| POST   | `/documents`               | Upload a document (multipart: `file`, optional `documentType`, `templateId`)          |
+| GET    | `/documents`               | List/filter (`status`, `type`, `deviceId`, `from`, `to`)                              |
+| GET    | `/documents/:id`           | Metadata + processing status                                                          |
+| GET    | `/documents/:id/file`      | Stream the original image (authorised, never public)                                  |
+| GET    | `/documents/:id/result`    | Current extraction (UDM + flattened fields/tables)                                    |
+| POST   | `/documents/:id/reprocess` | Re-run extraction (admin/reviewer); returns 409 while extraction is queued or running |
+| DELETE | `/documents/:id`           | Soft delete, then purge per retention policy                                          |
 
 `POST /documents` — requires `Idempotency-Key`; max 20 MB per image, JPEG/PNG/PDF/HEIC.
 
@@ -286,7 +286,7 @@ Every change is stored in `review_changes` with the actor and the previous value
 | POST     | `/exports`               | Create an export job (`format`: `xlsx` \| `csv`, plus filters) |
 | GET      | `/exports/:id`           | Status + expiring download URL                                 |
 | GET      | `/exports`               | Export history                                                 |
-| GET      | `/connectors`            | List connectors (secrets never returned)                       |
+| GET      | `/connectors`            | List connectors (config is returned; see security warning)     |
 | POST     | `/connectors`            | Create connector                                               |
 | PATCH    | `/connectors/:id`        | Update or disable                                              |
 | DELETE   | `/connectors/:id`        | Remove connector and its credentials                           |
@@ -295,6 +295,11 @@ Every change is stored in `review_changes` with the actor and the previous value
 | GET/POST | `/mapping-profiles`      | List/create mapping profiles                                   |
 | PATCH    | `/mapping-profiles/:id`  | Update mapping, duplicate policy                               |
 | POST     | `/documents/:id/send`    | Send an approved record through a connector                    |
+
+**Connector security warning:** `config` is stored and returned as plaintext. The separate
+`credentials` field is encrypted and omitted from responses, but connector validation currently
+examines only `config`; HubSpot therefore requires its token there. Do not configure real HubSpot
+tokens through this path until the issue is fixed. See `SECURITY.md` and R01 finding ARC-023.
 
 `POST /documents/:id/send`
 

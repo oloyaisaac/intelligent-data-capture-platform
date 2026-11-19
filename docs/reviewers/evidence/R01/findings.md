@@ -1,7 +1,7 @@
 # R01 findings — interim register
 
-**Incomplete:** this is not the full R01 review, a G1 decision or reviewer sign-off. Evidence refers
-to the current worktree based on `82f17699069c4b27eefb635f6328b389f20f23ba`. No named
+**Incomplete:** this is not the full R01 review, a G1 decision or reviewer sign-off. Findings
+span multiple revisions; later updates identify the relevant revision or current worktree. No named
 owner has accepted these findings or provided a dated exception.
 
 | ID      | Severity | Evidence                                                                                                                                              | Finding and impact                                                                                                                                                                                                                                                                                                                                                             | Reproduce / next action                                                                                                                                                                                                                                                                     | Owner                                             |
@@ -25,7 +25,50 @@ a rejected failure does not mark a document failed or emit a failure event. See
 `apps/backend/src/repositories/system-repo.ts` (`markSucceeded`, `markFailed`),
 `services/worker.ts` (`processJob`), and the regression cases in `worker-recovery.test.ts` and
 `worker-lifecycle.test.ts`. This is not a lease or owner token, does not fence other rows or external
-side effects, and does not solve crash recovery. A deterministic test pauses one extraction,
-recovers and processes its live claim, then resumes it: two OCR calls and two extraction records
-are still produced. The test uses one process and synthetic OCR, not a process crash or a real
-external provider. P6 and ARC-013 remain open.
+side effects, and does not solve crash recovery. At that revision, a deterministic test paused one
+extraction, recovered and processed its live claim, then resumed it: two OCR calls and two
+extraction records resulted. The test uses one process and synthetic OCR, not a process crash or a
+real external provider. P6 and ARC-013 remained open.
+
+### ARC-013 update — transactional extraction publication
+
+The same synthetic test now commits one extraction after both OCR calls. The worker validates the
+claim before setting processing state and commits guarded job success, document status, page OCR,
+extraction and fields together; dead job and document failure status also commit together. Added
+failure-injection rollback/retry, competing recovery, and deletion-during-OCR tests. Reprocess now
+returns 409 for an active extraction and locks the document before checking, enqueueing and auditing
+in a transaction. It also allows explicit repair of a jobless document in queued or processing state;
+concurrent-repair, lock-interleaving, active-job and audit-rollback regressions cover it. A real
+SIGKILL subprocess test additionally covers one SQLite crash point during publication and recovery
+after artificially aging the claim; it does not establish crash safety generally. Older or manually
+inserted overlapping jobs, cross-job review races, duplicate OCR cost, nondurable events, retention
+and owner/lease semantics remain unproven. The revised repair locking and subprocess test passed CI on `e115a8e`, including the PostgreSQL
+suite; the subprocess crash test itself uses SQLite. P6 remains open.
+
+### ARC-017 update — connector write success values
+
+Create, update and merge results are now reduced to validated nonnegative safe-integer counts and a
+locally generated summary; connector-supplied summary text and extra properties are not persisted or
+returned. Invalid results fail with the existing warning to check the destination, which may already
+have changed. `connector-success-boundary.test.ts` exercises create and update, invalid counts, run
+records and the supplied logger with a synthetic secret. This does not prevent intentional numeric
+covert channels or direct in-process access, sanitize successful schema/duplicate-preview data,
+clean historical rows, or establish process isolation. ARC-017 and P8 remain open.
+
+### ARC-023 — HIGH: plaintext secrets in connector configuration
+
+`ConnectorService.create` validates only `config` and stores it as plaintext; `toConnectorDto`
+returns that config. HubSpot's validation requires a `token` in config even when a token is supplied
+in the separately encrypted `credentials` field. `connector-config-risk.test.ts` characterizes the
+issue with a synthetic token, demonstrating a 400 for credentials-only creation, followed by token
+exposure in the stored row, creation response and connector list. This test records a defect and
+must be replaced with a security regression when fixed, not treated as an acceptable contract.
+Other connectors accept secrets in config (including SQL connection strings), and arbitrary config
+cannot reliably be sanitized by matching a few key names. Existing rows, historical responses,
+logs and backups may already contain secrets. Owners should assess access and rotation.
+
+A fix requires an explicit connector-specific public/secret configuration contract, validation of
+the merged effective config, secure create and patch semantics, an atomic migration and rollback
+plan for existing rows, consistent precedence, and tests for old and new records and all connector
+types. Merely changing documentation, hiding some DTO keys or encrypting the separate credentials
+field does not resolve this exposure. Owner: unassigned; backend security and connector owners.

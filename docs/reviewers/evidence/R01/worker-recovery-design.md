@@ -7,12 +7,27 @@ See ARC-013 and ARC-021 in `findings.md`. P6 remains unmet.
 
 `claimNext` atomically claims a queued job and increments its attempt. At startup,
 `requeueStale` uses only claim age; it cannot tell a long-running live worker from a dead one.
-A recent crashed claim is not revisited in the same process. Guarded success/failure updates reject
-an old attempt after recovery, but OCR, page text, extraction and field writes, document status,
-notifications and retention purge happen independently before completion. An old worker can still
-write after a newer claim; the focused synthetic regression in `worker-recovery.test.ts` demonstrates
-two extraction rows, not merely a theoretical duplicate. An unclean crash can also occur between
-any two writes. The supported single-worker topology reduces overlap but does not prove idempotence.
+A recent crashed claim is not revisited in the same process. The extraction start validates the
+attempt under a job lock; the publication transaction guards job success and commits page text,
+extraction, field and final document status together. Guarded final failure and document status also
+commit together. Reprocess requests now lock the document, reject active extraction jobs, and
+reserve the document, enqueue the job and audit atomically. A synthetic recovery regression that previously produced two
+extractions now commits one, but still performs two OCR calls. OCR, billing, notifications and
+retention purge are outside this publication transaction. Existing or externally inserted distinct
+jobs for a document, concurrent review/reprocess interactions, ambiguous commit acknowledgement,
+process crashes and overlapping deployments require further analysis and testing. The supported
+single-worker topology reduces overlap but does not prove idempotence. A jobless document stranded
+in `queued` or `processing` can now be explicitly reprocessed: the document lock serializes
+concurrent requests, and the active-job check prevents re-enqueueing if work already exists. This
+is not automatic crash recovery: jobs still marked `running` are considered active even if their
+worker died, and old-binary or out-of-band writers that ignore the lock are not covered.
+
+`worker-crash-process.test.ts` kills a real worker subprocess with SIGKILL after it enters the
+SQLite publication transaction, then checks that page text, extraction and final status rolled
+back. A fresh startup leaves the interrupted claim running; the test artificially ages its timestamp
+and restarts again to recover it. This covers one controlled crash point and a synthetic OCR
+provider, not real elapsed-time recovery, PostgreSQL process crashes, external OCR cost, event
+persistence or all possible crash boundaries.
 
 ## Necessary design decisions before claiming P6
 

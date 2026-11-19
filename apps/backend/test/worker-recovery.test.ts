@@ -1,6 +1,7 @@
 import { createHarness, registerAccount, type Harness } from './helpers';
 import { RECOVERY_GRACE_MS } from '../src/services/worker';
 import { JobsRepository } from '../src/repositories/system-repo';
+import { ExtractionsRepository } from '../src/repositories/document-repo';
 
 /**
  * Stale job recovery (DEC-029).
@@ -185,7 +186,7 @@ describe('worker recovery of interrupted jobs', () => {
     expect(row?.last_error).toBe('failure');
   });
 
-  it('still duplicates extraction side effects when a live claim is recovered', async () => {
+  it('does not commit an obsolete extraction after a live claim is recovered', async () => {
     const account = await registerAccount(harness);
     const upload = await harness.api.upload(account.accessToken);
     expect(upload.statusCode).toBe(201);
@@ -224,13 +225,240 @@ describe('worker recovery of interrupted jobs', () => {
         'SELECT id FROM extractions WHERE document_id = ?',
         [documentId],
       );
+      // OCR itself remains at-least-once, but only the current attempt may publish results.
       expect(harness.ocr.calls).toBe(2);
-      expect(rows).toHaveLength(2);
+      expect(rows).toHaveLength(1);
       expect(await statusOf(old.id)).toBe('succeeded');
     } finally {
       resume();
       if (first) await first.catch(() => undefined);
       ocr.mockRestore();
+    }
+  });
+
+  it('rejects reprocessing while an extraction is running', async () => {
+    const account = await registerAccount(harness);
+    const upload = await harness.api.upload(account.accessToken);
+    const documentId = upload.json<{ id: string }>().id;
+    const repository = new JobsRepository(harness.db);
+    let resume!: () => void;
+    let entered!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const originalOcr = harness.ocr.ocr.bind(harness.ocr);
+    const ocr = jest.spyOn(harness.ocr, 'ocr').mockImplementationOnce(async () => {
+      entered();
+      await paused;
+      return originalOcr();
+    });
+    let work: Promise<number> | undefined;
+    try {
+      work = harness.services.worker.drain();
+      await started;
+      const reprocess = await harness.api.json(
+        'POST',
+        `/api/v1/documents/${documentId}/reprocess`,
+        { token: account.accessToken },
+      );
+      expect(reprocess.statusCode).toBe(409);
+      expect(await repository.listForDocument(documentId)).toHaveLength(1);
+      resume();
+      await work;
+      expect(
+        await harness.db.query('SELECT id FROM extractions WHERE document_id = ?', [documentId]),
+      ).toHaveLength(1);
+    } finally {
+      resume();
+      if (work) await work.catch(() => undefined);
+      ocr.mockRestore();
+    }
+  });
+
+  it('rolls back the entire extraction publication when a field write fails, then retries', async () => {
+    const account = await registerAccount(harness);
+    const upload = await harness.api.upload(account.accessToken);
+    const documentId = upload.json<{ id: string }>().id;
+    const fail = jest
+      .spyOn(ExtractionsRepository.prototype, 'replaceFields')
+      .mockRejectedValueOnce(new Error('field write failed'));
+    try {
+      await harness.services.worker.drain();
+    } finally {
+      fail.mockRestore();
+    }
+    const repository = new JobsRepository(harness.db);
+    const job = (await repository.listForDocument(documentId))[0]!;
+    expect(job.status).toBe('queued');
+    expect(job.last_error).toBe('field write failed');
+    expect(
+      await harness.db.query('SELECT id FROM extractions WHERE document_id = ?', [documentId]),
+    ).toHaveLength(0);
+    const page = await harness.db.one<{ ocr_text: string | null }>(
+      'SELECT ocr_text FROM document_pages WHERE document_id = ?',
+      [documentId],
+    );
+    expect(page?.ocr_text).toBeNull();
+    const document = await harness.db.one<{ status: string }>(
+      'SELECT status FROM documents WHERE id = ?',
+      [documentId],
+    );
+    expect(document?.status).toBe('processing');
+
+    await harness.db.execute('UPDATE jobs SET run_after = ? WHERE id = ?', [
+      new Date(0).toISOString(),
+      job.id,
+    ]);
+    await harness.services.worker.drain();
+    expect(await statusOf(job.id)).toBe('succeeded');
+    expect(
+      await harness.db.query('SELECT id FROM extractions WHERE document_id = ?', [documentId]),
+    ).toHaveLength(1);
+  });
+
+  it('does not resurrect a document deleted while OCR is running', async () => {
+    const account = await registerAccount(harness);
+    const upload = await harness.api.upload(account.accessToken);
+    const documentId = upload.json<{ id: string }>().id;
+    let resume!: () => void;
+    let entered!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const originalOcr = harness.ocr.ocr.bind(harness.ocr);
+    const ocr = jest.spyOn(harness.ocr, 'ocr').mockImplementationOnce(async () => {
+      entered();
+      await paused;
+      return originalOcr();
+    });
+    const events: string[] = [];
+    const unsubscribe = harness.hub.subscribe({ organisationId: account.organisationId }, (event) =>
+      events.push(event),
+    );
+    let running: Promise<number> | undefined;
+    try {
+      running = harness.services.worker.drain();
+      await started;
+      const deleted = await harness.api.json('DELETE', `/api/v1/documents/${documentId}`, {
+        token: account.accessToken,
+      });
+      expect(deleted.statusCode).toBe(204);
+      resume();
+      await running;
+      const row = await harness.db.one<{ status: string; deleted_at: string | null }>(
+        'SELECT status, deleted_at FROM documents WHERE id = ?',
+        [documentId],
+      );
+      expect(row?.status).toBe('deleted');
+      expect(row?.deleted_at).not.toBeNull();
+      expect(
+        await harness.db.query('SELECT id FROM extractions WHERE document_id = ?', [documentId]),
+      ).toHaveLength(0);
+      expect(events).not.toContain('document:extracted');
+    } finally {
+      resume();
+      if (running) await running.catch(() => undefined);
+      unsubscribe();
+      ocr.mockRestore();
+    }
+  });
+
+  it('does not replace a deletion with failed status after the final OCR attempt errors', async () => {
+    const account = await registerAccount(harness);
+    const upload = await harness.api.upload(account.accessToken);
+    const documentId = upload.json<{ id: string }>().id;
+    const repository = new JobsRepository(harness.db);
+    const job = (await repository.listForDocument(documentId))[0]!;
+    await harness.db.execute('UPDATE jobs SET attempts = 4 WHERE id = ?', [job.id]);
+    let resume!: () => void;
+    let entered!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const ocr = jest.spyOn(harness.ocr, 'ocr').mockImplementationOnce(async () => {
+      entered();
+      await paused;
+      throw new Error('synthetic OCR failure');
+    });
+    const events: string[] = [];
+    const unsubscribe = harness.hub.subscribe({ organisationId: account.organisationId }, (event) =>
+      events.push(event),
+    );
+    let running: Promise<number> | undefined;
+    try {
+      running = harness.services.worker.drain();
+      await started;
+      const deleted = await harness.api.json('DELETE', `/api/v1/documents/${documentId}`, {
+        token: account.accessToken,
+      });
+      expect(deleted.statusCode).toBe(204);
+      resume();
+      await running;
+      expect(await statusOf(job.id)).toBe('dead');
+      const row = await harness.db.one<{ status: string; deleted_at: string | null }>(
+        'SELECT status, deleted_at FROM documents WHERE id = ?',
+        [documentId],
+      );
+      expect(row?.status).toBe('deleted');
+      expect(row?.deleted_at).not.toBeNull();
+      expect(events).not.toContain('document:failed');
+    } finally {
+      resume();
+      if (running) await running.catch(() => undefined);
+      unsubscribe();
+      ocr.mockRestore();
+    }
+  });
+
+  it('serializes a recovery update against a transaction finalizing the same claim', async () => {
+    const account = await registerAccount(harness);
+    const id = await insertJob({
+      organisationId: account.organisationId,
+      status: 'running',
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    let release!: () => void;
+    let locked!: () => void;
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    let recovered: Promise<number> | undefined;
+    const finishing = harness.db.transaction(async (tx) => {
+      expect(await new JobsRepository(tx).markSucceeded(id, 1)).toBe(true);
+      locked();
+      await wait;
+    });
+    try {
+      await ready;
+      let settled = false;
+      recovered = new JobsRepository(harness.db)
+        .requeueStale(new Date().toISOString())
+        .then((count) => {
+          settled = true;
+          return count;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(settled).toBe(false);
+      release();
+      await finishing;
+      expect(await recovered).toBe(0);
+      expect(await statusOf(id)).toBe('succeeded');
+    } finally {
+      release();
+      await finishing.catch(() => undefined);
+      if (recovered) await recovered.catch(() => undefined);
     }
   });
 

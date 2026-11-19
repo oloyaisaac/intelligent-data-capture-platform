@@ -183,8 +183,27 @@ real database step reached the mocked retention query. The revised timer test st
 ports, avoiding fake-clock interference with network I/O. Local focused tests passed; PostgreSQL
 must be rerun in CI before treating this as resolved.
 
-ARC-013 partial progress: job success/failure writes now condition on the running claim attempt;
-obsolete failures do not mark documents failed. This protects the job row only. A deterministic
-recovery regression still produces two OCR calls and two extraction records when a live claim is
-recovered, so P6 remains unmet. The open design and required failure tests are described in
-`docs/reviewers/evidence/R01/worker-recovery-design.md`.
+ARC-013 partial progress: extraction publication now commits job success, page OCR, extraction,
+fields and document status together under the current claim attempt; guarded failure status is also
+transactional. Reprocessing returns 409 if an extraction job is queued or running; the reprocess
+status, job and audit commit together. The document is locked before checking active jobs, so
+jobless legacy documents in queued or processing state can be explicitly reprocessed without
+admitting concurrent repairs. The former stale-claim reproduction produced two OCR calls and two
+extraction rows; it now produces two OCR calls and one committed row. Unfenced OCR costs, purge,
+pre-existing distinct jobs, crash recovery and wider multi-worker safety remain unresolved, so P6
+is unmet. See `docs/reviewers/evidence/R01/worker-recovery-design.md`.
+
+A real subprocess SIGKILL test now covers a crash partway through SQLite extraction publication;
+it observes rollback and a fresh claim left running at the immediate restart, then artificially ages
+the claim and recovers it on a later start. This uses fake OCR and does not demonstrate actual
+elapsed-time, PostgreSQL crash behavior or all crash points. A document with no active extraction job
+can now be explicitly reprocessed even if its status was left queued or processing; concurrent
+repairs serialize on the document lock. A job still marked running remains a blocker, not proof of
+safe automatic recovery.
+
+R01 connector boundary review found ARC-023: connector `config` is stored and returned as plaintext,
+and HubSpot currently requires its token there even if `credentials` is supplied. A synthetic
+characterization test reproduces the exposure; it is not a fix. Review existing records, backups and
+credential rotation, and design a connector-specific secret contract and migration before production
+use. Successful connector write results now discard untrusted summary text and validate counts, but
+schema/preview output, historical records and in-process connector isolation remain open.

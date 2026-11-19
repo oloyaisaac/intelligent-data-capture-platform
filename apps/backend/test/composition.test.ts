@@ -120,10 +120,8 @@ it('runs and handles failed jobs with injected worker repositories and no databa
       markSucceeded: jest.fn().mockResolvedValue(true),
       markFailed: jest.fn().mockResolvedValue('queued'),
     },
-    documents: { findById: jest.fn(), updateStatus: jest.fn() },
-    extractions: { create: jest.fn(), replaceFields: jest.fn() },
-    pages: { upsertOcr: jest.fn() },
     orgs: { findById: jest.fn().mockResolvedValue({ retention_days: 30 }) },
+    transaction: jest.fn(),
   };
   const documentService = { purgeExpired: jest.fn().mockResolvedValue(2) };
   const worker = new Worker(
@@ -483,9 +481,14 @@ it('uses injected document repositories and rejects a document outside the actor
     audit: { record: jest.fn() },
     transaction: (run) =>
       run({
-        documents: { createIfAbsent: jest.fn(), findByIdempotencyKey: jest.fn() },
+        documents: {
+          createIfAbsent: jest.fn(),
+          findByIdempotencyKey: jest.fn(),
+          lockForReprocess: jest.fn(),
+          queueForReprocess: jest.fn(),
+        },
         pages: { create: jest.fn() },
-        jobs: repositories.jobs,
+        jobs: { ...repositories.jobs, hasActiveExtraction: jest.fn() },
         audit: repositories.audit,
       }),
   };

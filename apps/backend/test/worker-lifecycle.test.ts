@@ -42,10 +42,8 @@ function setup() {
   };
   const repositories: WorkerRepositories = {
     jobs,
-    documents: { findById: jest.fn(), updateStatus: jest.fn() },
-    extractions: { create: jest.fn(), replaceFields: jest.fn() },
-    pages: { upsertOcr: jest.fn() },
     orgs: { findById: jest.fn().mockResolvedValue({ retention_days: 30 }) },
+    transaction: jest.fn(),
   };
   const purge = jest.fn<Promise<number>, [string, number]>().mockResolvedValue(0);
   const worker = new Worker(
@@ -169,19 +167,17 @@ it('does not fail a document or emit a failure event when the job claim is obsol
     markSucceeded: jest.fn(),
     markFailed: jest.fn().mockResolvedValue(null),
   };
-  const documents = {
-    findById: jest.fn().mockRejectedValue(new Error('ocr failed')),
-    updateStatus: jest.fn(),
-  };
+  const documents = { failProcessing: jest.fn() };
   const hub = new InMemoryRealtimeHub();
   const emit = jest.spyOn(hub, 'toOrganisation');
   const worker = new Worker(
     {
       jobs,
-      documents,
-      extractions: { create: jest.fn(), replaceFields: jest.fn() },
-      pages: { upsertOcr: jest.fn() },
       orgs: { findById: jest.fn() },
+      transaction: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('ocr failed'))
+        .mockImplementation(async (run) => run({ jobs, documents })),
     },
     testConfig(),
     new MemoryStorage(),
@@ -192,7 +188,7 @@ it('does not fail a document or emit a failure event when the job claim is obsol
   );
   await worker.processJob({ ...job('obsolete'), type: 'extract_document', document_id: 'doc' });
   expect(jobs.markFailed).toHaveBeenCalledWith('obsolete', 1, 'ocr failed');
-  expect(documents.updateStatus).not.toHaveBeenCalled();
+  expect(documents.failProcessing).not.toHaveBeenCalled();
   expect(emit).not.toHaveBeenCalled();
 });
 
