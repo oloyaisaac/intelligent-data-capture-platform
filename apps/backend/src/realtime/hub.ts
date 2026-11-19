@@ -3,9 +3,10 @@ import type { Logger } from '../logger';
 /**
  * Realtime hub (PAIR-003, DEC-006).
  *
- * The rest of the codebase publishes events through this interface only, so the transport
- * (Socket.IO in production, an in-process emitter in tests) can change without touching services.
- * Payloads carry identifiers, never document content or personal data (API.md §9).
+ * Services publish through this interface. The current runtime uses InMemoryRealtimeHub and the
+ * SSE route; there is no production Socket.IO adapter. The route depends on the concrete hub's
+ * subscribe method, so a different transport would require route changes. Payloads carry identifiers,
+ * not document content (API.md §9).
  */
 
 export type RealtimeEvent =
