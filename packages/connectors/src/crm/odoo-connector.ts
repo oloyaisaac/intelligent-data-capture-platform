@@ -2,8 +2,8 @@
  * Odoo ERP (CRM-001 — the ERP destination).
  *
  * Odoo speaks JSON-RPC, not REST: one endpoint, a method name, positional arguments and a keyword
- * map. Authentication returns a `uid` that every later call needs, so this connector authenticates on
- * demand and caches the id per configuration for the life of the instance.
+ * map. Authentication returns a `uid` that every later call needs. Each public operation
+ * authenticates afresh and reuses the id only within that operation.
  *
  * Field names are Odoo's (`partner_id`, `invoice_date`, …), and the mapping profile is where those
  * are chosen — no code change is needed to retarget a different model.
@@ -37,8 +37,6 @@ export class OdooConnector implements Connector {
   readonly type = 'odoo';
   readonly label = 'Odoo ERP';
   readonly capabilities = ['create', 'read', 'update', 'search'] as const;
-
-  private readonly uidCache = new Map<string, number>();
 
   private config(config: Record<string, unknown>): OdooConfig {
     return {
@@ -107,10 +105,6 @@ export class OdooConnector implements Connector {
   }
 
   private async authenticate(context: ConnectorContext, config: OdooConfig): Promise<number> {
-    const cacheKey = `${config.baseUrl}|${config.database}|${config.username}`;
-    const cached = this.uidCache.get(cacheKey);
-    if (cached) return cached;
-
     const uid = await this.call(context, config, 'common', 'login', [
       config.database,
       config.username,
@@ -119,7 +113,6 @@ export class OdooConnector implements Connector {
     if (typeof uid !== 'number') {
       throw new Error('Odoo refused the credentials. Check the database name and the API key.');
     }
-    this.uidCache.set(cacheKey, uid);
     return uid;
   }
 
@@ -129,8 +122,9 @@ export class OdooConnector implements Connector {
     method: string,
     args: unknown[],
     kwargs: Record<string, unknown> = {},
+    operationUid?: number,
   ): Promise<unknown> {
-    const uid = await this.authenticate(context, config);
+    const uid = operationUid ?? (await this.authenticate(context, config));
     return this.call(
       context,
       config,
@@ -181,8 +175,17 @@ export class OdooConnector implements Connector {
   ): Promise<ConnectorWriteResult> {
     const resolved = this.config(config);
     let created = 0;
+    let uid: number | undefined;
     for (const record of records) {
-      const id = await this.execute(context, resolved, 'create', [stripNulls(record.values)]);
+      uid ??= await this.authenticate(context, resolved);
+      const id = await this.execute(
+        context,
+        resolved,
+        'create',
+        [stripNulls(record.values)],
+        {},
+        uid,
+      );
       if (typeof id !== 'number') {
         throw new Error(`Odoo did not return an id for a ${resolved.model} record.`);
       }
@@ -230,12 +233,21 @@ export class OdooConnector implements Connector {
     const resolved = this.config(config);
     const key = keys[0] ?? resolved.idField;
     let updated = 0;
+    let uid: number | undefined;
     for (const record of records) {
       const id = record.values[key] ?? record.values[resolved.idField];
       if (id === null || id === undefined) {
         throw new Error(`Odoo needs "${key}" to update a record. Add it to the mapping profile.`);
       }
-      await this.execute(context, resolved, 'write', [[Number(id)], stripNulls(record.values)]);
+      uid ??= await this.authenticate(context, resolved);
+      await this.execute(
+        context,
+        resolved,
+        'write',
+        [[Number(id)], stripNulls(record.values)],
+        {},
+        uid,
+      );
       updated += 1;
     }
     return {

@@ -15,6 +15,18 @@ connection, request-buffer, timer, client and operating-system state still requi
 | Request-scoped actor cache and multipart/OCR buffers (`http/guards.ts`, `http/app.ts`, `http/routes/document-routes.ts`)                                  | Per request; configured body/file size limits do not by themselves bound aggregate concurrency or OCR/provider memory.                                                                                     | Independent process memory and concurrent requests multiply aggregate resource use; consistent shared state cannot be inferred from these limits.                |
 | Database pools/connections (`db/postgres.ts`, `db/sqlite.ts`)                                                                                             | PostgreSQL pool is configured per process; SQLite has a connection and transaction queue per process.                                                                                                      | Pool capacity multiplies with replicas; SQLite connection queues do not coordinate in-process state and do not establish worker safety.                          |
 
+## Odoo connector authentication state
+
+The first-party Odoo connector previously kept an unbounded per-instance UID map keyed by URL,
+database and username. It had no expiry or invalidation and omitted the API key from the key. A
+synthetic JSON-RPC test reproduced a stale UID after the remote account's ID changed. The connector
+now authenticates for each operation and retains the UID only for the duration of that operation;
+create/update batches reuse it within the batch and empty batches make no remote call. Tests also
+check changed credentials. This adds login traffic and latency, and a UID or credential change
+mid-batch can still fail after earlier remote writes; there is no atomic batch or automatic retry.
+These are local stub tests, not verification against a deployed Odoo instance, nor a resolution of
+connector process isolation or all other process-local state.
+
 ## Two-API observation
 
 `apps/backend/test/replica-process.test.ts` launches two actual backend subprocesses with workers and

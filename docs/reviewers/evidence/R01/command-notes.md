@@ -16,6 +16,10 @@ session's stated date; it is recorded as the runner's clock, not used as a revie
   source-only census and decomposition notes.
 - The citation check uses tracked Markdown rather than recursively searching installed dependencies;
   no cited `DEC-###` was missing from `DECISIONS.md` in that scope.
+- A focused Odoo stub regression first failed on the prior instance-lifetime UID cache when a remote
+  user ID changed. After removing the cross-operation cache, the focused connector suite verifies
+  fresh authentication, credential changes, batch reuse and empty batches. This does not exercise a
+  real Odoo server or establish atomic remote writes.
 - Local PostgreSQL and Docker were unavailable. PostgreSQL, Compose and browser jobs passed at
   `7dc278c` in [CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44548570287).
   That is not production validation.
