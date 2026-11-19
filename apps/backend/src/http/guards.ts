@@ -3,7 +3,6 @@ import { AppError, roleAtLeast, type Role } from '@idcp/shared';
 import { hashIp, isUuid } from '@idcp/shared/ids';
 import type { Services } from '../services/container';
 import type { AuthenticatedActor } from '../services/auth-service';
-import { MembershipsRepository } from '../repositories/auth-repo';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -24,15 +23,16 @@ declare module 'fastify' {
  * before a role change does not keep its old privileges.
  */
 export function createGuards(services: Services) {
-  const memberships = new MembershipsRepository(services.db);
-
   async function resolveActor(request: FastifyRequest): Promise<AuthenticatedActor> {
     const deviceCredential = request.headers['x-device-credential'];
     if (typeof deviceCredential === 'string' && deviceCredential.length > 0) {
       const device = await services.pairing.findActiveDeviceByCredential(deviceCredential);
       if (!device)
         throw new AppError('UNAUTHENTICATED', 'This device is not paired or was revoked.');
-      const membership = await memberships.findForUser(device.user_id);
+      const membership = await services.auth.findActiveMembership(
+        device.user_id,
+        device.organisation_id,
+      );
       if (!membership) throw new AppError('UNAUTHENTICATED', 'This device is no longer valid.');
       return {
         userId: device.user_id,
@@ -65,7 +65,7 @@ export function createGuards(services: Services) {
     const claims = services.tokens.verifyAccessToken(header.slice('Bearer '.length).trim());
     if (!claims) throw new AppError('TOKEN_EXPIRED', 'Your session has expired. Sign in again.');
 
-    const membership = await memberships.findForUser(claims.sub);
+    const membership = await services.auth.findActiveMembership(claims.sub, claims.org);
     if (!membership) throw new AppError('UNAUTHENTICATED', 'Account is no longer active.');
 
     return {

@@ -55,6 +55,14 @@ export class ReviewsRepository {
     ]);
   }
 
+  setExtraction(id: string, extractionId: string, updatedAt: string): Promise<void> {
+    return this.db.execute('UPDATE reviews SET extraction_id = ?, updated_at = ? WHERE id = ?', [
+      extractionId,
+      updatedAt,
+      id,
+    ]);
+  }
+
   findOpenForDocument(documentId: string): Promise<ReviewRow | null> {
     return this.db.one<ReviewRow>(
       "SELECT * FROM reviews WHERE document_id = ? AND status = 'in_progress' ORDER BY created_at DESC LIMIT 1",

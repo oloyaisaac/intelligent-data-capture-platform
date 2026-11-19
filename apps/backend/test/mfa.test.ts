@@ -220,6 +220,21 @@ describe('multi-factor authentication', () => {
     expect(login.json<Record<string, unknown>>().accessToken).toBeTruthy();
   });
 
+  it('accepts only one concurrent use of a recovery code', async () => {
+    const account = await registerAccount(harness);
+    const { recoveryCodes } = await enrol(account);
+    const login = await harness.api.json('POST', '/api/v1/auth/login', {
+      body: { email: account.email, password },
+    });
+    const challengeToken = login.json<{ challengeToken: string }>().challengeToken;
+    const verify = () =>
+      harness.api.json('POST', '/api/v1/auth/mfa/verify', {
+        body: { challengeToken, code: recoveryCodes[0] },
+      });
+    const results = await Promise.all([verify(), verify()]);
+    expect(results.map((result) => result.statusCode).sort()).toEqual([200, 422]);
+  });
+
   it('regenerates recovery codes behind a live code', async () => {
     const account = await registerAccount(harness);
     const { secret, recoveryCodes } = await enrol(account);

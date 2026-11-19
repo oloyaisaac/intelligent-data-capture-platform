@@ -29,6 +29,31 @@ describe('HTTP surface', () => {
     expect(response.headers.get('x-request-id')).toBeTruthy();
   });
 
+  it('returns degraded readiness when the database probe fails', async () => {
+    const probe = jest
+      .spyOn(harness.db, 'one')
+      .mockRejectedValueOnce(new Error('database offline'));
+    try {
+      const response = await harness.api.get('/api/v1/health');
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({ status: 'degraded', dependencies: { db: 'error' } });
+      expect(response.body).not.toContain('database offline');
+    } finally {
+      probe.mockRestore();
+    }
+  });
+
+  it('returns the version injected into the service configuration', async () => {
+    const configured = await createHarness({ npm_package_version: '9.8.7-test' });
+    try {
+      const response = await configured.api.get('/api/v1/health');
+      expect(response.statusCode).toBe(200);
+      expect(response.json<{ version: string }>().version).toBe('9.8.7-test');
+    } finally {
+      await configured.close();
+    }
+  });
+
   it('does not send HSTS from a development server', async () => {
     const response = await harness.api.get('/api/v1/health');
     // Sending HSTS over plain HTTP would poison localhost for the developer's browser.

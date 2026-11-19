@@ -7,6 +7,7 @@ import {
   UsersRepository,
 } from '../repositories/auth-repo';
 import { AuditRepository, JobsRepository } from '../repositories/system-repo';
+import { DashboardRepository } from '../repositories/dashboard-repo';
 import type { AuthenticatedActor } from './auth-service';
 
 export class OrganisationService {
@@ -15,13 +16,15 @@ export class OrganisationService {
   private readonly memberships: MembershipsRepository;
   private readonly audit: AuditRepository;
   private readonly jobs: JobsRepository;
+  private readonly dashboard: DashboardRepository;
 
-  constructor(private readonly db: Database) {
+  constructor(db: Database) {
     this.orgs = new OrganisationsRepository(db);
     this.users = new UsersRepository(db);
     this.memberships = new MembershipsRepository(db);
     this.audit = new AuditRepository(db);
     this.jobs = new JobsRepository(db);
+    this.dashboard = new DashboardRepository(db);
   }
 
   async get(actor: AuthenticatedActor) {
@@ -186,54 +189,19 @@ export class OrganisationService {
   /**
    * DASH-001: counters plus a short time series.
    *
-   * `date(created_at)` is the one date-truncation expression both SQLite and PostgreSQL accept, so
-   * the same query runs on the dev and production drivers. The window is bounded (14 days) so the
-   * dashboard cannot turn into a table scan as history grows.
+   * ISO timestamp prefixes are grouped with SUBSTR by the repository on both database drivers.
+   * The default window is 14 days, and requested windows are clamped to 90 days.
    */
   async stats(actor: AuthenticatedActor, options: { days?: number } = {}) {
     const days = clampDays(options.days);
-    const documentsByStatus = await this.db.query<{ status: string; count: number }>(
-      'SELECT status, COUNT(*) AS count FROM documents WHERE organisation_id = ? AND deleted_at IS NULL GROUP BY status',
-      [actor.organisationId],
-    );
+    const documentsByStatus = await this.dashboard.documentsByStatus(actor.organisationId);
     const jobs = await this.jobs.countByStatus(actor.organisationId);
-
-    const byType = await this.db.query<{ document_type: string; count: number }>(
-      `SELECT document_type, COUNT(*) AS count FROM documents
-        WHERE organisation_id = ? AND deleted_at IS NULL
-        GROUP BY document_type ORDER BY count DESC`,
-      [actor.organisationId],
-    );
-
-    const daily = await this.db.query<{ day: string; status: string; count: number }>(
-      `SELECT SUBSTR(created_at, 1, 10) AS day, status, COUNT(*) AS count FROM documents
-        WHERE organisation_id = ? AND deleted_at IS NULL AND created_at >= ?
-        GROUP BY SUBSTR(created_at, 1, 10), status ORDER BY day`,
-      [actor.organisationId, windowStart(days)],
-    );
-
+    const byType = await this.dashboard.documentsByType(actor.organisationId);
+    const daily = await this.dashboard.documentsByDay(actor.organisationId, windowStart(days));
     const timeline = buildTimeline(daily, days);
-
-    const connectors = await this.db.one<{ total: number; active: number }>(
-      `SELECT COUNT(*) AS total,
-              SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active
-         FROM connectors WHERE organisation_id = ?`,
-      [actor.organisationId],
-    );
-
-    const exportsRow = await this.db.one<{ total: number; ready: number }>(
-      `SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) AS ready
-         FROM exports WHERE organisation_id = ?`,
-      [actor.organisationId],
-    );
-
-    const reviewBacklog = await this.db.one<{ pending: number; approved: number }>(
-      `SELECT
-         SUM(CASE WHEN status = 'needs_review' THEN 1 ELSE 0 END) AS pending,
-         SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved
-       FROM documents WHERE organisation_id = ? AND deleted_at IS NULL`,
-      [actor.organisationId],
-    );
+    const connectors = await this.dashboard.connectors(actor.organisationId);
+    const exportsRow = await this.dashboard.exports(actor.organisationId);
+    const reviewBacklog = await this.dashboard.reviewBacklog(actor.organisationId);
 
     const documents = Object.fromEntries(
       documentsByStatus.map((row) => [row.status, Number(row.count)]),

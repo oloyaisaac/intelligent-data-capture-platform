@@ -82,6 +82,11 @@ describe('human-in-the-loop review (REV-001, REV-002)', () => {
       body: { changes: [{ fieldPath: target!.path, value: 'corrected-value' }] },
     });
     expect(patched.statusCode).toBe(200);
+    const reviewRow = await harness.db.one<{ extraction_id: string }>(
+      'SELECT extraction_id FROM reviews WHERE id = ?',
+      [review.reviewId],
+    );
+    expect(reviewRow?.extraction_id).toBe(patched.json<{ extractionId: string }>().extractionId);
 
     const change = await harness.db.one<{
       field_path: string;
@@ -289,6 +294,23 @@ some text without any labels at all`);
         fieldPath: target.path,
         correctedValue: 'CORRECTED-2',
       });
+    });
+
+    it('does not use another organisation’s training consent', async () => {
+      const owner = await registerAccount(harness);
+      const other = await registerAccount(harness);
+      const optIn = await harness.api.json('PATCH', '/api/v1/organisation', {
+        token: other.accessToken,
+        body: { learningOptIn: true },
+      });
+      expect(optIn.statusCode).toBe(200);
+      const stats = await harness.api.get('/api/v1/review/corrections', owner.accessToken);
+      expect(stats.json<{ optIn: boolean }>().optIn).toBe(false);
+      const denied = await harness.api.json('POST', '/api/v1/review/corrections/export', {
+        token: owner.accessToken,
+        body: {},
+      });
+      expect(denied.statusCode).toBe(409);
     });
 
     it('keeps the aggregate visible to reviewers but the export to admins', async () => {

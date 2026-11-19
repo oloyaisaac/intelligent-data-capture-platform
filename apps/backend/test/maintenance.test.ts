@@ -166,6 +166,34 @@ describe('maintenance scheduler', () => {
     ).toHaveLength(0);
   });
 
+  it('deletes only used reset tokens older than the seven-day cutoff', async () => {
+    const account = await registerAccount(harness, { email: 'reset-retention@example.com' });
+    const now = new Date('2026-10-10T12:00:00.000Z');
+    const cutoff = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+    const older = new Date(now.getTime() - 7 * 86_400_000 - 1).toISOString();
+    const recent = new Date(now.getTime() - 86_400_000).toISOString();
+    for (const [id, usedAt] of [
+      ['old-used', older],
+      ['at-cutoff', cutoff],
+      ['recent-used', recent],
+      ['unused', null],
+    ] as const) {
+      await harness.db.execute(
+        `INSERT INTO password_resets (id, user_id, token_hash, expires_at, used_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, account.userId, `hash-${id}`, recent, usedAt, older],
+      );
+    }
+
+    expect((await maintenance().runOnce(now)).resetTokensDeleted).toBe(1);
+    const remaining = await harness.db.query<{ id: string }>(
+      'SELECT id FROM password_resets WHERE user_id = ? ORDER BY id',
+      [account.userId],
+    );
+    expect(remaining.map((row) => row.id)).toEqual(['at-cutoff', 'recent-used', 'unused']);
+    expect((await maintenance().runOnce(now)).resetTokensDeleted).toBe(0);
+  });
+
   it('schedules itself only when enabled', () => {
     expect(maintenance().isScheduled).toBe(false);
     maintenance().start(1);

@@ -702,6 +702,7 @@ describe('accept-invitation screen (TEAM-001)', () => {
     });
 
     render(<AcceptInvitePage client={client} token="token-123" onAccepted={() => undefined} />);
+    expect(screen.getByText(/Use your existing account password/)).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText(/^Password/), {
       target: { value: 'a much better password' },
@@ -709,10 +710,46 @@ describe('accept-invitation screen (TEAM-001)', () => {
     fireEvent.change(screen.getByLabelText('Confirm password'), {
       target: { value: 'something else entirely' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Set password and sign in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept invitation and sign in' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('do not match');
     expect(called).toBe(false);
+  });
+
+  it('submits an optional authenticator or recovery code and adopts the session', async () => {
+    let body = '';
+    const storage = new MemoryTokenStorage();
+    const client = new ApiClient({
+      baseUrl: 'https://idcp.test/api/v1',
+      storage,
+      fetchImpl: (async (_url: unknown, init: RequestInit) => {
+        body = String(init.body);
+        return jsonResponse({
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          sessionId: 'session',
+          user: {},
+        });
+      }) as unknown as typeof fetch,
+    });
+    const accepted = jest.fn();
+    render(<AcceptInvitePage client={client} token="token-123" onAccepted={accepted} />);
+    fireEvent.change(screen.getByLabelText(/^Password/), {
+      target: { value: 'correct horse battery staple' },
+    });
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'correct horse battery staple' },
+    });
+    fireEvent.change(screen.getByLabelText(/^Authenticator or recovery code/), {
+      target: { value: ' AAAA-BBBB ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Accept invitation and sign in' }));
+    await waitFor(() => expect(accepted).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(body)).toEqual({
+      password: 'correct horse battery staple',
+      code: 'AAAA-BBBB',
+    });
+    expect(await storage.read()).toEqual({ accessToken: 'access', refreshToken: 'refresh' });
   });
 });
 

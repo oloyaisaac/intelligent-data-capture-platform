@@ -53,6 +53,13 @@ export class OrganisationsRepository {
     return this.db.one<OrganisationRow>('SELECT * FROM organisations WHERE slug = ?', [slug]);
   }
 
+  findLearningOptIn(id: string): Promise<{ learning_opt_in: number } | null> {
+    return this.db.one<{ learning_opt_in: number }>(
+      'SELECT learning_opt_in FROM organisations WHERE id = ?',
+      [id],
+    );
+  }
+
   async update(
     id: string,
     patch: Partial<
@@ -130,6 +137,12 @@ export class UsersRepository {
     return this.db.one<UserRow>('SELECT * FROM users WHERE id = ?', [id]);
   }
 
+  /** Call only on a transaction-scoped database. SQLite uses BEGIN IMMEDIATE. */
+  findByIdForUpdate(id: string): Promise<UserRow | null> {
+    const lock = this.db.driver === 'postgres' ? ' FOR UPDATE' : '';
+    return this.db.one<UserRow>(`SELECT * FROM users WHERE id = ?${lock}`, [id]);
+  }
+
   findByEmail(email: string): Promise<UserRow | null> {
     return this.db.one<UserRow>('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
   }
@@ -184,6 +197,19 @@ export class UsersRepository {
       nowIso(),
       id,
     ]);
+  }
+
+  /** Consume against the exact version read, so one recovery code cannot win twice. */
+  async compareAndSetRecoveryHashes(
+    id: string,
+    expected: string,
+    hashes: string[],
+  ): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      'UPDATE users SET mfa_recovery_hashes = ?, updated_at = ? WHERE id = ? AND mfa_recovery_hashes = ? AND mfa_enabled_at IS NOT NULL AND disabled_at IS NULL RETURNING id',
+      [JSON.stringify(hashes), nowIso(), id, expected],
+    );
+    return row !== null;
   }
 
   /** Records acceptance of the current legal pack and returns the timestamp used (DEC-032). */
@@ -328,11 +354,56 @@ export class MembershipsRepository {
     return row;
   }
 
+  findId(
+    organisationId: string,
+    userId: string,
+    acceptedOnly = false,
+  ): Promise<{ id: string } | null> {
+    return this.db.one<{ id: string }>(
+      `SELECT id FROM memberships WHERE organisation_id = ? AND user_id = ?${acceptedOnly ? ' AND accepted_at IS NOT NULL' : ''}`,
+      [organisationId, userId],
+    );
+  }
+
+  /** Call only in a transaction; prevent a concurrent removal while accepting an invitation. */
+  findRoleForUpdate(
+    organisationId: string,
+    userId: string,
+  ): Promise<{ organisation_id: string; role: Role } | null> {
+    const lock = this.db.driver === 'postgres' ? ' FOR UPDATE' : '';
+    return this.db.one(
+      `SELECT organisation_id, role FROM memberships WHERE organisation_id = ? AND user_id = ?${lock}`,
+      [organisationId, userId],
+    );
+  }
+
+  accept(
+    organisationId: string,
+    userId: string,
+    acceptedAt: string,
+    updatedAt: string,
+  ): Promise<void> {
+    return this.db.execute(
+      'UPDATE memberships SET accepted_at = ?, updated_at = ? WHERE organisation_id = ? AND user_id = ?',
+      [acceptedAt, updatedAt, organisationId, userId],
+    );
+  }
+
   findForUser(userId: string): Promise<MembershipRow | null> {
     return this.db.one<MembershipRow>(
       `SELECT m.* FROM memberships m JOIN users u ON u.id = m.user_id
-        WHERE m.user_id = ? AND u.disabled_at IS NULL ORDER BY m.created_at LIMIT 1`,
+        WHERE m.user_id = ? AND m.accepted_at IS NOT NULL AND u.disabled_at IS NULL
+        ORDER BY m.created_at LIMIT 1`,
       [userId],
+    );
+  }
+
+  findActiveForOrganisation(userId: string, organisationId: string): Promise<MembershipRow | null> {
+    return this.db.one<MembershipRow>(
+      `SELECT m.* FROM memberships m JOIN users u ON u.id = m.user_id
+        WHERE m.user_id = ? AND m.organisation_id = ?
+          AND m.accepted_at IS NOT NULL AND u.disabled_at IS NULL`,
+      [userId, organisationId],
     );
   }
 

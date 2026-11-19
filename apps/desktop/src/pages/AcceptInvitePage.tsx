@@ -6,9 +6,8 @@ import { useTranslator } from '../lib/locale';
 /**
  * TEAM-001 — the screen an invitation link opens.
  *
- * The token in the URL is the credential, so this renders before sign-in. Setting a password here
- * consumes the link (single use) and signs the person in, which is the shortest honest path for an
- * invited colleague.
+ * This renders before sign-in. New accounts set a password; existing accounts must prove their
+ * password and, when enabled, their second factor.
  */
 export function AcceptInvitePage({
   client,
@@ -21,6 +20,7 @@ export function AcceptInvitePage({
 }): React.JSX.Element {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const t = useTranslator();
@@ -34,7 +34,11 @@ export function AcceptInvitePage({
     setBusy(true);
     setError(null);
     try {
-      const pair = await client.acceptInvitation({ token, password });
+      const pair = await client.acceptInvitation({
+        token,
+        password,
+        ...(code.trim() ? { code: code.trim() } : {}),
+      });
       await client.adoptSession(pair);
       onAccepted();
     } catch (caught) {
@@ -81,6 +85,16 @@ export function AcceptInvitePage({
             autoComplete="new-password"
             minLength={12}
             required
+          />
+        </Field>
+
+        <Field label={t('invite.mfaCode')} hint={t('invite.mfaHint')}>
+          <input
+            type="text"
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            autoComplete="one-time-code"
+            maxLength={40}
           />
         </Field>
 

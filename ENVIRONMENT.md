@@ -59,7 +59,10 @@ npm run dev:backend     # http://127.0.0.1:4000  (API + in-process worker)
 npm run dev:desktop     # http://127.0.0.1:5173  (renderer; proxies /api to the API)
 ```
 
-Sign in with the seeded account `owner@example.com` / `demo-password-change-me`.
+Sign in with the seeded account `owner@example.com` / `demo-password-change-me`. For synthetic
+local data, the seed command accepts optional `SEED_EMAIL` and `SEED_PASSWORD` environment
+variables. It prints the chosen password, so do not use a real secret or publish its output. Seeding
+is refused when `NODE_ENV=production`.
 
 Local ports: API `4000`, desktop dev server `5173`, Metro `8081`.
 

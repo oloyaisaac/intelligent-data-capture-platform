@@ -1,4 +1,5 @@
 import type { Database } from '../db/database';
+import { EncryptionMigrationRepository } from '../repositories/encryption-migration-repo';
 import { createSecretBox, type SecretBox } from './crypto';
 
 export interface EncryptionMigrationReport {
@@ -30,35 +31,22 @@ export async function migrateEncryptionKeys(
   return db.transaction(async (tx) => {
     // Row locks alone cannot prevent newly inserted rows. This protects the scan during the
     // transaction, but cannot prevent an old process writing after commit: downtime is still required.
-    if (tx.driver === 'postgres') {
-      await tx.execute('LOCK TABLE connectors, users, webhooks IN SHARE ROW EXCLUSIVE MODE');
-    }
-    const webhooks = await tx.one<{ count: number | string }>(
-      'SELECT COUNT(*) AS count FROM webhooks',
-    );
+    const records = new EncryptionMigrationRepository(tx);
+    await records.lockForMigration();
+    const webhooks = await records.countWebhooks();
     if (Number(webhooks?.count ?? 0) !== 0) {
       throw new Error(
         'Webhook secrets are not supported by this migration. Resolve webhook records before rotating keys.',
       );
     }
-    const missingMfa = await tx.one<{ count: number | string }>(
-      'SELECT COUNT(*) AS count FROM users WHERE mfa_enabled_at IS NOT NULL AND mfa_secret_enc IS NULL',
-    );
+    const missingMfa = await records.countEnabledMfaWithoutSecret();
     if (Number(missingMfa?.count ?? 0) !== 0) {
       throw new Error(
         'An enabled MFA account has no stored secret. Investigate before rotating keys.',
       );
     }
-    const connectors = await tx.query<{
-      id: string;
-      organisation_id: string;
-      credentials_encrypted: string;
-    }>(
-      'SELECT id, organisation_id, credentials_encrypted FROM connectors WHERE credentials_encrypted IS NOT NULL ORDER BY id',
-    );
-    const users = await tx.query<{ id: string; mfa_secret_enc: string }>(
-      'SELECT id, mfa_secret_enc FROM users WHERE mfa_secret_enc IS NOT NULL ORDER BY id',
-    );
+    const connectors = await records.listConnectors();
+    const users = await records.listMfa();
 
     async function handle(
       payload: string,
@@ -95,30 +83,20 @@ export async function migrateEncryptionKeys(
         row.organisation_id,
         report.connectors,
         async (encrypted) => {
-          await tx.execute('UPDATE connectors SET credentials_encrypted = ? WHERE id = ?', [
-            encrypted,
-            row.id,
-          ]);
+          await records.saveConnector(row.id, encrypted);
         },
       );
     }
     for (const row of users) {
       await handle(row.mfa_secret_enc, `mfa:${row.id}`, report.mfa, async (encrypted) => {
-        await tx.execute('UPDATE users SET mfa_secret_enc = ? WHERE id = ?', [encrypted, row.id]);
+        await records.saveMfa(row.id, encrypted);
       });
     }
 
     if (input.mode === 'apply') {
       // Check persisted rows using only the target key before the transaction commits.
-      const updatedConnectors = await tx.query<{
-        organisation_id: string;
-        credentials_encrypted: string;
-      }>(
-        'SELECT organisation_id, credentials_encrypted FROM connectors WHERE credentials_encrypted IS NOT NULL',
-      );
-      const updatedUsers = await tx.query<{ id: string; mfa_secret_enc: string }>(
-        'SELECT id, mfa_secret_enc FROM users WHERE mfa_secret_enc IS NOT NULL',
-      );
+      const updatedConnectors = await records.listConnectors();
+      const updatedUsers = await records.listMfa();
       if (
         updatedConnectors.length !== connectors.length ||
         updatedUsers.length !== users.length ||

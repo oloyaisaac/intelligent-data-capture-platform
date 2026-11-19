@@ -110,6 +110,23 @@ describe('worker recovery of interrupted jobs', () => {
     expect(reclaimed?.attempts).toBe(2);
   });
 
+  it('reports only rows actually requeued by competing recovery calls', async () => {
+    const account = await registerAccount(harness);
+    const stale = await insertJob({
+      organisationId: account.organisationId,
+      status: 'running',
+      startedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+    });
+    const cutoff = new Date(Date.now() - RECOVERY_GRACE_MS).toISOString();
+    const repository = new JobsRepository(harness.db);
+    const counts = await Promise.all([
+      repository.requeueStale(cutoff),
+      repository.requeueStale(cutoff),
+    ]);
+    expect(counts.sort()).toEqual([0, 1]);
+    expect(await statusOf(stale)).toBe('queued');
+  });
+
   it('does not touch finished or queued jobs', async () => {
     const account = await registerAccount(harness);
     const queued = await insertJob({

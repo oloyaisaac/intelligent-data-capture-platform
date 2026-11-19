@@ -75,6 +75,45 @@ describe('DASH-001 statistics', () => {
     expect(stats.timeline.find((point) => point.date === today)?.uploaded).toBe(2);
   });
 
+  it('scopes connector and export aggregates and excludes deleted documents', async () => {
+    const account = await registerAccount(harness);
+    const other = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account, { idempotencyKey: 'deleted-dashboard' });
+    const documentId = upload.json<{ id: string }>().id;
+    const now = new Date().toISOString();
+    await harness.db.execute('UPDATE documents SET deleted_at = ? WHERE id = ?', [now, documentId]);
+    for (const [id, owner, status] of [
+      ['own-active', account, 'active'],
+      ['own-other', account, 'disabled'],
+      ['other-active', other, 'active'],
+    ] as const) {
+      await harness.db.execute(
+        `INSERT INTO connectors (id, organisation_id, type, name, status, created_at, updated_at)
+         VALUES (?, ?, 'csv', 'fixture', ?, ?, ?)`,
+        [id, owner.organisationId, status, now, now],
+      );
+    }
+    for (const [id, owner, status] of [
+      ['own-ready', account, 'ready'],
+      ['own-pending', account, 'pending'],
+      ['other-ready', other, 'ready'],
+    ] as const) {
+      await harness.db.execute(
+        `INSERT INTO exports (id, organisation_id, requested_by, format, status, created_at)
+         VALUES (?, ?, ?, 'csv', ?, ?)`,
+        [id, owner.organisationId, owner.userId, status, now],
+      );
+    }
+    const response = await harness.api.get('/api/v1/stats', account.accessToken);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      totalDocuments: 0,
+      connectors: { total: 2, active: 1 },
+      exports: { total: 2, ready: 1 },
+      review: { pending: 0, approved: 0 },
+    });
+  });
+
   it('fills missing days so a quiet day is a zero, not an omission', () => {
     const now = new Date('2026-10-26T09:00:00.000Z');
     const timeline = buildTimeline(

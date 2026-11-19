@@ -455,6 +455,10 @@ export class AuthService {
     user: { id: string; mfa_secret_enc: string | null; mfa_recovery_hashes: string | null },
     code: string,
     organisationId: string,
+    repositories: { users: UsersRepository; audit: AuditRepository } = {
+      users: this.users,
+      audit: this.audit,
+    },
   ): Promise<boolean> {
     const trimmed = code.trim();
     const secret = this.decryptSecret(user);
@@ -463,12 +467,14 @@ export class AuthService {
     if (!/^[A-Za-z0-9-]{6,20}$/.test(trimmed)) return false;
     const hash = hashToken(normaliseRecoveryCode(trimmed));
     const hashes = parseRecoveryHashes(user.mfa_recovery_hashes);
-    if (!hashes.includes(hash)) return false;
-    await this.users.setRecoveryHashes(
+    if (!hashes.includes(hash) || user.mfa_recovery_hashes === null) return false;
+    const consumed = await repositories.users.compareAndSetRecoveryHashes(
       user.id,
+      user.mfa_recovery_hashes,
       hashes.filter((candidate) => candidate !== hash),
     );
-    await this.audit.record({
+    if (!consumed) return false;
+    await repositories.audit.record({
       organisationId,
       actorType: 'user',
       actorId: user.id,
@@ -504,7 +510,7 @@ export class AuthService {
     }
 
     const user = await this.users.findById(session.user_id);
-    const membership = await this.memberships.findForUser(session.user_id);
+    const membership = await this.findActiveMembership(session.user_id, session.organisation_id);
     if (!user || !membership || user.disabled_at) {
       await this.sessions.revoke(session.id);
       throw new AppError('UNAUTHENTICATED', 'Your session is no longer valid.');
@@ -683,9 +689,14 @@ export class AuthService {
     return { revokedSessions };
   }
 
+  /** Re-check a credential against the current active membership of its own organisation. */
+  findActiveMembership(userId: string, organisationId: string) {
+    return this.memberships.findActiveForOrganisation(userId, organisationId);
+  }
+
   async me(actor: AuthenticatedActor): Promise<UserSummary> {
     const user = await this.users.findById(actor.userId);
-    const membership = await this.memberships.findForUser(actor.userId);
+    const membership = await this.findActiveMembership(actor.userId, actor.organisationId);
     const organisation = await this.orgs.findById(actor.organisationId);
     if (!user || !membership || !organisation) {
       throw new AppError('UNAUTHENTICATED', 'Account not found.');
@@ -744,17 +755,11 @@ export class AuthService {
         displayName: input.email.split('@')[0] ?? input.email,
       }));
 
-    const alreadyMember = await this.db.one(
-      'SELECT id FROM memberships WHERE organisation_id = ? AND user_id = ? AND accepted_at IS NOT NULL',
-      [input.organisationId, user.id],
-    );
+    const alreadyMember = await this.memberships.findId(input.organisationId, user.id, true);
     if (alreadyMember)
       throw new AppError('CONFLICT', 'That person is already in this organisation.');
 
-    const pending = await this.db.one(
-      'SELECT id FROM memberships WHERE organisation_id = ? AND user_id = ?',
-      [input.organisationId, user.id],
-    );
+    const pending = await this.memberships.findId(input.organisationId, user.id);
     if (!pending) {
       await this.memberships.create({
         organisationId: input.organisationId,
@@ -809,20 +814,14 @@ export class AuthService {
   }
 
   async revokeInvitation(organisationId: string, id: string): Promise<void> {
-    const row = await this.db.one<InvitationRow>(
-      'SELECT * FROM invitations WHERE organisation_id = ? AND id = ?',
-      [organisationId, id],
-    );
+    const row = await this.invitations.findForOrganisation(organisationId, id);
     if (!row) throw new AppError('NOT_FOUND', 'Invitation not found.');
     await this.invitations.revoke(id);
   }
 
-  /**
-   * Accept an invitation: sets the password, activates the membership and signs the person in.
-   * The token is single-use — a second attempt with the same link fails.
-   */
+  /** Accept an invitation after verifying existing credentials or setting a first password. */
   async acceptInvitation(
-    input: { token: string; password: string },
+    input: { token: string; password: string; code?: string },
     context: RequestContext = {},
   ): Promise<TokenPair> {
     const strength = validatePasswordStrength(input.password);
@@ -838,34 +837,58 @@ export class AuthService {
       );
     }
 
-    const consumed = await this.invitations.consume(invitation.id);
-    if (!consumed) throw invalid;
+    const initialUser = await this.users.findById(invitation.user_id);
+    if (!initialUser || initialUser.disabled_at) throw invalid;
+    if (
+      initialUser.password_hash &&
+      !(await this.hasher.verify(initialUser.password_hash, input.password))
+    ) {
+      throw invalid;
+    }
+    // An enabled factor without a password is an inconsistent account: never downgrade it.
+    if (initialUser.mfa_enabled_at && !initialUser.password_hash) throw invalid;
+    // Hash before entering the transaction; re-check the locked account before using this result.
+    const newPasswordHash = initialUser.password_hash
+      ? null
+      : await this.hasher.hash(input.password);
 
-    const passwordHash = await this.hasher.hash(input.password);
-    await this.users.setPassword(invitation.user_id, passwordHash);
-    await this.db.execute(
-      'UPDATE memberships SET accepted_at = ?, updated_at = ? WHERE organisation_id = ? AND user_id = ?',
-      [nowIso(), nowIso(), invitation.organisation_id, invitation.user_id],
-    );
-
-    await this.audit.record({
-      organisationId: invitation.organisation_id,
-      actorType: 'user',
-      actorId: invitation.user_id,
-      action: 'user.invitation_accepted',
-      targetType: 'user',
-      targetId: invitation.user_id,
-      ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+    return this.db.transaction(async (tx) => {
+      const users = new UsersRepository(tx);
+      const memberships = new MembershipsRepository(tx);
+      const invitations = new InvitationsRepository(tx);
+      const user = await users.findByIdForUpdate(invitation.user_id);
+      if (!user || user.disabled_at || user.password_hash !== initialUser.password_hash)
+        throw invalid;
+      if (user.mfa_enabled_at && !user.password_hash) throw invalid;
+      const membership = await memberships.findRoleForUpdate(
+        invitation.organisation_id,
+        invitation.user_id,
+      );
+      if (!membership) throw invalid;
+      if (!(await invitations.consume(invitation.id, nowIso()))) throw invalid;
+      const audit = new AuditRepository(tx);
+      if (
+        user.mfa_enabled_at &&
+        (!input.code ||
+          !(await this.consumeSecondFactor(user, input.code, invitation.organisation_id, {
+            users,
+            audit,
+          })))
+      )
+        throw invalid;
+      if (newPasswordHash) await users.setPassword(user.id, newPasswordHash);
+      await memberships.accept(invitation.organisation_id, invitation.user_id, nowIso(), nowIso());
+      await audit.record({
+        organisationId: invitation.organisation_id,
+        actorType: 'user',
+        actorId: invitation.user_id,
+        action: 'user.invitation_accepted',
+        targetType: 'user',
+        targetId: invitation.user_id,
+        ipHash: context.ipHash ?? (context.ip ? hashIp(context.ip) : null),
+      });
+      return this.issueTokens(user, membership, context, tx);
     });
-
-    const user = await this.users.findById(invitation.user_id);
-    if (!user) throw invalid;
-    const membership = await this.db.one<{ organisation_id: string; role: Role }>(
-      'SELECT organisation_id, role FROM memberships WHERE organisation_id = ? AND user_id = ?',
-      [invitation.organisation_id, invitation.user_id],
-    );
-    if (!membership) throw invalid;
-    return this.issueTokens(user, membership, context);
   }
 
   /** Random one-time token used for invitations/password resets (delivery is out of scope). */

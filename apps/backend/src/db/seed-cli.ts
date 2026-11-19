@@ -1,4 +1,4 @@
-import { loadConfig } from '../config';
+import { loadSeedConfig } from '../config';
 import { createLogger } from '../logger';
 import { createDatabase } from './index';
 import { buildServices } from '../services/container';
@@ -8,7 +8,7 @@ import { buildServices } from '../services/container';
  * Never run this against production; it creates a known-password account.
  */
 async function main(): Promise<void> {
-  const config = loadConfig();
+  const { config, email, password } = loadSeedConfig();
   if (config.NODE_ENV === 'production') {
     console.error('Refusing to seed a production database.');
     process.exit(1);
@@ -16,9 +16,6 @@ async function main(): Promise<void> {
   const logger = createLogger({ level: config.LOG_LEVEL, base: { task: 'seed' } });
   const db = await createDatabase(config, logger);
   const services = buildServices({ config, db, logger });
-
-  const email = process.env.SEED_EMAIL ?? 'owner@example.com';
-  const password = process.env.SEED_PASSWORD ?? 'demo-password-change-me';
 
   const existing = await db.one('SELECT id FROM users WHERE email = ?', [email]);
   if (existing) {

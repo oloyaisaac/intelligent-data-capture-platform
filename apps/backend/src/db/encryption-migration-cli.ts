@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { loadConfig } from '../config';
+import { loadEncryptionMigrationConfig } from '../config';
 import { migrateEncryptionKeys } from '../services/encryption-migration';
 import { PostgresDatabase } from './postgres';
 import { SqliteDatabase } from './sqlite';
@@ -17,22 +17,7 @@ async function main(): Promise<void> {
   ) {
     throw new Error('Use exactly --check or --apply, plus --confirm-offline.');
   }
-  const config = loadConfig();
-  if (
-    !process.env.JWT_SECRET ||
-    !process.env.ENCRYPTION_KEY ||
-    config.ENCRYPTION_KEY.length < 32 ||
-    config.ENCRYPTION_KEY === 'local-encryption-secret-do-not-use-in-production' ||
-    config.JWT_SECRET === config.ENCRYPTION_KEY
-  ) {
-    throw new Error(
-      'Explicit, distinct JWT_SECRET and a non-default ENCRYPTION_KEY of at least 32 characters are required.',
-    );
-  }
-  const sourceSecret = process.env.ENCRYPTION_MIGRATION_SOURCE_KEY || config.JWT_SECRET;
-  if (sourceSecret.length < 16 || sourceSecret === config.ENCRYPTION_KEY) {
-    throw new Error('The source key must have at least 16 characters and differ from the target.');
-  }
+  const { config, sourceSecret } = loadEncryptionMigrationConfig();
   let db: Database;
   if (config.DB_DRIVER === 'postgres') {
     db = new PostgresDatabase({ connectionString: config.DATABASE_URL!, poolSize: 1 });

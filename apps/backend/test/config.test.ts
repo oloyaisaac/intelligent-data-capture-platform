@@ -1,6 +1,12 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { CONFIG_ENV_KEYS, loadConfig } from '../src/config';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import ts from 'typescript';
+import {
+  CONFIG_ENV_KEYS,
+  loadConfig,
+  loadEncryptionMigrationConfig,
+  loadSeedConfig,
+} from '../src/config';
 
 /**
  * The environment contract (ENVIRONMENT.md §4, and the rule in AI.md §7).
@@ -28,6 +34,111 @@ function parseEnvFile(contents: string): Record<string, string> {
   }
   return out;
 }
+
+describe('environment entry points', () => {
+  const jwt = 'legacy-jwt-secret-0123456789abcdef';
+  const encryption = 'dedicated-encryption-key-0123456789';
+
+  it('injects the npm version without adding CLI-only secrets to application config', () => {
+    const config = loadConfig({
+      npm_package_version: '1.2.3',
+      ENCRYPTION_MIGRATION_SOURCE_KEY: jwt,
+    });
+    expect(config.appVersion).toBe('1.2.3');
+    expect(config).not.toHaveProperty('ENCRYPTION_MIGRATION_SOURCE_KEY');
+    expect(loadConfig({}).appVersion).toBe('0.1.0');
+  });
+
+  it('reads seed overrides separately while preserving defaults and empty values', () => {
+    expect(loadSeedConfig({})).toMatchObject({
+      email: 'owner@example.com',
+      password: 'demo-password-change-me',
+    });
+    const seed = loadSeedConfig({ SEED_EMAIL: 'custom@example.com', SEED_PASSWORD: '' });
+    expect(seed.email).toBe('custom@example.com');
+    expect(seed.password).toBe('');
+    expect(seed.config).not.toHaveProperty('SEED_PASSWORD');
+  });
+
+  it('requires explicit distinct migration keys and keeps source-key fallback behavior', () => {
+    const env = { JWT_SECRET: jwt, ENCRYPTION_KEY: encryption };
+    expect(loadEncryptionMigrationConfig(env).sourceSecret).toBe(jwt);
+    expect(
+      loadEncryptionMigrationConfig({ ...env, ENCRYPTION_MIGRATION_SOURCE_KEY: '' }).sourceSecret,
+    ).toBe(jwt);
+    const oldKey = 'old-encryption-key-0123456789abcdef';
+    const result = loadEncryptionMigrationConfig({
+      ...env,
+      ENCRYPTION_MIGRATION_SOURCE_KEY: oldKey,
+    });
+    expect(result.sourceSecret).toBe(oldKey);
+    expect(result.config).not.toHaveProperty('ENCRYPTION_MIGRATION_SOURCE_KEY');
+    expect(() => loadEncryptionMigrationConfig({})).toThrow(/Explicit, distinct/);
+    expect(() => loadEncryptionMigrationConfig({ JWT_SECRET: jwt })).toThrow(/Explicit, distinct/);
+    expect(() => loadEncryptionMigrationConfig({ ENCRYPTION_KEY: encryption })).toThrow(
+      /Explicit, distinct/,
+    );
+    expect(() => loadEncryptionMigrationConfig({ JWT_SECRET: jwt, ENCRYPTION_KEY: jwt })).toThrow(
+      /Explicit, distinct/,
+    );
+    expect(() =>
+      loadEncryptionMigrationConfig({ ...env, ENCRYPTION_KEY: 'too-short-but-valid' }),
+    ).toThrow(/Explicit, distinct/);
+    expect(() =>
+      loadEncryptionMigrationConfig({ ...env, ENCRYPTION_MIGRATION_SOURCE_KEY: 'too-short' }),
+    ).toThrow(/source key/i);
+    expect(() =>
+      loadEncryptionMigrationConfig({ ...env, ENCRYPTION_MIGRATION_SOURCE_KEY: encryption }),
+    ).toThrow(/source key/i);
+  });
+
+  it('does not read process.env elsewhere in backend source', () => {
+    const root = join(__dirname, '../src');
+    const violations: string[] = [];
+    function inspect(directory: string): void {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          inspect(path);
+          continue;
+        }
+        if (!entry.name.endsWith('.ts') || path === join(root, 'config.ts')) continue;
+        const file = ts.createSourceFile(
+          path,
+          readFileSync(path, 'utf8'),
+          ts.ScriptTarget.Latest,
+          true,
+        );
+        function visit(node: ts.Node): void {
+          const dot =
+            ts.isPropertyAccessExpression(node) &&
+            node.expression.getText(file) === 'process' &&
+            node.name.text === 'env';
+          const computed =
+            ts.isElementAccessExpression(node) &&
+            node.expression.getText(file) === 'process' &&
+            ts.isStringLiteral(node.argumentExpression) &&
+            node.argumentExpression.text === 'env';
+          const destructured =
+            ts.isVariableDeclaration(node) &&
+            ts.isObjectBindingPattern(node.name) &&
+            node.initializer?.getText(file) === 'process' &&
+            node.name.elements.some(
+              (element) => (element.propertyName ?? element.name).getText(file) === 'env',
+            );
+          if (dot || computed || destructured)
+            violations.push(
+              `${relative(root, path)}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1}`,
+            );
+          ts.forEachChild(node, visit);
+        }
+        visit(file);
+      }
+    }
+    inspect(root);
+    expect(violations).toEqual([]);
+  });
+});
 
 describe('.env.example matches the configuration the server reads (BACK-001)', () => {
   const documented = parseEnvFile(example);

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applyMigrations } from '../src/db/migrations';
+import type { Database } from '../src/db/database';
 import { SqliteDatabase } from '../src/db/sqlite';
 import { totp } from '../src/auth/totp';
 import { createSecretBox } from '../src/services/crypto';
@@ -211,6 +212,44 @@ describe('offline encryption migration', () => {
   });
 });
 
+it('keeps all PostgreSQL migration operations on the scoped transaction and locks before scanning', async () => {
+  const statements: string[] = [];
+  const tx: Database = {
+    driver: 'postgres',
+    query: async <T>(sql: string) => {
+      statements.push(sql);
+      return [] as T[];
+    },
+    one: async <T>(sql: string) => {
+      statements.push(sql);
+      return { count: 0 } as T;
+    },
+    execute: async (sql: string) => {
+      statements.push(sql);
+    },
+    transaction: async (run) => run(tx),
+    close: async () => undefined,
+  };
+  const outsideTransaction = async (): Promise<never> => {
+    throw new Error('Unscoped database access');
+  };
+  const db: Database = {
+    driver: 'postgres',
+    query: outsideTransaction,
+    one: outsideTransaction,
+    execute: outsideTransaction,
+    transaction: async (run) => run(tx),
+    close: async () => undefined,
+  };
+  expect(await migrateEncryptionKeys(db, { ...options, mode: 'apply' })).toMatchObject({
+    connectors: { alreadyCurrent: 0, legacy: 0 },
+    mfa: { alreadyCurrent: 0, legacy: 0 },
+  });
+  expect(statements[0]).toBe('LOCK TABLE connectors, users, webhooks IN SHARE ROW EXCLUSIVE MODE');
+  expect(statements.filter((sql) => sql.includes('FROM connectors'))).toHaveLength(2);
+  expect(statements.filter((sql) => sql.includes('mfa_secret_enc IS NOT NULL'))).toHaveLength(2);
+});
+
 describe('offline migration CLI', () => {
   it('gates rotation until a persistent SQLite database has been migrated and checked', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'idcp-rekey-'));
@@ -231,7 +270,7 @@ describe('offline migration CLI', () => {
       const root = join(__dirname, '../../..');
       const cli = join(root, 'apps/backend/src/db/encryption-migration-cli.ts');
       const tsx = join(root, 'node_modules/tsx/dist/cli.mjs');
-      const run = (...args: string[]) =>
+      const runWithEnv = (overrides: NodeJS.ProcessEnv, ...args: string[]) =>
         spawnSync(process.execPath, [tsx, cli, ...args], {
           cwd: root,
           encoding: 'utf8',
@@ -243,14 +282,24 @@ describe('offline migration CLI', () => {
             JWT_SECRET: legacy,
             ENCRYPTION_KEY: current,
             ENCRYPTION_MIGRATION_SOURCE_KEY: '',
+            ...overrides,
           },
         });
+      const run = (...args: string[]) => runWithEnv({}, ...args);
+      const noJwt = runWithEnv({ JWT_SECRET: '' }, '--check', '--confirm-offline');
+      const noEncryption = runWithEnv({ ENCRYPTION_KEY: '' }, '--check', '--confirm-offline');
+      expect(noJwt.status).toBe(1);
+      expect(noEncryption.status).toBe(1);
       const unsafe = run('--apply');
       expect(unsafe.status).toBe(1);
       const scan = run('--check', '--confirm-offline');
       expect(scan.status).toBe(2);
       expect(JSON.parse(scan.stdout).connectors.legacy).toBe(1);
-      const apply = run('--apply', '--confirm-offline');
+      const apply = runWithEnv(
+        { JWT_SECRET: newJwt, ENCRYPTION_MIGRATION_SOURCE_KEY: legacy },
+        '--apply',
+        '--confirm-offline',
+      );
       expect(apply.status).toBe(0);
       const check = run('--check', '--confirm-offline');
       expect(check.status).toBe(0);

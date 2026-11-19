@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
@@ -24,6 +25,7 @@ export class SqliteDatabase implements Database {
   readonly driver = 'sqlite' as const;
   private readonly db: DatabaseSync;
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly transactionContext = new AsyncLocalStorage<{ active: boolean }>();
 
   constructor(options: SqliteOptions) {
     if (options.path !== ':memory:') {
@@ -38,51 +40,88 @@ export class SqliteDatabase implements Database {
     this.db.exec('PRAGMA busy_timeout = 5000');
   }
 
-  async query<T = Record<string, unknown>>(sql: string, params: SqlParams = []): Promise<T[]> {
-    const statement = this.db.prepare(sql);
-    return statement.all(...(params as never[])) as T[];
+  private enqueue<T>(run: () => T | Promise<T>): Promise<T> {
+    if (this.transactionContext.getStore()?.active) {
+      return Promise.reject(new Error('Use the transaction-scoped database inside a transaction.'));
+    }
+    const result = this.queue.then(run, run);
+    this.queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
-  async one<T = Record<string, unknown>>(sql: string, params: SqlParams = []): Promise<T | null> {
-    const rows = await this.query<T>(sql, params);
-    return rows[0] ?? null;
+  private queryDirect<T>(sql: string, params: SqlParams): T[] {
+    return this.db.prepare(sql).all(...(params as never[])) as T[];
   }
 
-  async execute(sql: string, params: SqlParams = []): Promise<void> {
-    const statement = this.db.prepare(sql);
-    statement.run(...(params as never[]));
+  private executeDirect(sql: string, params: SqlParams): void {
+    this.db.prepare(sql).run(...(params as never[]));
   }
 
-  /**
-   * Serialised transaction. `node:sqlite` is synchronous, so we chain transactions to avoid
-   * interleaving statements from concurrent async handlers.
-   */
-  async transaction<T>(fn: (db: Database) => Promise<T>): Promise<T> {
-    const run = async (): Promise<T> => {
+  query<T = Record<string, unknown>>(sql: string, params: SqlParams = []): Promise<T[]> {
+    return this.enqueue(() => this.queryDirect<T>(sql, params));
+  }
+
+  one<T = Record<string, unknown>>(sql: string, params: SqlParams = []): Promise<T | null> {
+    return this.enqueue(() => this.queryDirect<T>(sql, params)[0] ?? null);
+  }
+
+  execute(sql: string, params: SqlParams = []): Promise<void> {
+    return this.enqueue(() => this.executeDirect(sql, params));
+  }
+
+  /** All connection operations share a queue; only the scoped handle can execute during a transaction. */
+  transaction<T>(fn: (db: Database) => Promise<T>): Promise<T> {
+    return this.enqueue(async () => {
       this.db.exec('BEGIN IMMEDIATE');
+      const context = { active: true };
+      const assertActive = () => {
+        if (!context.active) throw new Error('Transaction-scoped database is no longer active.');
+      };
+      const scoped: Database = {
+        driver: this.driver,
+        query: async <R = Record<string, unknown>>(sql: string, params: SqlParams = []) => {
+          assertActive();
+          return this.queryDirect<R>(sql, params);
+        },
+        one: async <R = Record<string, unknown>>(sql: string, params: SqlParams = []) => {
+          assertActive();
+          return this.queryDirect<R>(sql, params)[0] ?? null;
+        },
+        execute: async (sql: string, params: SqlParams = []) => {
+          assertActive();
+          this.executeDirect(sql, params);
+        },
+        // Like the PostgreSQL adapter, nested calls participate in the same transaction; no savepoint.
+        transaction: async (inner) => {
+          assertActive();
+          return inner(scoped);
+        },
+        close: async () => {
+          assertActive();
+        },
+      };
       try {
-        const result = await fn(this);
+        const result = await this.transactionContext.run(context, () => fn(scoped));
         this.db.exec('COMMIT');
         return result;
       } catch (error) {
         try {
           this.db.exec('ROLLBACK');
         } catch {
-          // Rolling back a transaction that already failed is not itself an error worth raising.
+          // Preserve the original error if the transaction was already rolled back.
         }
         throw error;
+      } finally {
+        context.active = false;
       }
-    };
-    const chained = this.queue.then(run, run);
-    this.queue = chained.then(
-      () => undefined,
-      () => undefined,
-    );
-    return chained;
+    });
   }
 
-  async close(): Promise<void> {
-    this.db.close();
+  close(): Promise<void> {
+    return this.enqueue(() => this.db.close());
   }
 }
 

@@ -5,7 +5,9 @@ import { nowIso } from '../db/database';
 import type { Logger } from '../logger';
 import type { Storage } from '../storage';
 import { AuditRepository } from '../repositories/system-repo';
+import { ErasureFilesRepository } from '../repositories/erasure-files-repo';
 import { UsersRepository } from '../repositories/auth-repo';
+import { PrivacyRepository } from '../repositories/privacy-repo';
 import type { PasswordHasher } from '../auth/password';
 import type { AuthenticatedActor } from './auth-service';
 import { processErasureFiles } from './erasure-files';
@@ -23,6 +25,7 @@ import { processErasureFiles } from './erasure-files';
  */
 export class PrivacyService {
   private readonly users: UsersRepository;
+  private readonly privacy: PrivacyRepository;
 
   constructor(
     private readonly db: Database,
@@ -31,57 +34,17 @@ export class PrivacyService {
     private readonly logger: Logger,
   ) {
     this.users = new UsersRepository(db);
+    this.privacy = new PrivacyRepository(db);
   }
 
   async exportData(actor: AuthenticatedActor): Promise<DataExport> {
     const user = await this.users.findById(actor.userId);
     if (!user) throw new AppError('NOT_FOUND', 'Account not found.');
 
-    const organisations = await this.db.query<{
-      id: string;
-      name: string;
-      role: string;
-      created_at: string;
-    }>(
-      `SELECT o.id, o.name, m.role, m.created_at
-         FROM memberships m JOIN organisations o ON o.id = m.organisation_id
-        WHERE m.user_id = ?
-        ORDER BY m.created_at`,
-      [actor.userId],
-    );
-
-    const documents = await this.db.query<{
-      id: string;
-      document_type: string;
-      mime_type: string;
-      status: string;
-      created_at: string;
-    }>(
-      `SELECT id, document_type, mime_type, status, created_at FROM documents
-        WHERE uploaded_by = ? ORDER BY created_at DESC`,
-      [actor.userId],
-    );
-
-    const reviews = await this.db.query<{
-      id: string;
-      document_id: string;
-      status: string;
-      created_at: string;
-    }>(
-      `SELECT id, document_id, status, created_at FROM reviews
-        WHERE reviewer_id = ? ORDER BY created_at DESC`,
-      [actor.userId],
-    );
-
-    const auditEntries = await this.db.query<{
-      action: string;
-      target_type: string | null;
-      created_at: string;
-    }>(
-      `SELECT action, target_type, created_at FROM audit_logs
-        WHERE actor_id = ? ORDER BY created_at DESC LIMIT 1000`,
-      [actor.userId],
-    );
+    const organisations = await this.privacy.organisationsForUser(actor.userId);
+    const documents = await this.privacy.documentsForUser(actor.userId);
+    const reviews = await this.privacy.reviewsForUser(actor.userId);
+    const auditEntries = await this.privacy.auditForUser(actor.userId);
 
     return {
       generatedAt: nowIso(),
@@ -147,15 +110,9 @@ export class PrivacyService {
       throw new AppError('INVALID_CREDENTIALS', 'That password is not correct.');
     }
 
-    const owned = await this.db.query<{ organisation_id: string }>(
-      `SELECT organisation_id FROM memberships WHERE user_id = ? AND role = 'owner'`,
-      [actor.userId],
-    );
+    const owned = await this.privacy.organisationsOwnedBy(actor.userId);
     for (const { organisation_id: organisationId } of owned) {
-      const owners = await this.db.query<{ user_id: string }>(
-        `SELECT user_id FROM memberships WHERE organisation_id = ? AND role = 'owner'`,
-        [organisationId],
-      );
+      const owners = await this.privacy.ownersForOrganisation(organisationId);
       if (owners.length > 1) {
         throw new AppError(
           'CONFLICT',
@@ -168,72 +125,40 @@ export class PrivacyService {
     const draftsRemoved = await this.db.transaction(async (tx) => {
       // Lock selected rows on PostgreSQL so they cannot become approved while erasure is deleting
       // them. SQLite serialises the write transaction with BEGIN IMMEDIATE.
-      const drafts = await tx.query<{ id: string; storage_key: string }>(
-        `SELECT id, storage_key FROM documents
-          WHERE uploaded_by = ?
-            AND status IN ('uploaded', 'queued', 'processing', 'needs_review', 'failed')${tx.driver === 'postgres' ? ' FOR UPDATE' : ''}`,
-        [actor.userId],
-      );
+      const records = new PrivacyRepository(tx);
+      const drafts = await records.lockDraftsForUser(actor.userId);
       const fileKeys = new Set(drafts.map((row) => row.storage_key));
       for (const draft of drafts) {
-        const pages = await tx.query<{ storage_key: string }>(
-          'SELECT storage_key FROM document_pages WHERE document_id = ?',
-          [draft.id],
-        );
+        const pages = await records.documentPageKeys(draft.id);
         for (const page of pages) fileKeys.add(page.storage_key);
       }
       for (const key of fileKeys) {
-        await tx.execute(
-          `INSERT INTO erasure_file_deletions (id, user_id, storage_key, created_at)
-           VALUES (?, ?, ?, ?) ON CONFLICT (user_id, storage_key) DO NOTHING`,
-          [randomUUID(), actor.userId, key, anonymisedAt],
-        );
+        await records.enqueueFileDeletion(randomUUID(), actor.userId, key, anonymisedAt);
       }
-      await tx.execute(
-        'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL',
-        [nowIso(), actor.userId],
-      );
-      await tx.execute(
-        'UPDATE devices SET revoked_at = ?, updated_at = ? WHERE user_id = ? AND revoked_at IS NULL',
-        [nowIso(), nowIso(), actor.userId],
-      );
-      await tx.execute('DELETE FROM password_resets WHERE user_id = ?', [actor.userId]);
-      await tx.execute(
-        'UPDATE api_keys SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL',
-        [anonymisedAt, actor.userId],
-      );
-      await tx.execute(
-        "UPDATE pairing_sessions SET status = 'expired' WHERE created_by = ? AND status = 'pending'",
-        [actor.userId],
-      );
-      await tx.execute(
-        'UPDATE invitations SET email = ?, used_at = COALESCE(used_at, ?) WHERE user_id = ?',
-        [`deleted-${actor.userId}@erased.invalid`, anonymisedAt, actor.userId],
+      await records.revokeSessions(actor.userId, nowIso());
+      await records.revokeDevices(actor.userId, nowIso(), nowIso());
+      await records.deletePasswordResets(actor.userId);
+      await records.revokeApiKeys(actor.userId, anonymisedAt);
+      await records.expirePairings(actor.userId);
+      await records.anonymiseInvitations(
+        actor.userId,
+        `deleted-${actor.userId}@erased.invalid`,
+        anonymisedAt,
       );
       for (const draft of drafts) {
-        await tx.execute('DELETE FROM documents WHERE id = ? AND uploaded_by = ?', [
-          draft.id,
-          actor.userId,
-        ]);
+        await records.deleteDraft(draft.id, actor.userId);
       }
-      await tx.execute(
-        'UPDATE users SET email = ?, display_name = ?, password_hash = NULL, mfa_secret_enc = NULL, mfa_enabled_at = NULL, mfa_recovery_hashes = NULL, disabled_at = ?, updated_at = ? WHERE id = ?',
-        [
-          `deleted-${actor.userId}@erased.invalid`,
-          'Erased account',
-          nowIso(),
-          nowIso(),
-          actor.userId,
-        ],
+      await records.anonymiseUser(
+        actor.userId,
+        `deleted-${actor.userId}@erased.invalid`,
+        'Erased account',
+        nowIso(),
+        nowIso(),
       );
       // A sole owner leaves an organisation with no accountable person: rename it rather than
       // delete records the business may be required to keep.
       for (const { organisation_id: organisationId } of owned) {
-        await tx.execute('UPDATE organisations SET name = ?, updated_at = ? WHERE id = ?', [
-          'Erased organisation',
-          nowIso(),
-          organisationId,
-        ]);
+        await records.renameOrganisation(organisationId, 'Erased organisation', nowIso());
       }
       await new AuditRepository(tx).record({
         organisationId: actor.organisationId,
@@ -252,11 +177,7 @@ export class PrivacyService {
     let pendingFileCount: number | null = null;
     try {
       await processErasureFiles(this.db, this.storage, this.logger, { userId: actor.userId });
-      const pending = await this.db.one<{ count: string | number }>(
-        'SELECT COUNT(*) AS count FROM erasure_file_deletions WHERE user_id = ?',
-        [actor.userId],
-      );
-      if (pending) pendingFileCount = Number(pending.count);
+      pendingFileCount = await new ErasureFilesRepository(this.db).countForUser(actor.userId);
     } catch {
       this.logger.error('could not check pending erasure file deletions', { userId: actor.userId });
     }
