@@ -4,8 +4,8 @@ import type { Logger } from '../logger';
  * Realtime hub (PAIR-003, DEC-006).
  *
  * Services publish through this interface. The current runtime uses InMemoryRealtimeHub and the
- * SSE route; there is no production Socket.IO adapter. The route depends on the concrete hub's
- * subscribe method, so a different transport would require route changes. Payloads carry identifiers,
+ * SSE route; there is no production Socket.IO adapter. Subscription is an optional capability of
+ * the port, independent of the current in-memory implementation. Payloads carry identifiers,
  * not document content (API.md §9).
  */
 
@@ -23,7 +23,14 @@ export type RealtimeEvent =
   | 'batch:created'
   | 'batch:updated';
 
+export type RealtimeSubscriber = (event: RealtimeEvent, payload: Record<string, unknown>) => void;
+
 export interface RealtimeHub {
+  /** Optional subscription capability used by the SSE adapter. */
+  subscribe?(
+    target: { organisationId?: string; userId?: string },
+    handler: RealtimeSubscriber,
+  ): () => void;
   /** Publish to everyone in an organisation (desktop dashboards, review screens). */
   toOrganisation(
     organisationId: string,
@@ -93,7 +100,7 @@ export class InMemoryRealtimeHub implements RealtimeHub {
     this.deviceSockets.set(deviceId, disconnect);
   }
 
-  /** Test helper: subscribe to events for an organisation. */
+  /** Subscribe to events for an organisation or user. */
   subscribe(
     target: { organisationId?: string; userId?: string },
     handler: (event: RealtimeEvent, payload: Record<string, unknown>) => void,

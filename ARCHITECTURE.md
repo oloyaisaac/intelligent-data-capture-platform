@@ -69,8 +69,9 @@ other entry points and factories also construct concrete implementations. SQLite
 its shared connection around transaction-scoped callbacks; nested scoped transactions do not create
 savepoints. This does not establish cross-process safety. Migrations are handwritten in
 `src/db/migrations.ts`, not Prisma. The storage port has filesystem and test-memory implementations;
-S3 is not implemented (DEC-010). Authenticated SSE uses `InMemoryRealtimeHub`; it is process-local
-and the route depends on its concrete subscription method (DEC-016). Event-stream credentials are
+S3 is not implemented (DEC-010). Authenticated SSE uses `InMemoryRealtimeHub`; it is process-local.
+The route uses an optional subscription capability on the realtime port, not the concrete hub
+(DEC-016); hubs without that capability return 501 from the SSE endpoint. Event-stream credentials are
 checked on connection; an already-open stream is not revalidated when a membership is removed or a
 token expires.
 

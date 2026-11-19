@@ -5,6 +5,7 @@ import {
   type Harness,
   type TestAccount,
 } from './helpers';
+import type { RealtimeSubscriber } from '../src/realtime/hub';
 
 /**
  * DEVAPI-001 — developer API keys.
@@ -174,6 +175,72 @@ describe('realtime event stream', () => {
     try {
       const response = await harness.api.get('/api/v1/events');
       expect(response.statusCode).toBe(401);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('streams through an injected subscription capability without an in-memory hub', async () => {
+    const harness = await createHarness();
+    const controller = new AbortController();
+    let onEvent: RealtimeSubscriber | undefined;
+    let signalUnsubscribe!: () => void;
+    const unsubscribed = new Promise<void>((resolve) => {
+      signalUnsubscribe = resolve;
+    });
+    const subscribe = jest.fn(
+      (_target: { organisationId?: string; userId?: string }, handler: RealtimeSubscriber) => {
+        onEvent = handler;
+        return signalUnsubscribe;
+      },
+    );
+    harness.services.hub = {
+      toOrganisation: jest.fn(),
+      toUser: jest.fn(),
+      disconnectDevice: jest.fn(),
+      registerDevice: jest.fn(),
+      subscribe,
+    };
+    try {
+      const account = await registerAccount(harness);
+      const response = await fetch(`${harness.baseUrl}/api/v1/events`, {
+        headers: { authorization: `Bearer ${account.accessToken}` },
+        signal: controller.signal,
+      });
+      expect(response.status).toBe(200);
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      await reader.read();
+      expect(subscribe).toHaveBeenCalledWith(
+        { organisationId: account.organisationId },
+        expect.any(Function),
+      );
+      onEvent?.('document:approved', { documentId: 'doc-from-adapter' });
+      const frame = await reader.read();
+      expect(decoder.decode(frame.value)).toContain('doc-from-adapter');
+      controller.abort();
+      await reader.cancel().catch(() => undefined);
+      await unsubscribed;
+    } finally {
+      controller.abort();
+      harness.app.server.closeAllConnections();
+      await harness.close();
+    }
+  });
+
+  it('returns 501 if the hub does not expose subscriptions', async () => {
+    const harness = await createHarness();
+    harness.services.hub = {
+      toOrganisation: jest.fn(),
+      toUser: jest.fn(),
+      disconnectDevice: jest.fn(),
+      registerDevice: jest.fn(),
+    };
+    try {
+      const account = await registerAccount(harness);
+      const response = await harness.api.get('/api/v1/events', account.accessToken);
+      expect(response.statusCode).toBe(501);
+      expect(response.json()).toMatchObject({ error: { code: 'NOT_IMPLEMENTED' } });
     } finally {
       await harness.close();
     }

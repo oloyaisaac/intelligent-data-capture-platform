@@ -16,8 +16,9 @@ entry points compose them. Shared contracts must not depend on applications. Con
 implementations depend on shared code, not application internals.
 
 This is an intended rule, not a claim that all boundaries pass: the HTTP layer receives the entire
-`Services` graph and the realtime route checks a concrete in-memory hub; connector implementations
-execute in-process; process/CLI/provider factories also construct adapters. The offline migration
+`Services` graph; connector implementations execute in-process; process/CLI/provider factories
+also construct adapters. The realtime route now uses the optional subscription capability on the
+hub port rather than a concrete-hub cast. The offline migration
 CLI is a separate entry point. See `findings.md` for outstanding issues and `dependency-graph.md`
 for the limited static cycle scan. Transactional repository sets for authentication, pairing,
 upload and privacy are supplied by the composition entry point, not constructed by the services.

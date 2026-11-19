@@ -40,8 +40,12 @@ Compose smoke test in [PR #28 CI](https://github.com/oloyaisaac/intelligent-data
 but its Verify job failed during Jest tests. Full job logs were unavailable from this sandbox, and
 local reproduction passed and the subsequent [commit `02b1383` CI](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44539157606) passed all checks. The earlier failure remains undiagnosed; the CI test step now reports
 failed Jest cases as GitHub annotations without changing its exit code.
-A later [CI run for `202c558`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44541153577) passed PostgreSQL, Compose and browser checks but failed Verify: the batch byte-budget integration test exceeded 30 seconds. The same test passed six local repeats. In [CI for `2fbdd00`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44542619736), the revised byte-budget test passed, but the new unfinished-client regression exceeded its 12-second overall timeout; PostgreSQL tests also failed without a detailed annotation. The precise causes remain unknown. The unfinished-client test now explicitly closes its deliberate open socket on teardown while retaining a five-second response deadline; the PostgreSQL CI step now reports Jest failures as annotations. Both changes need CI verification.
+A later [CI run for `202c558`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44541153577) passed PostgreSQL, Compose and browser checks but failed Verify: the batch byte-budget integration test exceeded 30 seconds. The same test passed six local repeats. In [CI for `2fbdd00`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44542619736), the revised byte-budget test passed, but the new unfinished-client regression exceeded its 12-second overall timeout; PostgreSQL tests also failed without a detailed annotation. The precise causes remain unknown. The unfinished-client test now explicitly closes its deliberate open socket on teardown while retaining a five-second response deadline; the PostgreSQL CI step now reports Jest failures as annotations. Both changes passed in [CI for `e332676`](https://github.com/oloyaisaac/intelligent-data-capture-platform/actions/runs/44543438481), including PostgreSQL, Verify, Compose and browser checks. One green run does not establish the cause of either earlier failure or rule out intermittent recurrence.
 This does not establish multi-worker safety; P6 remains unmet.
+
+The SSE route now uses an optional subscription capability on the realtime port rather than a
+concrete in-memory hub cast. Tests cover an injected alternative and a hub without subscriptions;
+this does not add a distributed hub or continuous stream reauthorization.
 
 Pairing completion now locks the session before checking status and expiry, and creates the device,
 claims the token and records the audit in one transaction; the event is published after commit.
@@ -124,7 +128,7 @@ the new privileged renderer origin must not retain an unrestricted navigation pa
 ## Current verification baseline
 
 On the current R01 worktree, `npm run format:check`, the backend build and `npm run verify` passed:
-49 Jest suites and 584 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
+49 Jest suites and 586 tests passed, with one suite and four PostgreSQL tests skipped, plus four backup-tool
 tests, typecheck, lint and contract checks. Focused coverage includes pairing rollback and concurrent
 requests, marketplace and composition boundaries, membership-scoped credentials,
 MFA invitation acceptance, recovery-code concurrency and rollback, SQLite transaction isolation,
