@@ -6,7 +6,7 @@ owner has accepted these findings or provided a dated exception.
 
 | ID      | Severity | Evidence                                                                                                                                              | Finding and impact                                                                                                                                                                                                                                                                                                                                                             | Reproduce / next action                                                                                                                                                                                                                                                                                                                                  | Owner                                             |
 | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| ARC-013 | HIGH     | `apps/backend/src/services/worker.ts:83`, `apps/backend/src/repositories/system-repo.ts` (`requeueInterrupted`)                                       | **Partially remediated:** age-only startup recovery previously reclaimed live jobs. It is removed; interrupted jobs require manual offline requeue, which cannot prove the old process is dead or prevent repeated external effects.                                                                                                                                           | The two-backend, 20-document happy path passes locally with synthetic OCR (`workers-process.test.ts`), but `worker-stale-process.test.ts` now verifies startup does not reclaim an artificially aged live claim; offline recovery still requires operator controls. Design owned leases, fencing and idempotent effects; test recovery and side effects. | Unassigned; backend architecture                  |
+| ARC-013 | HIGH     | `apps/backend/src/services/worker.ts`, `apps/backend/src/repositories/worker-recovery-repo.ts`                                                        | **Partially remediated:** age-only startup recovery previously reclaimed live jobs. It is removed; interrupted jobs require reviewed offline requeue or abandonment, neither of which proves the old process is dead or prevents external effects.                                                                                                                             | The two-backend, 20-document happy path passes locally with synthetic OCR (`workers-process.test.ts`), but `worker-stale-process.test.ts` now verifies startup does not reclaim an artificially aged live claim; offline recovery still requires operator controls. Design owned leases, fencing and idempotent effects; test recovery and side effects. | Unassigned; backend architecture                  |
 | ARC-014 | HIGH     | `packages/connectors/src/contract.ts:8`, `apps/backend/src/services/connector-service.ts` (`sendDocument`)                                            | **Partially remediated:** default first-party operations run in one-shot children with bounded IPC and timeouts; same-privilege children can still terminate the host or access its resources. Injected registries may run in-process. P8 remains unmet.                                                                                                                       | `connector-process-api.test.ts` verifies survival of an exiting child; `connector-process-security.test.ts` demonstrates a child can signal and kill the host. Design and verify an enforced security boundary before claiming P8.                                                                                                                       | Unassigned; backend architecture                  |
 | ARC-015 | MEDIUM   | `apps/backend/src/services/container.ts`, `apps/backend/src/db/encryption-migration-cli.ts`, `apps/backend/src/ai/pipeline.ts`                        | **Partially remediated:** direct service-level repository construction was moved to the service container or offline CLI composition entry; the broader claim that all concrete adapters have a single composition root still needs examination.                                                                                                                               | `composition-boundary.test.ts` covers direct and named/namespace-aliased repository constructors in top-level service modules, not dynamic construction or all adapters. Review separate CLI and provider factories; verify transaction behavior.                                                                                                        | Unassigned; backend architecture                  |
 | ARC-016 | HIGH     | `apps/backend/src/services/connector-service.ts` (`sendDocument` catch)                                                                               | **Partially remediated:** new send failures no longer store, log or return the connector exception. Existing connector-run records may still contain older raw messages and have not been remediated.                                                                                                                                                                          | `connector-throw.test.ts` fails against the old handler and passes with the new handler for secret-bearing Error, AppError and non-Error failures, including create/read/update. Assess existing data and safe remediation before closing.                                                                                                               | Unassigned; backend security                      |
@@ -301,6 +301,25 @@ errors and other connector outputs may retain secrets. Key-rotation and migratio
 not a production rollout. Explicitly injected in-process connectors and same-privilege child processes are still not security-isolated. Independent security
 review, production migration evidence and incident/rotation assessment remain open. P8 is unmet.
 
+### ARC-013 update — offline abandonment without automatic retry
+
+The offline recovery CLI now offers explicit abandonment for a reviewed running attempt of a known
+job type. Its conditional transition to `dead`, conservative document status change and system audit
+commit together; an unrelated, already-final or ambiguous document is not modified. The unused
+unaudited repository requeue helper was removed. Tests cover invalid confirmations, tenant mismatch,
+competing requeue/abandonment, audit rollback, a killed SQLite transaction, lost acknowledgement and
+an intentionally unsafe resumed extraction. PostgreSQL lock and CLI tests are included. A resumed
+current-version extraction cannot publish after its claim is abandoned, but OCR may already have
+occurred. A current-version retention worker now locks and rechecks its exact running claim before
+each document's destructive transaction, serializing that operation with abandonment and requeue;
+already-started deletion completes first and old binaries and out-of-band writers are not fenced.
+SQLite and PostgreSQL contention tests cover this boundary; it holds a database lock through storage
+I/O and does not fix database/storage atomicity. Local full verification passed 93 suites / 779 tests
+with 20 PostgreSQL-only tests skipped; a temporary PostgreSQL 16.16 instance passed the full backend
+project (86 suites / 535 tests). An additional SQLite claim-identity regression passed separately. Operator assertions do not prove any process stopped,
+the audit references are not authenticated identities, and no external effects are reconciled. This
+is not automatic recovery or a replacement for a lease and fencing design.
+
 ### ARC-013 update — live recovery across two processes
 
 `worker-stale-process.test.ts` pauses synthetic OCR in one actual SQLite worker subprocess, ages its
@@ -369,3 +388,29 @@ values with the target key alone in the transaction, and a later check requires 
 zero. `connector-config-migration.test.ts` reproduces the prior false clean result and tests the
 corrected CLI. This is synthetic and does not migrate MFA or prove a production rollout. Historical
 backups still require their original keys. ARC-023 and independent security review remain open.
+
+### ARC-028 — batch exception text persisted and exposed (HIGH, partially remediated)
+
+Batch creation previously copied arbitrary storage, database and adapter exception messages into
+`batch_items.error`, application logs, batch JSON and CSV. A connector registry lookup also copied
+arbitrary adapter exception text into an HTTP validation error. Those paths can disclose credentials,
+filesystem paths or document content. The batch service now persists and logs only fixed
+application-owned messages, and masks historical free-text errors on all batch JSON and CSV reads;
+legacy database values themselves are not rewritten. Known validation classes retain fixed messages.
+Registry lookup failures now return a fixed message. Synthetic HTTP tests cover ordinary and
+application errors, non-Error throws, legacy database values, CSV/list/detail/items, tenant scope
+and subsequent successful items. This is output masking, not deletion of old rows, exports, logs,
+backups, screenshots or other copies. Authorized assessment and remediation of historical exposure
+remain open, as does a broader audit of other error/output boundaries. Owner: unassigned; backend
+security and data governance.
+
+### ARC-025 update — additional runtime and provider error boundaries
+
+Current-version cloud OCR transport/parsing and local OCR child failures now return fixed error
+messages; the cloud provider only rethrows its own status errors. Unhandled process rejections,
+realtime subscriber failures and batch temporary-file cleanup failures no longer log exception text.
+API startup, migration and seed fatal errors now log generic diagnostics rather than potentially
+sensitive database/configuration exceptions; this sacrifices detailed startup diagnostics, so
+operators must inspect configuration and dependencies without copying secrets. Tests exercise real
+subprocesses, injected failures and a synthetic OCR executable. Historical log copies and other
+logging paths are not remediated or comprehensively assessed; ARC-025 and security review remain open.

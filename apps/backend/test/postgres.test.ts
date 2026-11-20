@@ -87,6 +87,199 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     }
   }, 30_000);
 
+  it('serializes offline abandonment behind PostgreSQL claim completion', async () => {
+    const isolated = await createHarness();
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let abandonment: ReturnType<WorkerRecoveryRepository['abandonWithAudit']> | undefined;
+    try {
+      const account = await registerAccount(isolated);
+      const jobs = new JobsRepository(isolated.db);
+      const job = await jobs.enqueue({
+        organisationId: account.organisationId,
+        type: 'retention_purge',
+      });
+      expect((await jobs.claimNext())?.id).toBe(job.id);
+      await isolated.db.transaction(async (tx) => {
+        expect(await new JobsRepository(tx).markSucceeded(job.id, 1)).toBe(true);
+        const locker = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        if (!locker) throw new Error('Could not identify lock holder');
+        abandonment = new WorkerRecoveryRepository(isolated.db).abandonWithAudit({
+          id: job.id,
+          attempt: 1,
+          operatorReference: 'operator-test',
+          incidentReference: 'INC-42',
+        });
+        void abandonment.catch(() => undefined);
+        const deadline = Date.now() + 10_000;
+        let blocked = 0;
+        while (Date.now() < deadline && blocked < 1) {
+          const result = await observer.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+             WHERE $1::int = ANY(pg_blocking_pids(activity.pid)) AND activity.wait_event_type = 'Lock'
+               AND activity.query LIKE 'UPDATE jobs SET status = ''dead''%'`,
+            [locker.pid],
+          );
+          blocked = result.rows[0]?.count ?? 0;
+          if (blocked < 1) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(1);
+      });
+      expect(await abandonment!).toEqual({ abandoned: false, documentFailed: false });
+      expect((await jobs.findById(job.id))?.status).toBe('succeeded');
+      expect(
+        await isolated.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+          'worker.job_abandoned_offline',
+          job.id,
+        ]),
+      ).toHaveLength(0);
+    } finally {
+      if (abandonment) await abandonment.catch(() => undefined);
+      await observer.end();
+      await isolated.close();
+    }
+  }, 30_000);
+
+  it('holds the PostgreSQL retention claim lock across storage deletion and serializes abandonment', async () => {
+    const isolated = await createHarness();
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    let purge: Promise<number> | undefined;
+    let abandonment: ReturnType<WorkerRecoveryRepository['abandonWithAudit']> | undefined;
+    try {
+      const account = await registerAccount(isolated);
+      const upload = await isolated.api.upload(account.accessToken);
+      const documentId = upload.json<{ id: string }>().id;
+      await isolated.services.worker.drain();
+      await isolated.db.execute('UPDATE documents SET created_at = ? WHERE id = ?', [
+        '2000-01-01T00:00:00.000Z',
+        documentId,
+      ]);
+      const jobs = new JobsRepository(isolated.db);
+      const job = await jobs.enqueue({
+        organisationId: account.organisationId,
+        type: 'retention_purge',
+      });
+      expect((await jobs.claimNext())?.id).toBe(job.id);
+      const original = isolated.storage.delete.bind(isolated.storage);
+      jest.spyOn(isolated.storage, 'delete').mockImplementation(async (key) => {
+        enter();
+        await gate;
+        await original(key);
+      });
+      purge = isolated.services.documents.purgeExpired(account.organisationId, 90, {
+        id: job.id,
+        attempt: 1,
+      });
+      await entered;
+      abandonment = new WorkerRecoveryRepository(isolated.db).abandonWithAudit({
+        id: job.id,
+        attempt: 1,
+        operatorReference: 'operator-test',
+        incidentReference: 'INC-42',
+      });
+      void abandonment.catch(() => undefined);
+      const deadline = Date.now() + 10_000;
+      let blocked = 0;
+      while (Date.now() < deadline && blocked < 1) {
+        const result = await observer.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+           WHERE cardinality(pg_blocking_pids(activity.pid)) > 0 AND activity.wait_event_type = 'Lock'
+             AND activity.query LIKE 'UPDATE jobs SET status = ''dead''%'`,
+        );
+        blocked = result.rows[0]?.count ?? 0;
+        if (blocked < 1) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(blocked).toBe(1);
+      release();
+      expect(await purge).toBe(1);
+      expect(await abandonment).toEqual({ abandoned: true, documentFailed: false });
+      expect((await jobs.findById(job.id))?.status).toBe('dead');
+      expect(
+        (
+          await isolated.db.one<{ deleted_at: string | null }>(
+            'SELECT deleted_at FROM documents WHERE id = ?',
+            [documentId],
+          )
+        )?.deleted_at,
+      ).not.toBeNull();
+      await expect(
+        isolated.services.documents.purgeExpired(account.organisationId, 90, {
+          id: job.id,
+          attempt: 1,
+        }),
+      ).resolves.toBe(0);
+    } finally {
+      release();
+      await purge?.catch(() => undefined);
+      await abandonment?.catch(() => undefined);
+      await observer.end();
+      await isolated.close();
+    }
+  }, 30_000);
+
+  it('runs the audited abandonment CLI against PostgreSQL', async () => {
+    const isolated = await createHarness();
+    try {
+      const account = await registerAccount(isolated);
+      const jobs = new JobsRepository(isolated.db);
+      const job = await jobs.enqueue({
+        organisationId: account.organisationId,
+        type: 'retention_purge',
+      });
+      expect((await jobs.claimNext())?.id).toBe(job.id);
+      const schema = await isolated.db.one<{ schema: string }>('SELECT current_schema() AS schema');
+      const url = new URL(process.env.DATABASE_URL!);
+      url.searchParams.set('options', `-c search_path=${schema!.schema}`);
+      const run = spawnSync(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          'src/db/worker-recovery-cli.ts',
+          '--abandon',
+          job.id,
+          '--attempt',
+          '1',
+          '--operator',
+          'operator-test',
+          '--incident',
+          'INC-42',
+          '--confirm-offline',
+          '--confirm-effects-reviewed',
+          '--confirm-no-retry',
+        ],
+        {
+          cwd: resolve(__dirname, '..'),
+          env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            DB_DRIVER: 'postgres',
+            DATABASE_URL: url.toString(),
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(run.status).toBe(0);
+      expect(JSON.parse(run.stdout)).toEqual({ abandoned: true, documentFailed: false });
+      expect((await jobs.findById(job.id))?.status).toBe('dead');
+      expect(
+        await isolated.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+          'worker.job_abandoned_offline',
+          job.id,
+        ]),
+      ).toHaveLength(1);
+    } finally {
+      await isolated.close();
+    }
+  }, 30_000);
+
   it('rolls back document deletion when auditing fails and audits only one concurrent delete', async () => {
     const account = await registerAccount(harness);
     const upload = await uploadDocument(harness, account);

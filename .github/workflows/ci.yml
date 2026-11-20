@@ -179,6 +179,12 @@ jobs:
           docker compose --env-file "$env_file" stop api
           docker compose --env-file "$env_file" run --rm --no-deps api node dist/export-inventory.js --list --confirm-offline
           docker compose --env-file "$env_file" run --rm --no-deps api node dist/worker-recovery.js --list --confirm-offline
+          # Synthetic, disposable row in the CI database; never operate on a live deployment here.
+          docker compose --env-file "$env_file" exec -T db psql -v ON_ERROR_STOP=1 -U idcp -d idcp -c "INSERT INTO jobs (id, organisation_id, type, status, attempts, created_at) VALUES ('ci-abandon-job', 'ci-org', 'retention_purge', 'running', 1, '2000-01-01T00:00:00.000Z')"
+          result=$(docker compose --env-file "$env_file" run --rm --no-deps api node dist/worker-recovery.js --abandon ci-abandon-job --attempt 1 --operator ci-test --incident ci-incident --confirm-offline --confirm-effects-reviewed --confirm-no-retry)
+          test "$result" = '{"abandoned":true,"documentFailed":false}'
+          recorded=$(docker compose --env-file "$env_file" exec -T db psql -v ON_ERROR_STOP=1 -A -t -U idcp -d idcp -c "SELECT status || '|' || (SELECT COUNT(*) FROM audit_logs WHERE action = 'worker.job_abandoned_offline' AND target_id = jobs.id) FROM jobs WHERE id = 'ci-abandon-job'")
+          test "$recorded" = 'dead|1'
 
   secrets:
     name: No committed secrets

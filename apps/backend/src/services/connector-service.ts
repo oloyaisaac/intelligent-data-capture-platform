@@ -113,8 +113,9 @@ export class ConnectorService {
     let connector;
     try {
       connector = this.registry.get(input.type);
-    } catch (error) {
-      throw badRequest((error as Error).message);
+    } catch {
+      // Registry implementations are adapters and may throw secrets or document contents.
+      throw badRequest('The requested connector type is unavailable.');
     }
     const parts = { config: input.config, credentials: input.credentials ?? {} };
     try {

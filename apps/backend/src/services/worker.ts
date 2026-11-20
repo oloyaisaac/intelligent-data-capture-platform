@@ -373,6 +373,7 @@ export class Worker {
     const purged = await this.documentService.purgeExpired(
       job.organisation_id,
       organisation.retention_days,
+      { id: job.id, attempt: job.attempts },
     );
     this.logger.info('retention job finished', { organisationId: job.organisation_id, purged });
   }

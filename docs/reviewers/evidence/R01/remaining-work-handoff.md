@@ -10,9 +10,12 @@ see `completion-status.md`.
 ## P6 — recovery and duplicate work
 
 Age-only automatic startup recovery has been removed. The deliberately offline, per-attempt command
-in `docs/worker-recovery.md` is an availability trade-off, not an ownership lease or a guarantee
-against duplicated OCR, billing, file deletion or other side effects. Older versions can still
-reclaim live jobs. The technical owner must decide an ownership, fencing, retry and deployment
+in `docs/worker-recovery.md` supports audited requeue or reviewed abandonment without retry. The
+unaudited repository requeue helper was removed. These remain availability and operational trade-offs,
+not an ownership lease or a guarantee against duplicated OCR, billing, file deletion or other side
+effects. Older versions can still reclaim live jobs, and abandonment cannot stop an active worker.
+Current-version retention workers lock and recheck the claim during each destructive transaction,
+but already-started deletion, storage/database ambiguity and old workers remain unresolved. The technical owner must decide an ownership, fencing, retry and deployment
 protocol, including what guarantees are possible for external providers. Test both supported
 databases with real separate processes at claim, failure, recovery, concurrent work, stale resume,
 publication and external-effect boundaries. Cover conflicting distinct jobs, purge and review as
@@ -91,3 +94,10 @@ must inspect the actual reviewed commit, execute or verify the required R01 chec
 passing condition and finding/exception, and record their own named, dated decision in the specified
 review artefact. That person's decision cannot be delegated to the author of these changes or
 pre-filled here. G1/G8 remain unsigned until the required people actually review and decide.
+
+### Batch and runtime error disclosure (ARC-028 / ARC-025)
+
+New batch failures use fixed messages and API/CSV reads mask arbitrary historical batch error text.
+Historical rows and copies still contain their original values and require an authorized exposure
+assessment and remediation. Other provider, runtime and registry error boundaries were narrowed;
+they do not establish that every application or third-party log and output is safe. See `findings.md`.

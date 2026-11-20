@@ -81,9 +81,9 @@ export class InMemoryRealtimeHub implements RealtimeHub {
       if (!matches) continue;
       try {
         subscriber.handler(event, payload);
-      } catch (error) {
-        // A broken subscriber must never break the request that published the event.
-        this.logger?.warn('realtime subscriber failed', { event, error: (error as Error).message });
+      } catch {
+        // A broken subscriber must never break the publisher or leak its exception to logs.
+        this.logger?.warn('realtime subscriber failed', { event });
       }
     }
   }

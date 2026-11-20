@@ -61,8 +61,8 @@ export function registerBatchRoutes(
       const batch = await services.batches.create(actor, { ...parsed.data, files: batchFiles() });
       return reply.code(201).send(batch);
     } finally {
-      await rm(tempDir, { recursive: true, force: true }).catch((error: unknown) => {
-        request.log.error({ error }, 'could not remove temporary batch-upload files');
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {
+        request.log.error('could not remove temporary batch-upload files');
       });
     }
   });

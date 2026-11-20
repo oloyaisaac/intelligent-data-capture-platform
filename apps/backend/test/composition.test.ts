@@ -136,7 +136,7 @@ it('runs and handles failed jobs with injected worker repositories and no databa
 
   expect(await worker.drain()).toBe(1);
   expect(repositories.orgs.findById).toHaveBeenCalledWith('org');
-  expect(documentService.purgeExpired).toHaveBeenCalledWith('org', 30);
+  expect(documentService.purgeExpired).toHaveBeenCalledWith('org', 30, { id: 'job-1', attempt: 1 });
   expect(repositories.jobs.markSucceeded).toHaveBeenCalledWith('job-1', 1);
 
   documentService.purgeExpired.mockRejectedValueOnce(new Error('purge unavailable'));
@@ -508,7 +508,11 @@ it('uses injected document repositories and rejects a document outside the actor
         },
         pages: { create: jest.fn() },
         reviews: { supersedeOpenForDocument: jest.fn() },
-        jobs: { ...repositories.jobs, hasActiveExtraction: jest.fn() },
+        jobs: {
+          ...repositories.jobs,
+          hasActiveExtraction: jest.fn(),
+          lockRunningRetention: jest.fn(),
+        },
         audit: repositories.audit,
       }),
   };

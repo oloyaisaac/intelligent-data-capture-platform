@@ -39,14 +39,14 @@ async function main(): Promise<void> {
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
-  process.on('unhandledRejection', (reason) => {
-    logger.error('unhandled promise rejection', { error: reason });
+  process.on('unhandledRejection', () => {
+    // Rejection reasons can include credentials, SQL, provider responses and document content.
+    logger.error('unhandled promise rejection');
   });
 }
 
-main().catch((error: unknown) => {
-  // Configuration and startup errors are the only place a stack trace is acceptable: it goes to
-  // the operator's console, never to an HTTP response.
-  console.error('Failed to start IDCP API:', error instanceof Error ? error.message : error);
+main().catch(() => {
+  // Startup errors can contain database credentials, filesystem paths or other secrets.
+  console.error('Failed to start IDCP API. Check configuration and service dependencies.');
   process.exit(1);
 });
