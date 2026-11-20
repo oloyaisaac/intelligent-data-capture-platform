@@ -378,9 +378,11 @@ unless an owner has set `auto_approve`. `notify`, `send_to_connector` and `creat
 implemented: a matched plan containing any of them fails without executing any actions, including a
 preceding delete. Approval-required plans remain pending until approval, which returns 409 and marks
 the run failed. Historical completed runs may have contained placeholder outputs; they do not prove
-any delivery. Workflow `delete_document` remains a soft-delete only and its execution and approval
-are not transactionally fenced; see ARC-027 before relying on it. The response to
-`/workflows/evaluate` is `{ plans[], runs[] }`, including runs that skipped.
+any delivery. Workflow `delete_document` is a soft-delete only. For current-version executions, the
+run is locked and its deletion, audit and completion commit in one database transaction. Automatic
+runs start as `matched`; a crash can leave a matched run requiring investigation, not automatic retry.
+This does not remove files, repair historical runs, or fence older application versions. The response
+to `/workflows/evaluate` is `{ plans[], runs[] }`, including runs that skipped.
 
 ---
 

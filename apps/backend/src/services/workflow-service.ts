@@ -26,18 +26,25 @@ import type { AuthenticatedActor } from './auth-service';
  *   2. Every evaluation is logged — including the ones that did not match — so "why did this not
  *      fire?" is answerable without reading code.
  */
+export interface WorkflowExecutionRepositories {
+  runs: Pick<
+    WorkflowRunsRepository,
+    'lockForExecution' | 'completeExecution' | 'markFailedIfStatus'
+  >;
+  documents: Pick<DocumentsRepository, 'softDelete'>;
+  audit: Pick<AuditRepository, 'record'>;
+}
+
 export interface WorkflowServiceRepositories {
   workflows: Pick<
     WorkflowsRepository,
     'list' | 'create' | 'setEnabled' | 'delete' | 'findById' | 'candidates'
   >;
-  runs: Pick<
-    WorkflowRunsRepository,
-    'create' | 'findById' | 'list' | 'markApproved' | 'markFailed' | 'recordOutputs'
-  >;
-  documents: Pick<DocumentsRepository, 'findById' | 'softDelete'>;
+  runs: Pick<WorkflowRunsRepository, 'create' | 'findById' | 'list' | 'markFailedIfStatus'>;
+  documents: Pick<DocumentsRepository, 'findById'>;
   extractions: Pick<ExtractionsRepository, 'findLatestForDocument'>;
   audit: Pick<AuditRepository, 'record'>;
+  transaction<T>(run: (repositories: WorkflowExecutionRepositories) => Promise<T>): Promise<T>;
 }
 
 export class WorkflowService {
@@ -46,6 +53,7 @@ export class WorkflowService {
   private readonly documents: WorkflowServiceRepositories['documents'];
   private readonly extractions: WorkflowServiceRepositories['extractions'];
   private readonly audit: WorkflowServiceRepositories['audit'];
+  private readonly transaction: WorkflowServiceRepositories['transaction'];
 
   constructor(
     repositories: WorkflowServiceRepositories,
@@ -56,6 +64,7 @@ export class WorkflowService {
     this.documents = repositories.documents;
     this.extractions = repositories.extractions;
     this.audit = repositories.audit;
+    this.transaction = repositories.transaction;
   }
 
   async list(actor: AuthenticatedActor) {
@@ -194,9 +203,9 @@ export class WorkflowService {
           ? 'awaiting_approval'
           : unavailable
             ? 'failed'
-            : 'completed';
+            : 'matched';
 
-      const run = await this.runs.create({
+      let run = await this.runs.create({
         organisationId: actor.organisationId,
         workflowId: row.id,
         documentId: document?.id ?? null,
@@ -209,29 +218,30 @@ export class WorkflowService {
         failure: status === 'failed' ? unavailable : null,
       });
 
-      // A matched plan that needs nobody's approval runs now; its real outputs go in the log. A
-      // failure is recorded against the run rather than thrown, so one broken rule cannot stop the
-      // others from being evaluated.
-      if (status === 'completed') {
-        const outputs: string[] = [];
+      // A crash before execution leaves a matched run, never a false completed result.
+      if (status === 'matched') {
         try {
-          for (const action of plan.actions) {
-            outputs.push(await this.execute(run, action.type));
-          }
-          await this.runs.recordOutputs(actor.organisationId, run.id, outputs);
-          run.outputs = JSON.stringify(outputs);
+          run = await this.executeRun(actor, run.id, 'matched');
         } catch (error) {
-          const failure = error instanceof Error ? error.message : 'The action failed.';
-          await this.runs.markFailed(actor.organisationId, run.id, failure);
-          run.status = 'failed';
-          run.failure = failure;
+          if (!(error instanceof WorkflowActionFailure)) {
+            throw new AppError('INTERNAL_ERROR', 'Workflow execution could not be confirmed.');
+          }
+          await this.runs.markFailedIfStatus(
+            actor.organisationId,
+            run.id,
+            'matched',
+            error.message,
+          );
+          const current = await this.runs.findById(actor.organisationId, run.id);
+          if (!current) throw new AppError('INTERNAL_ERROR', 'Workflow run not found.');
+          run = current;
         }
       }
 
       runs.push(toRun(run));
       this.logger.info('workflow evaluated', {
         workflowId: row.id,
-        status,
+        status: run.status,
         matched: plan.matched,
       });
     }
@@ -248,78 +258,106 @@ export class WorkflowService {
     if (!roleAtLeast(actor.role, 'reviewer')) {
       throw new AppError('ROLE_REQUIRED', 'Reviewers and admins can approve a workflow run.');
     }
-    const run = await this.runs.findById(actor.organisationId, runId);
-    if (!run) throw new AppError('NOT_FOUND', 'Workflow run not found.');
-    if (run.status !== 'awaiting_approval') {
-      throw new AppError(
-        'CONFLICT',
-        `This run is ${run.status.replace(/_/g, ' ')}, not awaiting approval.`,
-      );
-    }
-
-    const actions = JSON.parse(run.actions) as WorkflowPlan['actions'];
-    const unavailable = unsupportedActionFailure(actions);
-    if (unavailable) {
-      await this.runs.markFailed(actor.organisationId, run.id, unavailable);
-      throw new AppError('CONFLICT', unavailable);
-    }
-    const outputs: string[] = [];
+    let run: WorkflowRunRow;
     try {
-      for (const action of actions) {
-        outputs.push(await this.execute(run, action.type));
-      }
+      run = await this.executeRun(actor, runId, 'awaiting_approval');
     } catch (error) {
-      const failure = error instanceof Error ? error.message : 'The action failed.';
-      await this.runs.markFailed(actor.organisationId, run.id, failure);
-      throw new AppError('CONFLICT', `The approved action failed: ${failure}`);
+      if (error instanceof WorkflowActionFailure) {
+        await this.runs.markFailedIfStatus(
+          actor.organisationId,
+          runId,
+          'awaiting_approval',
+          error.message,
+        );
+        throw new AppError('CONFLICT', `The approved action failed: ${error.message}`);
+      }
+      if (error instanceof WorkflowRunNotFound)
+        throw new AppError('NOT_FOUND', 'Workflow run not found.');
+      if (error instanceof WorkflowRunUnavailable)
+        throw new AppError('CONFLICT', 'This workflow run is no longer available for execution.');
+      // A database/commit failure may be ambiguous; do not overwrite an already-committed result.
+      throw new AppError('INTERNAL_ERROR', 'Workflow execution could not be confirmed.');
     }
-
-    await this.runs.markApproved(actor.organisationId, run.id, actor.userId);
-    await this.runs.recordOutputs(actor.organisationId, run.id, outputs);
-    await this.audit.record({
-      organisationId: actor.organisationId,
-      actorType: actor.actorType,
-      actorId: actor.userId,
-      action: 'workflow.run_approved',
-      targetType: 'workflow',
-      targetId: run.workflow_id,
-      metadata: { runId: run.id, actions: actions.map((action) => action.type), outputs },
-    });
-
-    const updated = await this.runs.findById(actor.organisationId, run.id);
-    return toRun(updated!);
+    if (run.status === 'failed')
+      throw new AppError('CONFLICT', run.failure ?? 'Workflow action failed.');
+    return toRun(run);
   }
 
-  /**
-   * Executes one action.
-   *
-   * Only deletion is currently implemented. Other actions fail closed before execution until
-   * delivery implementations and their retry/approval semantics are available.
-   */
-  private async execute(
-    run: WorkflowRunRow,
-    type: WorkflowPlan['actions'][number]['type'],
-  ): Promise<string> {
-    switch (type) {
-      case 'notify':
-      case 'send_to_connector':
-      case 'create_export':
-        throw new Error('This workflow action is not available; no actions were executed.');
-      case 'delete_document':
-        if (!run.document_id) throw new Error('The workflow run has no document to delete.');
-        if (!(await this.documents.softDelete(run.organisation_id, run.document_id))) {
-          throw new Error('The workflow document was not available for deletion.');
+  /** Only database-local deletion is implemented. Do not add external effects to this transaction. */
+  private async executeRun(
+    actor: AuthenticatedActor,
+    runId: string,
+    expectedStatus: 'matched' | 'awaiting_approval',
+  ): Promise<WorkflowRunRow> {
+    return this.transaction(async (repositories) => {
+      const run = await repositories.runs.lockForExecution(actor.organisationId, runId);
+      if (!run) throw new WorkflowRunNotFound();
+      if (run.status !== expectedStatus) throw new WorkflowRunUnavailable();
+      const actions = JSON.parse(run.actions) as WorkflowPlan['actions'];
+      const unavailable = unsupportedActionFailure(actions);
+      if (unavailable) {
+        const failed = await repositories.runs.markFailedIfStatus(
+          actor.organisationId,
+          run.id,
+          expectedStatus,
+          unavailable,
+        );
+        if (!failed) throw new WorkflowRunUnavailable();
+        return failed;
+      }
+      const outputs: string[] = [];
+      for (const action of actions) {
+        // The preflight rejects everything except the database-local delete action.
+        if (action.type !== 'delete_document')
+          throw new WorkflowActionFailure('The workflow action is not available.');
+        if (!run.document_id)
+          throw new WorkflowActionFailure('The workflow run has no document to delete.');
+        if (!(await repositories.documents.softDelete(run.organisation_id, run.document_id))) {
+          throw new WorkflowActionFailure('The workflow document was not available for deletion.');
         }
-        return `deleted document ${run.document_id}`;
-      default:
-        throw new Error(`Unknown action "${String(type)}".`);
-    }
+        await repositories.audit.record({
+          organisationId: actor.organisationId,
+          actorType: actor.actorType,
+          actorId: actor.userId,
+          action: 'document.deleted',
+          targetType: 'document',
+          targetId: run.document_id,
+          metadata: { workflowRunId: run.id },
+        });
+        outputs.push(`deleted document ${run.document_id}`);
+      }
+      const approvedBy = expectedStatus === 'awaiting_approval' ? actor.userId : null;
+      const completed = await repositories.runs.completeExecution(
+        actor.organisationId,
+        run.id,
+        expectedStatus,
+        outputs,
+        approvedBy,
+      );
+      if (!completed) throw new WorkflowRunUnavailable();
+      await repositories.audit.record({
+        organisationId: actor.organisationId,
+        actorType: actor.actorType,
+        actorId: actor.userId,
+        action: approvedBy ? 'workflow.run_approved' : 'workflow.run_completed',
+        targetType: 'workflow',
+        targetId: run.workflow_id,
+        metadata: { runId: run.id, actions: actions.map((action) => action.type), outputs },
+      });
+      return completed;
+    });
   }
 }
 
+class WorkflowActionFailure extends Error {}
+class WorkflowRunNotFound extends Error {}
+class WorkflowRunUnavailable extends Error {}
+
 /** Fail the whole plan before any action if a delivery action has no implementation. */
 function unsupportedActionFailure(actions: WorkflowPlan['actions']): string | null {
-  return actions.some((action) => action.type !== 'delete_document')
+  return !Array.isArray(actions) ||
+    actions.length === 0 ||
+    actions.some((action) => !action || action.type !== 'delete_document')
     ? 'This workflow includes an unavailable action; no actions were executed.'
     : null;
 }

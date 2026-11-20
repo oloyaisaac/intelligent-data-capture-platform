@@ -201,13 +201,12 @@ it('uses injected workflow repositories and preserves organisation and role chec
       create: jest.fn(),
       findById: jest.fn(),
       list: jest.fn(),
-      markApproved: jest.fn(),
-      markFailed: jest.fn(),
-      recordOutputs: jest.fn(),
+      markFailedIfStatus: jest.fn(),
     },
-    documents: { findById: jest.fn(), softDelete: jest.fn() },
+    documents: { findById: jest.fn() },
     extractions: { findLatestForDocument: jest.fn() },
     audit: { record: jest.fn() },
+    transaction: jest.fn(),
   };
   const service = new WorkflowService(repositories, logger);
   expect(await service.list(actor)).toEqual({ items: [] });

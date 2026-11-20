@@ -17,20 +17,29 @@ owner has accepted these findings or provided a dated exception.
 | ARC-021 | HIGH     | `apps/backend/src/services/worker.ts` (`stop`, `drain`), `apps/backend/src/index.ts` (shutdown)                                                       | **Partially remediated:** a normal SIGTERM previously exited and closed the database while an extraction was running; concurrent calls to one worker's drain could also overlap. Shutdown now waits for startup and active work and coalesces drains. Active maintenance sweeps are also awaited. No shutdown deadline or forced-kill safety is established.                   | `worker-lifecycle.test.ts` and `worker-shutdown-process.test.ts` fail on the prior worker and pass locally with this change; test uses synthetic OCR and SQLite. Design and test bounded shutdown, crashes, ownership and fencing; validate maintenance across replicas.                                                                                 | Unassigned; backend reliability                   |
 | ARC-022 | HIGH     | `apps/backend/src/ai/providers/cloud.ts` (`ocr`), `apps/backend/src/config.ts`, `DEPLOYMENT.md` §10                                                   | **Not remediated:** despite the configuration name, the cloud cost setting is not a hard spend cap. The request is made before a rough token estimate is compared; it only logs a warning, absent usage becomes zero, and there is no cumulative budget or reservation. The prior implementation comment and deployment guide incorrectly claimed enforcement.                 | `ai.test.ts` demonstrates that an over-threshold response is returned and only warned after the request. Comments and operator guidance now describe the limitation; implement provider-aware pricing and pre-request budget controls, and verify billed usage before claiming enforcement.                                                              | Unassigned; AI/product and operations             |
 
-### ARC-027 — HIGH: workflow deletion execution is not atomic or fenced
+### ARC-027 — HIGH: workflow execution and recovery require further review
 
-The still-supported `delete_document` workflow action calls the repository directly; it does not
-share the transactional document-delete/audit path. Approval reads `awaiting_approval`, performs
-actions and only later writes completion and an approval audit, without a conditional claim or
-transaction. Concurrent approvals can therefore both enter execution, and a crash or write failure
-can leave effects without the corresponding completion/audit. The delete branch now fails when the
-conditional soft-delete changes no row, but automatically run plans are still initially stored as
-`completed` before their actions execute. A deterministic barrier in
-`workflow-approval-race.test.ts` reproduces two approvals entering execution: one succeeds and
-records an approval audit, then the other changes the completed run to failed. This synthetic test is
-not evidence of a production incident. Design and test a transactionally guarded workflow state
-machine, per-action results, deletion/audit consistency, concurrency and recovery before claiming
-workflow execution is safe. Owner: unassigned; R02 workflow/product and backend reliability owners.
+Approval formerly read `awaiting_approval`, deleted a document and only later updated the run and
+its audit, without a lock. A deterministic test reproduced two concurrent approvals entering that
+path, leaving a deleted document and approval audit but a failed run. Automatically executed plans
+were also stored as completed before their actions ran.
+
+Current-version execution now locks the run inside a database transaction, verifies its expected
+state and atomically commits the database-local document soft-delete, document audit, outputs,
+completion and workflow audit. Business failures roll back before a conditional failure update;
+unsupported actions still fail closed. Automatic runs begin in `matched`, not completed. Tests cover
+competing approvals, audit failures, multi-action rollback and ambiguous commit acknowledgement;
+`workflow-crash-process.test.ts` SIGKILLs a separate SQLite process inside the deletion transaction
+and verifies rollback and approval retry. A PostgreSQL lock barrier is included in the driver
+integration suite. These tests are synthetic, not evidence of production incidents or successful
+deployment.
+
+This is a partial mitigation: a crash can leave an automatic run matched with no recovery protocol;
+old binaries can bypass the new lock; historical runs and audit gaps remain; repeated evaluation can
+create distinct runs; and soft-delete does not erase files. Future connector, export or notification
+actions require an independently designed external-effect and retry protocol and must not be added
+inside the database transaction. Keep ARC-027 open for deployment, recovery and independent review.
+Owner: unassigned; R02 workflow/product and backend reliability owners.
 
 ### ARC-019 update — unavailable workflow actions fail closed
 

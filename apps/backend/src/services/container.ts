@@ -320,6 +320,14 @@ export function buildServices(options: BuildServicesOptions): Services {
       documents: new DocumentsRepository(db),
       extractions: new ExtractionsRepository(db),
       audit: new AuditRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            runs: new WorkflowRunsRepository(tx),
+            documents: new DocumentsRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
     },
     logger,
   );

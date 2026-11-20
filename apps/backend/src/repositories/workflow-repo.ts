@@ -202,26 +202,48 @@ export class WorkflowRunsRepository {
     );
   }
 
-  async markApproved(organisationId: string, id: string, approvedBy: string): Promise<void> {
-    await this.db.execute(
-      `UPDATE workflow_runs SET status = 'completed', approved_by = ?, approved_at = ?
-        WHERE organisation_id = ? AND id = ?`,
-      [approvedBy, nowIso(), organisationId, id],
+  /** Lock within a transaction before executing a run; SQLite transactions begin IMMEDIATE. */
+  lockForExecution(organisationId: string, id: string): Promise<WorkflowRunRow | null> {
+    const lock = this.db.driver === 'postgres' ? ' FOR UPDATE' : '';
+    return this.db.one<WorkflowRunRow>(
+      `SELECT * FROM workflow_runs WHERE organisation_id = ? AND id = ?${lock}`,
+      [organisationId, id],
     );
   }
 
-  /** Outputs are written separately so a failed run keeps the record of what did happen. */
-  async recordOutputs(organisationId: string, id: string, outputs: unknown): Promise<void> {
-    await this.db.execute(
-      'UPDATE workflow_runs SET outputs = ? WHERE organisation_id = ? AND id = ?',
-      [JSON.stringify(outputs), organisationId, id],
+  completeExecution(
+    organisationId: string,
+    id: string,
+    expectedStatus: 'matched' | 'awaiting_approval',
+    outputs: string[],
+    approvedBy: string | null,
+  ): Promise<WorkflowRunRow | null> {
+    return this.db.one<WorkflowRunRow>(
+      `UPDATE workflow_runs SET status = 'completed', outputs = ?, failure = NULL,
+         approved_by = ?, approved_at = ?
+       WHERE organisation_id = ? AND id = ? AND status = ? RETURNING *`,
+      [
+        JSON.stringify(outputs),
+        approvedBy,
+        approvedBy ? nowIso() : null,
+        organisationId,
+        id,
+        expectedStatus,
+      ],
     );
   }
 
-  async markFailed(organisationId: string, id: string, failure: string): Promise<void> {
-    await this.db.execute(
-      "UPDATE workflow_runs SET status = 'failed', failure = ? WHERE organisation_id = ? AND id = ?",
-      [failure.slice(0, 500), organisationId, id],
+  /** A stale failure may not overwrite another execution's completed result. */
+  markFailedIfStatus(
+    organisationId: string,
+    id: string,
+    expectedStatus: 'matched' | 'awaiting_approval',
+    failure: string,
+  ): Promise<WorkflowRunRow | null> {
+    return this.db.one<WorkflowRunRow>(
+      `UPDATE workflow_runs SET status = 'failed', failure = ?
+       WHERE organisation_id = ? AND id = ? AND status = ? RETURNING *`,
+      [failure.slice(0, 500), organisationId, id, expectedStatus],
     );
   }
 }
