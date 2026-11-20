@@ -30,9 +30,10 @@ designed and authorized reconciliation and deletion strategy. Known cross-table 
 now block retention, erasure-file and expired-export deletion, and stale export metadata updates are
 conditional. Neither change fences file deletion or enforces key non-reuse; test and design for
 concurrent references, changed exports and mixed versions. Measure cross-table scan costs and plan
-indexing with a safe deployment strategy. ARC-026 adds an export key reservation before file writes
-and schedules cleanup of caught failures when possible, but interrupted/failed-status queued exports
-still need detection and authorized offline reconciliation. Historical orphans, publication and
+indexing with a safe deployment strategy. ARC-026 adds an export key reservation before file writes;
+ambiguous reservation, collision and failed writes are now left for investigation rather than
+scheduled for deletion, while failures after confirmed writes may be marked failed for expiry.
+Interrupted and queued exports still need detection and authorized offline reconciliation. Historical orphans, publication and
 external-effect races are not repaired; age alone cannot establish that a writer is dead. The
 read-only `docs/export-inventory.md` tool assists offline investigation only; it does not reconcile,
 delete or prove that a candidate belongs to an export, and cannot find files with no export row.
@@ -99,14 +100,19 @@ pre-filled here. G1/G8 remain unsigned until the required people actually review
 
 New batch failures use fixed messages and API/CSV reads mask arbitrary historical batch error text.
 Historical rows and copies still contain their original values and require an authorized exposure
-assessment and remediation. Other provider, runtime and registry error boundaries were narrowed;
+assessment and remediation. `docs/batch-error-remediation.md` describes a scoped, audited offline
+per-batch remediation tool with an organisation-level inventory; it has not been run on production
+and does not discover all organisations or clean historical copies. Other provider, runtime and
+registry error boundaries were narrowed;
 they do not establish that every application or third-party log and output is safe. See `findings.md`.
 
 ### Cloud cost controls (ARC-022)
 
-A per-document, current-version remote OCR invocation reservation and configurable count limit now
-bound calls on the guarded worker path; zero blocks new reservations. This does not bound the price
-of one call, organisation-wide spend, provider-internal retries, old/direct writers, prior calls or
-rollback to a backup. A crash or ambiguous commit consumes a slot. Operators need provider-side
-budgets, verified billing, consistent deployments and a reviewed response to exhausted limits; see
-`DEPLOYMENT.md`. ARC-022 and independent review remain open.
+Per-document and lifetime per-organisation current-version remote OCR reservations and configurable
+count limits now bound calls on the guarded worker path; zero blocks new reservations. The default
+organisation cap is 10,000 since migration and has no automatic reset. This does not bound the price
+of one call, organisation-wide spend, provider-internal retries, new organisations, old/direct writers,
+prior calls or rollback to a backup. A crash or ambiguous commit consumes a slot in each counter.
+Operators need provider-side budgets, verified billing, consistent deployments, capacity monitoring
+and a reviewed response to exhausted limits; see `DEPLOYMENT.md`. ARC-022 and independent review
+remain open.

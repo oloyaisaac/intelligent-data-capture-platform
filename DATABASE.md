@@ -3,7 +3,7 @@
 Data model reference for the shipped schema. The authoritative DDL is
 `apps/backend/src/db/migrations.ts` — this document explains it and lists what each table is for.
 
-> **Status:** implemented. Forward-only migrations through `013_remote_ocr_invocation_count` run
+> **Status:** implemented. Forward-only migrations through `014_remote_ocr_organisation_count` run
 > on SQLite (`node:sqlite`, the local path) or PostgreSQL (the production path). There is no ORM:
 > repositories hold the SQL, and
 > one schema serves both drivers (DEC-013). Types below are written in PostgreSQL terms; on SQLite
@@ -60,6 +60,16 @@ organisations 1─┬─* users ──* memberships (role)     org-scoped roles;
 | learning_opt_in         | integer not null default 0      | 1 = corrections may feed training (REV-002) |
 | settings                | jsonb not null default `'{}'`   | non-critical toggles                        |
 | created_at / updated_at | timestamptz                     |                                             |
+
+### Remote OCR organisation counts
+
+`remote_ocr_organisation_counts` contains one row per organisation with at least one committed
+current-version remote OCR reservation since migration 014. `organisation_id` is a primary key and
+foreign key with `ON DELETE CASCADE`; `invocations` is a nonnegative integer. The worker reserves
+this counter and the document counter together before calling a nonlocal provider. It is a lifetime
+count, not billing, does not reset periodically and does not include pre-migration calls. Document
+deletion does not refund it. Organisations with no row have zero recorded reservations, not
+necessarily zero historical usage. See `DEPLOYMENT.md` for the cap and limitations.
 
 ### 3.2 `users`
 
@@ -604,7 +614,8 @@ Deletion must remove the storage object and the database rows, and must be recor
   `004_batches_projects_invitations`, `005_corrections_learning_opt_in`, `006_marketplace_installs`,
   `007_workflows`, `008_password_resets`, `010_mfa`, `009_terms_acceptance`,
   `011_erasure_file_deletions`, `012_workflow_execution_protocol`, and
-  `013_remote_ocr_invocation_count` (a nonnegative counter added to existing documents). The
-  migration array is the authoritative order, including the `010`/`009` ordering.
+  `013_remote_ocr_invocation_count` (a nonnegative counter added to existing documents), and
+  `014_remote_ocr_organisation_count` (durable per-organisation remote reservations). The migration
+  array is the authoritative order, including the `010`/`009` ordering.
 - `npm run db:migrate` applies pending migrations and is safe to re-run; `npm run db:seed` creates one
   demo organisation, one owner and a sample export without duplicating them on a second run.

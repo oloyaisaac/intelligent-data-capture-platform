@@ -15,6 +15,13 @@ import type { AuditRepository } from '../repositories/system-repo';
 import type { AuthenticatedActor } from './auth-service';
 import type { DocumentService } from './document-service';
 import type { RealtimeHub } from '../realtime/hub';
+import {
+  BATCH_FAILURE,
+  BATCH_UNSUPPORTED,
+  BATCH_TOO_LARGE,
+  BATCH_INVALID,
+  SAFE_BATCH_ERRORS,
+} from '../domain/batch-errors';
 
 /**
  * BATCH-001 — batch processing.
@@ -36,17 +43,6 @@ const DONE_STATUSES = new Set(['extracted', 'needs_review', 'approved', 'failed'
 
 // Never expose exception text from storage, database or injected adapters. Legacy batch rows can
 // already contain such text; only these exact application-owned strings are safe to return.
-const BATCH_FAILURE = 'This file could not be processed. Please retry or contact an administrator.';
-const BATCH_UNSUPPORTED =
-  'That file type is not supported. Upload a JPEG, PNG, HEIC image or a PDF.';
-const BATCH_TOO_LARGE = 'That file exceeds the upload size limit.';
-const BATCH_INVALID = 'That file could not be accepted. Check the file and try again.';
-const SAFE_BATCH_ERRORS = new Set([
-  BATCH_FAILURE,
-  BATCH_UNSUPPORTED,
-  BATCH_TOO_LARGE,
-  BATCH_INVALID,
-]);
 
 function batchFailure(error: unknown): string {
   if (error instanceof AppError) {
@@ -59,7 +55,7 @@ function batchFailure(error: unknown): string {
 
 function publicBatchError(error: string | null): string | undefined {
   if (!error) return undefined;
-  return SAFE_BATCH_ERRORS.has(error) ? error : BATCH_FAILURE;
+  return (SAFE_BATCH_ERRORS as readonly string[]).includes(error) ? error : BATCH_FAILURE;
 }
 
 export interface BatchServiceRepositories {

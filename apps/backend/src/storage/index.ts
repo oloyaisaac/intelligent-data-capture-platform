@@ -9,11 +9,21 @@ import { AppError } from '@idcp/shared';
 
 export interface Storage {
   readonly driver: 'filesystem' | 'memory';
+  /** Create a new key exclusively; never overwrite an existing file or object. */
   put(key: string, data: Buffer, contentType?: string): Promise<void>;
   get(key: string): Promise<Buffer>;
   /** Idempotent: deleting an already-missing key must succeed, to support cleanup retries. */
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;
+}
+
+/** The adapter did not create the requested key because an object already existed. */
+export class StorageKeyExistsError extends Error {
+  constructor() {
+    // Do not include the key: paths may contain sensitive identifiers.
+    super('Storage key already exists.');
+    this.name = 'StorageKeyExistsError';
+  }
 }
 
 const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -55,7 +65,14 @@ export class FilesystemStorage implements Storage {
   async put(key: string, data: Buffer): Promise<void> {
     const path = this.resolve(key);
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, data, { mode: 0o600 });
+    try {
+      // O_EXCL claims the final path atomically and refuses an existing symlink or file.
+      await writeFile(path, data, { mode: 0o600, flag: 'wx' });
+    } catch (error) {
+      if (error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'EEXIST')
+        throw new StorageKeyExistsError();
+      throw error;
+    }
   }
 
   async get(key: string): Promise<Buffer> {
@@ -86,6 +103,7 @@ export class MemoryStorage implements Storage {
 
   async put(key: string, data: Buffer): Promise<void> {
     assertSafeKey(key);
+    if (this.objects.has(key)) throw new StorageKeyExistsError();
     this.objects.set(key, Buffer.from(data));
   }
 

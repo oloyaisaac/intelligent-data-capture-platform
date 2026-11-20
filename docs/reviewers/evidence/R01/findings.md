@@ -58,8 +58,10 @@ Before this change, export creation wrote its file before recording the storage 
 or a failure before `markReady` left a failed export with no key or expiry and no normal cleanup
 path; the raw exception was also logged by the export service and HTTP error handler.
 `export-cleanup-safety.test.ts` reproduced both defects with synthetic failures. New exports now
-reserve their generated key on a queued row before writing. A caught failure schedules cleanup when
-possible, preserves an existing expiry if `markReady` may have committed, and returns a generic
+reserve their generated key on a queued row before writing. After confirmed exclusive creation,
+a caught publication failure can schedule cleanup, preserving an existing expiry if `markReady`
+may have committed. An uncertain reservation or unsuccessful write is now left queued for offline
+ownership investigation instead of automatically scheduling deletion. The service returns a generic
 error without logging exception text. Cleanup still uses the existing reference and retry checks.
 
 This is partial mitigation, not atomic or automatic crash recovery. A killed writer or failed
@@ -396,13 +398,22 @@ Batch creation previously copied arbitrary storage, database and adapter excepti
 arbitrary adapter exception text into an HTTP validation error. Those paths can disclose credentials,
 filesystem paths or document content. The batch service now persists and logs only fixed
 application-owned messages, and masks historical free-text errors on all batch JSON and CSV reads;
-legacy database values themselves are not rewritten. Known validation classes retain fixed messages.
+legacy database values are not automatically rewritten. Known validation classes retain fixed messages.
 Registry lookup failures now return a fixed message. Synthetic HTTP tests cover ordinary and
 application errors, non-Error throws, legacy database values, CSV/list/detail/items, tenant scope
 and subsequent successful items. This is output masking, not deletion of old rows, exports, logs,
 backups, screenshots or other copies. Authorized assessment and remediation of historical exposure
 remain open, as does a broader audit of other error/output boundaries. Owner: unassigned; backend
 security and data governance.
+
+A new offline tool can page through batches with non-allowlisted stored errors in one organisation,
+count them per batch and, only after explicit operator review, replace up to 100 per transaction with
+a fixed message and append an audit entry. SQLite and PostgreSQL tests cover scope, safe-message
+preservation, bounded repeatable pages, concurrent calls, audit rollback and CLI redaction. See
+`docs/batch-error-remediation.md` for authorization, legal holds, offline controls, backup and
+verification. This tool has not been run on production. It does not enumerate all organisations or
+databases, assess past exposure or clean database WAL, exports, logs and backups; these and
+independent security review remain open.
 
 ### ARC-025 update — additional runtime and provider error boundaries
 
@@ -438,3 +449,50 @@ counts. Mixed versions and differing configuration across workers undermine the 
 stop an already-started request. Provider-side spending limits, pricing, actual bill reconciliation,
 organisation-wide budgeting and independent assessment remain open. No real provider call or
 production migration is claimed.
+
+### ARC-018 / ARC-026 update — exclusive writes and uncertain ownership
+
+The filesystem adapter now uses exclusive final-path creation and memory storage rejects an existing
+key instead of overwriting it. Filesystem tests cover competing calls, independent processes,
+slash/dot aliases, hard links and final symlinks; synthetic upload and export HTTP tests verify a
+collision does not overwrite existing bytes. When an export key reservation is uncertain or a file
+write rejects, the service leaves the row untouched for offline review rather than scheduling an
+object of unknown ownership for expiry. Tests cover a partial write, an ordinary ambiguous storage
+failure, an existing unreferenced object, and a lost reservation acknowledgement. Confirmed-write
+publication failures continue to follow the existing failed/expiry path. Local verification passed
+105 suites / 822 tests with 21 PostgreSQL-only tests skipped; the full backend suite also passed on a
+temporary PostgreSQL 16.16 instance (98 suites / 579 tests).
+
+This reduces overwrite and unsafe-cleanup risks but does not complete ARC-018, ARC-024 or ARC-026.
+Exclusive create depends on the filesystem implementing `O_EXCL`; it is not a sandbox or a guarantee
+against parent-directory symlinks, untrusted filesystems, hard-link changes, old binaries or later
+key reuse. An upload write failure may leave an untracked partial file. Queued export rows can remain
+indefinitely, including without a key when a reservation fails. There is no automatic ownership
+proof, live-worker fencing, atomic file/database transaction, historical-orphan reconciliation or
+production rollout evidence. Investigate stuck rows offline; never delete based on age alone.
+
+### ARC-022 update — per-organisation lifetime invocation reservation
+
+Migration 014 adds a durable, nonnegative organisation reservation counter that survives deletion of
+individual documents. On the current-version worker path, the running job is locked and both the
+organisation and document reservations commit together before the remote provider is called. A failed
+reservation rolls back both counters. `AI_MAX_REMOTE_CALLS_PER_ORG` defaults to 10,000 lifetime
+reservations since migration, accepts 0–10,000,000 and has no periodic reset. It is a shared
+configuration limit applied separately to each organisation, not an organisation-specific setting.
+Synthetic tests cover caps across documents and organisations, zero, local OCR, rollback, concurrent
+reservations and a SQLite SIGKILL. Real PostgreSQL lock-barrier tests cover contention on both a new
+and an existing counter row. A lost-acknowledgement test verifies both committed counters persist.
+An organisation-cap rejection has a fixed job failure reason and terminal realtime message without
+exposing provider exception text; UI presentation and operational alerting are not verified. Full
+local verification passed 109 suites / 835 tests (24 PostgreSQL-only tests skipped); the full backend
+suite passed on temporary PostgreSQL 16.16 (102 suites / 595 tests).
+
+This creates an availability change and does **not** close ARC-022 or establish a monetary cap. No
+historical usage is backfilled; a missing row means only that this mechanism has not recorded a call.
+Limits cannot cancel in-flight calls, prevent provider-internal retries, bound per-call cost, control
+multiple organisations or databases, enforce consistent settings, or stop old/direct/out-of-band
+writers. An organisation deletion cascades its counter, and backup restore can roll it back. Jobs at
+the cap exhaust normal retries; there is no dedicated alert or verified UI presentation. Owners must review the
+threshold and capacity, deploy current code and configuration consistently, independently monitor
+usage, enforce provider-side budgets, and verify real billing and production rollout. See
+`DEPLOYMENT.md`. No production action or independent assessment is claimed.

@@ -64,6 +64,7 @@ import { ErasureFilesRepository } from '../repositories/erasure-files-repo';
 import { PrivacyRepository } from '../repositories/privacy-repo';
 import { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
 import { BatchesRepository } from '../repositories/batch-repo';
+import { RemoteOcrBudgetRepository } from '../repositories/remote-ocr-budget-repo';
 import { WorkflowRunsRepository, WorkflowsRepository } from '../repositories/workflow-repo';
 
 export interface Services {
@@ -364,6 +365,7 @@ export function buildServices(options: BuildServicesOptions): Services {
         db.transaction((tx) =>
           run({
             jobs: new JobsRepository(tx),
+            remoteOcrBudget: new RemoteOcrBudgetRepository(tx),
             documents: new DocumentsRepository(tx),
             extractions: new ExtractionsRepository(tx),
             pages: new DocumentPagesRepository(tx),

@@ -7,6 +7,7 @@ import type {
   ExtractionsRepository,
 } from '../repositories/document-repo';
 import type { JobsRepository } from '../repositories/system-repo';
+import type { RemoteOcrBudgetRepository } from '../repositories/remote-ocr-budget-repo';
 import type { OrganisationsRepository } from '../repositories/auth-repo';
 import type { JobRow } from '../repositories/types';
 import type { Storage } from '../storage';
@@ -15,6 +16,10 @@ import type { OcrProvider } from '../ai/providers/types';
 import type { RealtimeHub } from '../realtime/hub';
 import type { DocumentService } from './document-service';
 import type { TemplateService } from './template-service';
+
+// Only worker-created limit errors get a specific fixed diagnostic. Never expose arbitrary
+// exception messages from providers or adapters.
+class RemoteOcrOrganisationLimitError extends Error {}
 
 /**
  * Background worker (DEC-008).
@@ -26,6 +31,7 @@ import type { TemplateService } from './template-service';
 /** Repository operations used by the worker, supplied by the composition root. */
 export interface WorkerTransactionRepositories {
   jobs: Pick<JobsRepository, 'lockRunning' | 'markSucceeded' | 'markFailed'>;
+  remoteOcrBudget: Pick<RemoteOcrBudgetRepository, 'reserve'>;
   documents: Pick<
     DocumentsRepository,
     'beginProcessing' | 'finishProcessing' | 'failProcessing' | 'reserveRemoteOcrInvocation'
@@ -191,16 +197,18 @@ export class Worker {
       if (!(await this.jobs.markSucceeded(job.id, job.attempts))) {
         this.logger.warn('job completion ignored for an obsolete claim', { jobId: job.id });
       }
-    } catch {
+    } catch (error) {
       // Do not trust exception messages, including provider-specific error classes: adapters,
-      // storage, SQL and payload parsing can embed sensitive data. These strings are safe to
-      // persist, log and publish to the organisation's realtime subscribers.
+      // storage, SQL and payload parsing can embed sensitive data. Only the private worker-created
+      // limit error selects fixed messages; its text is never copied to persistence or output.
       const message =
-        job.type === 'extract_document'
-          ? 'Document extraction failed. Investigate the worker and retry.'
-          : job.type === 'retention_purge'
-            ? 'Retention purge failed. Investigate storage and retry.'
-            : 'Job failed. Investigate the job type.';
+        job.type === 'extract_document' && error instanceof RemoteOcrOrganisationLimitError
+          ? 'Remote OCR organisation invocation limit reached. Contact an administrator.'
+          : job.type === 'extract_document'
+            ? 'Document extraction failed. Investigate the worker and retry.'
+            : job.type === 'retention_purge'
+              ? 'Retention purge failed. Investigate storage and retry.'
+              : 'Job failed. Investigate the job type.';
       const failure =
         job.type === 'extract_document' && job.document_id
           ? await this.transaction(async (repositories) => {
@@ -281,16 +289,25 @@ export class Worker {
       const reservation = await this.transaction(async (repositories) => {
         if (!(await repositories.jobs.lockRunning(job.id, job.attempts)))
           return 'obsolete' as const;
-        return (await repositories.documents.reserveRemoteOcrInvocation(
-          job.organisation_id,
-          documentId,
-          this.config.AI_MAX_REMOTE_CALLS_PER_DOC,
-        ))
-          ? ('reserved' as const)
-          : ('unavailable' as const);
+        // Reserve organisation first, then document. Failure of either must roll back both counters.
+        if (
+          !(await repositories.remoteOcrBudget.reserve(
+            job.organisation_id,
+            this.config.AI_MAX_REMOTE_CALLS_PER_ORG,
+          ))
+        )
+          throw new RemoteOcrOrganisationLimitError();
+        if (
+          !(await repositories.documents.reserveRemoteOcrInvocation(
+            job.organisation_id,
+            documentId,
+            this.config.AI_MAX_REMOTE_CALLS_PER_DOC,
+          ))
+        )
+          throw new Error('Remote OCR document reservation unavailable');
+        return 'reserved' as const;
       });
       if (reservation === 'obsolete') return;
-      if (reservation === 'unavailable') throw new Error('Remote OCR invocation unavailable');
     }
 
     const result = await runExtractionPipeline(

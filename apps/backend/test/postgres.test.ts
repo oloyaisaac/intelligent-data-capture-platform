@@ -8,6 +8,8 @@ import type { Database } from '../src/db/database';
 import { AuditRepository, JobsRepository } from '../src/repositories/system-repo';
 import { DocumentsRepository } from '../src/repositories/document-repo';
 import { WorkerRecoveryRepository } from '../src/repositories/worker-recovery-repo';
+import { BatchesRepository } from '../src/repositories/batch-repo';
+import { RemoteOcrBudgetRepository } from '../src/repositories/remote-ocr-budget-repo';
 import { WorkflowRunsRepository } from '../src/repositories/workflow-repo';
 import {
   createHarness,
@@ -82,6 +84,61 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
       await isolated.close();
     }
   }, 30_000);
+
+  it.each([0, 1])(
+    'serializes the organisation OCR cap with %i pre-existing reservations',
+    async (prior) => {
+      const isolated = await createHarness();
+      const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+      let competing: Promise<boolean> | undefined;
+      try {
+        const account = await registerAccount(isolated);
+        const maximum = prior + 1;
+        if (prior)
+          expect(
+            await isolated.db.transaction((tx) =>
+              new RemoteOcrBudgetRepository(tx).reserve(account.organisationId, maximum),
+            ),
+          ).toBe(true);
+        await isolated.db.transaction(async (tx) => {
+          expect(
+            await new RemoteOcrBudgetRepository(tx).reserve(account.organisationId, maximum),
+          ).toBe(true);
+          const holder = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+          if (!holder) throw new Error('Could not identify lock holder');
+          competing = isolated.db.transaction((other) =>
+            new RemoteOcrBudgetRepository(other).reserve(account.organisationId, maximum),
+          );
+          void competing.catch(() => undefined);
+          const deadline = Date.now() + 10_000;
+          let blocked = 0;
+          while (Date.now() < deadline && blocked === 0) {
+            const result = await observer.query<{ count: number }>(
+              `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+             WHERE $1::int = ANY(pg_blocking_pids(activity.pid)) AND activity.wait_event_type = 'Lock'
+               AND activity.query LIKE 'INSERT INTO remote_ocr_organisation_counts%'`,
+              [holder.pid],
+            );
+            blocked = result.rows[0]?.count ?? 0;
+            if (blocked === 0) await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          expect(blocked).toBe(1);
+        });
+        expect(await competing!).toBe(false);
+        expect(
+          await isolated.db.one(
+            'SELECT invocations FROM remote_ocr_organisation_counts WHERE organisation_id = ?',
+            [account.organisationId],
+          ),
+        ).toEqual({ invocations: maximum });
+      } finally {
+        if (competing) await competing.catch(() => undefined);
+        await observer.end();
+        await isolated.close();
+      }
+    },
+    30_000,
+  );
 
   it('rolls back recovery on audit failure and commits only one concurrent recovery', async () => {
     const account = await registerAccount(harness);
@@ -1122,6 +1179,79 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  }, 30_000);
+
+  it('checks and remediates a scoped batch through the PostgreSQL CLI without revealing historical text', async () => {
+    const account = await registerAccount(harness);
+    const batches = new BatchesRepository(harness.db);
+    const batch = await batches.create({
+      organisationId: account.organisationId,
+      name: 'test',
+      createdBy: account.userId,
+    });
+    await batches.addItem({
+      batchId: batch.id,
+      documentId: null,
+      position: 0,
+      error: 'SYNTHETIC-PG-BATCH-SECRET',
+    });
+    const schema = await harness.db.one<{ schema: string }>('SELECT current_schema() AS schema');
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.set('options', `-c search_path=${schema!.schema}`);
+    const cli = (...args: string[]) =>
+      spawnSync(
+        process.execPath,
+        ['--import', 'tsx', 'src/db/batch-error-remediation-cli.ts', ...args],
+        {
+          cwd: resolve(__dirname, '..'),
+          env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            DB_DRIVER: 'postgres',
+            DATABASE_URL: url.toString(),
+          },
+          encoding: 'utf8',
+        },
+      );
+    const scope = ['--organisation', account.organisationId, '--batch', batch.id];
+    const list = cli('--list', '--organisation', account.organisationId, '--confirm-offline');
+    expect(list.status).toBe(0);
+    expect(JSON.parse(list.stdout).batches).toEqual(
+      expect.arrayContaining([{ batchId: batch.id, eligible: 1 }]),
+    );
+    expect(list.stdout + list.stderr).not.toContain('SYNTHETIC-PG-BATCH-SECRET');
+    const check = cli('--check', ...scope, '--confirm-offline');
+    expect(check.status).toBe(0);
+    expect(JSON.parse(check.stdout)).toEqual({ found: true, eligible: 1 });
+    const apply = cli(
+      '--apply',
+      ...scope,
+      '--operator',
+      'op',
+      '--incident',
+      'INC-42',
+      '--confirm-offline',
+      '--confirm-loss-reviewed',
+    );
+    expect(apply.status).toBe(0);
+    expect(JSON.parse(apply.stdout)).toEqual({ found: true, changed: 1, remaining: false });
+    expect(check.stdout + check.stderr + apply.stdout + apply.stderr).not.toContain(
+      'SYNTHETIC-PG-BATCH-SECRET',
+    );
+    expect(
+      (
+        await harness.db.one<{ error: string }>(
+          'SELECT error FROM batch_items WHERE batch_id = ?',
+          [batch.id],
+        )
+      )?.error,
+    ).toContain('could not be processed');
+    expect(
+      await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+        'batch.errors_remediated_offline',
+        batch.id,
+      ]),
+    ).toHaveLength(1);
   }, 30_000);
 
   it('applies migrations and executes placeholder queries, transactions, and an API health check', async () => {

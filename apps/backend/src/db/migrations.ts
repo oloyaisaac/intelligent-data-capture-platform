@@ -548,6 +548,16 @@ export const MIGRATIONS: Migration[] = [
       'ALTER TABLE documents ADD COLUMN remote_ocr_invocations INTEGER NOT NULL DEFAULT 0 CHECK (remote_ocr_invocations >= 0)',
     ],
   },
+  {
+    // A separate organisation counter survives document deletion. Pre-migration use is unknown.
+    id: '014_remote_ocr_organisation_count',
+    sql: [
+      `CREATE TABLE remote_ocr_organisation_counts (
+        organisation_id TEXT PRIMARY KEY REFERENCES organisations(id) ON DELETE CASCADE,
+        invocations INTEGER NOT NULL CHECK (invocations >= 0)
+      )`,
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {
