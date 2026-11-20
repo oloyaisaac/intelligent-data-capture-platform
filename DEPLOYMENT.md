@@ -280,12 +280,16 @@ Additional gaps:
   the metadata remains active; retries depend on idempotent storage deletion. Audit consumers must
   sum the per-document `count=1` records rather than expect one aggregate record per sweep.
   Known references in documents, pages, exports and template samples across tenants block retention,
-  erasure-file and expired-export deletion; investigate aliases rather than removing references
-  blindly. These checks are not atomic with file deletion, keys are not protected against reuse, and
-  an export changed during cleanup can retain metadata for an already-deleted file. The added
-  per-file cross-table lookups may scan tables; assess query plans and sweep duration on production-sized
-  data before rollout. Historical leaked files need authorized reconciliation, not an assumption that
-  a successful job proves deletion. See R01 ARC-024.
+  erasure-file and expired-export deletion. Non-canonical deletion targets are refused, and these
+  checks also inspect slash/dot path aliases; they fail closed when a source reaches 1,024 potential
+  aliases, even without a matching reference. Investigate rather than removing references blindly.
+  The checks cannot detect filesystem links or case-insensitive aliases and are not atomic with
+  new references or file writes; keys are not protected against reuse. Export row updates are locked
+  during expiry, but a failed DB commit or an unguarded later writer can still leave invalid metadata.
+  Per-file cross-table and alias lookups can scan entire tables repeatedly while retention/export
+  locks are held; measure query plans, lock duration and sweep time on representative data before
+  rollout. Historical leaked files need authorized reconciliation, not an assumption that a
+  successful job proves deletion. See R01 ARC-024.
 - New exports reserve their storage key before writing. Caught write/publication failures become
   eligible for expiry cleanup when failure status can be recorded; a committed ready expiry is
   preserved. A crash or failure to record failure can leave a queued export with a key and no expiry.

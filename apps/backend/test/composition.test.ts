@@ -487,6 +487,7 @@ it('uses injected document repositories and rejects a document outside the actor
       findById: jest.fn().mockResolvedValue(null),
       findByIdempotencyKey: jest.fn(),
       findExpiredForPurge: jest.fn(),
+      hasAnyStorageReference: jest.fn(),
       list: jest.fn().mockResolvedValue([]),
       softDelete: jest.fn(),
       updateStatus: jest.fn(),

@@ -218,6 +218,11 @@ export class DocumentsRepository {
     return updated !== null;
   }
 
+  /** Check known references before best-effort cleanup of an uncommitted upload key. */
+  hasAnyStorageReference(key: string): Promise<boolean> {
+    return hasStorageReference(this.db, key);
+  }
+
   /** Fail closed on known references other than this document and its pages. */
   hasOtherStorageReference(documentId: string, key: string): Promise<boolean> {
     return hasStorageReference(this.db, key, { documentId });
