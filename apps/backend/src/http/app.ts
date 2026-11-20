@@ -207,7 +207,7 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
       requestId,
       route: request.routeOptions.url ?? '[unmatched]',
       method: request.method,
-      error,
+      // Untrusted adapter/database errors may contain credentials, paths or document contents.
     });
     return reply.code(500).send(toErrorEnvelope(error, requestId));
   });

@@ -154,6 +154,27 @@ the database are not atomic: a failure or crash after deletion can still leave l
 bytes. Historical soft-deletes, page files, derived data, storage aliases and reference races remain
 unresolved, and neither retention nor worker exactly-once guarantees are established.
 
+### ARC-024 update — syntactic storage-path aliases
+
+Filesystem storage normalizes path separators and dot segments, so the same file can have distinct
+recorded key strings. Exact-key reference checks alone can miss a live `org//...` or `org/./...`
+reference and delete its bytes. Retention, erasure and expired-export reference guards now refuse
+non-canonical or invalid deletion targets, and page through syntactic slash/dot alias candidates in
+all four known reference tables. If a table reaches 1,024 potential alias candidates the check fails
+closed, even if none matched; a blocked sweep needs investigation rather than blind deletion.
+Upload rollback and duplicate cleanup now check known references as well and fail closed on lookup
+errors; the check does not undo a collision that already overwrote bytes. Tests include cross-tenant
+references in each table, guarded cleanup paths, filesystem erasure and paginated/capped scans.
+An injected upload audit failure also revealed that the HTTP error handler logged raw unexpected
+error messages; it now logs request identifiers without those messages. Other logging and historical
+records remain unassessed.
+
+The checks can repeatedly scan whole tables for each candidate file, including while DB locks are
+held. Benchmark representative production-sized databases before rollout; the cap bounds returned
+candidates, not total database work. Path comparison does not identify links, case-insensitive or
+Unicode filesystem aliases, external references or concurrent insertions/writes; it cannot guarantee
+safe deletion or reconciliation. No legacy records are rewritten, and ARC-024/ARC-018 remain open.
+
 ### ARC-024 update — broader reference checks and stale export metadata
 
 A synthetic cross-tenant regression (`storage-reference-safety.test.ts`) showed that retention and

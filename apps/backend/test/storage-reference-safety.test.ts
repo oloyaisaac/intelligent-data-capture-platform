@@ -91,9 +91,14 @@ it.each(references)(
 describe.each(['retention', 'erasure', 'expired export'] as const)(
   '%s file deletion',
   (operation) => {
-    it.each(references)(
-      'fails closed for a key referenced by another tenant’s %s and retries',
-      async (kind) => {
+    it.each(
+      references.flatMap((kind) => [
+        { kind, alias: false },
+        { kind, alias: true },
+      ]),
+    )(
+      'fails closed for another tenant’s $kind reference (path alias: $alias) and retries',
+      async ({ kind, alias }) => {
         const harness = await createHarness();
         try {
           const owner = await registerAccount(harness);
@@ -136,7 +141,8 @@ describe.each(['retention', 'erasure', 'expired export'] as const)(
               ],
             );
           }
-          const removeReference = await addReference(harness, other, kind, key);
+          const referenceKey = alias ? key.replace('/', '//') : key;
+          const removeReference = await addReference(harness, other, kind, referenceKey);
           const attempt = async (): Promise<number> => {
             if (operation === 'retention')
               return harness.services.documents.purgeExpired(owner.organisationId, 90);

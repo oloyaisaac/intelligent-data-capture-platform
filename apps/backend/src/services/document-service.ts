@@ -69,6 +69,7 @@ export interface DocumentServiceRepositories {
     | 'findById'
     | 'findByIdempotencyKey'
     | 'findExpiredForPurge'
+    | 'hasAnyStorageReference'
     | 'list'
     | 'softDelete'
     | 'updateStatus'
@@ -243,9 +244,15 @@ export class DocumentService {
 
   private async removeUnreferencedUpload(storageKey: string): Promise<void> {
     try {
+      // A collision or legacy reference may make even an uncommitted upload key unsafe to remove.
+      // This remains a point-in-time check; it does not fence other writers or undo overwrites.
+      if (await this.documents.hasAnyStorageReference(storageKey)) {
+        this.logger.warn('upload cleanup deferred for investigation');
+        return;
+      }
       await this.storage.delete(storageKey);
     } catch {
-      // File cleanup is best effort: operators may need orphan reconciliation.
+      // Fail closed on reference lookup or storage failure; operators may need reconciliation.
       this.logger.error('could not remove unreferenced upload file');
     }
   }
