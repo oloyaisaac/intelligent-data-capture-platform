@@ -281,8 +281,10 @@ approval and rejection return 409 when the document is queued, processing, faile
 otherwise unavailable for review, when extraction work is active, or when a review is closed or no
 longer refers to the latest extraction. Once reprocessing succeeds, open a new review for its result.
 Bulk approval skips unavailable records as well as those with unresolved fields. Reprocessing and
-review writes are serialized in the database; external sends and exports have separate race boundaries.
-This protection requires every API and worker to use the new locking protocol. Stop older processes
+review writes are serialized in the database. Approved-snapshot reads for connector previews, sends
+and exports require a currently approved document, no active extraction and an approval of the
+latest extraction. This is a point-in-time check: external sends and exports can still race with later
+reprocessing. This protection requires every API and worker to use the new locking protocol. Stop older processes
 before deploying; rolling overlap with older binaries or direct database writers is not protected.
 A rollback to older code can reopen the race. Review history can now contain status `superseded`.
 

@@ -65,9 +65,12 @@ The old characterization was replaced with a regression that expects a 409 for t
 and publication of the new OCR result. Review open, correction, approval, rejection and bulk items
 now use the document lock and transaction-scoped repositories; reprocessing preserves but
 supersedes open reviews. Tests cover failed reprocessing, simultaneous decisions and rollback. A
-PostgreSQL lock-wait test is included for CI. This is partial mitigation only: historical approvals,
-external sends/exports, old binaries, event delivery, broader crash/erasure cases and independent
-review remain open. `worker-recovery-design.md` describes the supported semantics and limitations.
+PostgreSQL lock-wait test is included for CI. Approved-snapshot reads now require the current
+approved document and latest extraction, with no active extraction job; tests exercise stale
+connector preview and direct snapshot lookup. These are point-in-time guards only: external
+sends/exports can race with subsequent reprocessing. Old binaries, event delivery, broader
+crash/erasure cases and independent review remain open. `worker-recovery-design.md` describes the
+supported semantics and limitations.
 
 ### ARC-017 update — connector write success values
 

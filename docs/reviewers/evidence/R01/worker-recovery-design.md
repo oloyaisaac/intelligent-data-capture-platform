@@ -95,7 +95,10 @@ completed, reviewable extraction; old review IDs return conflict. See `API.md` f
 operations, failed reprocess, concurrent decisions and audit/write rollback. `postgres.test.ts`
 contains a document-lock wait barrier exercising the stale decision check. These focused tests do not
 prove rolling-upgrade safety, all review/erasure races, crash recovery, external sends/exports, or
-event delivery. Connector duplicate previews can still read an older approved snapshot, and sends or
-exports can race with later reprocessing; these boundaries require separate review. Old binaries and
-out-of-band writers do not use this lock protocol. P6 remains open pending design, broader evidence,
+event delivery. Approved-snapshot lookup now fails closed unless the document is currently approved,
+not deleted, has no active extraction job, and the approved review refers to its latest extraction;
+this prevents a duplicate preview from simply using an older approval after reprocessing. The check
+is a point-in-time read: sends, previews and exports can still race with later reprocessing after that
+read, and external effects cannot be rolled back. Those boundaries require separate review. Old
+binaries and out-of-band writers do not use this lock protocol. P6 remains open pending design, broader evidence,
 owner decisions and independent review.

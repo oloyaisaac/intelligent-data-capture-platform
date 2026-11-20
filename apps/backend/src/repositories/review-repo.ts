@@ -97,9 +97,22 @@ export class ReviewsRepository {
     );
   }
 
+  /** Return only an approval of the latest extraction of a currently approved, idle document. */
   async findApprovedUdm(documentId: string): Promise<unknown | null> {
     const row = await this.db.one<ReviewRow>(
-      "SELECT * FROM reviews WHERE document_id = ? AND status = 'approved' ORDER BY completed_at DESC LIMIT 1",
+      `SELECT r.* FROM reviews r
+       JOIN documents d ON d.id = r.document_id AND d.organisation_id = r.organisation_id
+       WHERE r.document_id = ? AND r.status = 'approved'
+         AND d.status = 'approved' AND d.deleted_at IS NULL
+         AND r.extraction_id = (
+           SELECT e.id FROM extractions e WHERE e.document_id = d.id
+             AND e.organisation_id = d.organisation_id ORDER BY e.attempt DESC LIMIT 1
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM jobs j WHERE j.document_id = d.id AND j.organisation_id = d.organisation_id
+             AND j.type = 'extract_document' AND j.status IN ('queued', 'running')
+         )
+       ORDER BY r.completed_at DESC, r.id DESC LIMIT 1`,
       [documentId],
     );
     if (!row?.approved_udm) return null;

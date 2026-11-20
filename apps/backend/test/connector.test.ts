@@ -371,6 +371,23 @@ describe('connectors (CON-001, CON-003, MAP-001, DUP-001)', () => {
     expect(result.matchedKeys).toEqual(['invoice_number']);
     expect(result.candidates[0]?.values.note).toBe('existing row');
 
+    const reprocess = await harness.api.json('POST', `/api/v1/documents/${documentId}/reprocess`, {
+      token: account.accessToken,
+    });
+    expect(reprocess.statusCode).toBe(202);
+    const previewAgain = () =>
+      harness.api.json(
+        'GET',
+        `/api/v1/documents/${documentId}/duplicates?connectorId=${connectorId}&mappingProfileId=${mappingId}`,
+        { token: account.accessToken },
+      );
+    // A historical approval is not an approval of the queued or newly extracted version.
+    expect((await previewAgain()).statusCode).toBe(409);
+    await drainWorker(harness);
+    expect((await previewAgain()).statusCode).toBe(409);
+    await approveDocument(harness, account, documentId);
+    expect((await previewAgain()).statusCode).toBe(200);
+
     // The preview must not have changed anything.
     const check = new DatabaseSync(dbPath);
     const count = check.prepare('SELECT COUNT(*) AS n FROM invoices').get() as { n: number };
