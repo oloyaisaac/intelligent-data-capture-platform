@@ -47,6 +47,8 @@ export class CloudVisionProvider implements OcrProvider {
     try {
       const response = await fetchImpl(this.options.endpoint, {
         method: 'POST',
+        // Do not replay document bytes or credentials to an endpoint selected by a redirect.
+        redirect: 'error',
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${this.options.apiKey}`,

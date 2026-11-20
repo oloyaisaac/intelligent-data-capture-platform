@@ -137,16 +137,16 @@ age-only behavior, so do not allow them to restart. Offline retry can repeat ext
 run overlapping replicas or assume automatic recovery or exactly-once execution. See
 `ARCHITECTURE.md` and R01 findings ARC-013/ARC-021.
 
-| Group         | Keys (see `.env.example`)                                                                                                                      |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime       | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                                  |
-| Database      | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                               |
-| Auth          | `JWT_SECRET`, `ENCRYPTION_KEY`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS` |
-| Storage       | `STORAGE_DRIVER` (`filesystem` today), `STORAGE_PATH`                                                                                          |
-| AI            | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`     |
-| Limits        | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_*`                                                                        |
-| Exports, jobs | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                             |
-| Desktop build | `API_BASE_URL` baked into the desktop release artefact (public URL, never a secret); production `CORS_ORIGINS` must include `app://idcp`       |
+| Group         | Keys (see `.env.example`)                                                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime       | `NODE_ENV`, `PORT`, `API_BASE_URL`, `LOG_LEVEL`, `APP_ORIGIN`, `CORS_ORIGINS`                                                                                             |
+| Database      | `DB_DRIVER`, `SQLITE_PATH`, `DATABASE_URL`, `DATABASE_POOL_SIZE`                                                                                                          |
+| Auth          | `JWT_SECRET`, `ENCRYPTION_KEY`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `PAIRING_TOKEN_TTL_SECONDS`, `INVITATION_TTL_SECONDS`                            |
+| Storage       | `STORAGE_DRIVER` (`filesystem` today), `STORAGE_PATH`                                                                                                                     |
+| AI            | `AI_PROVIDER`, `AI_LOCAL_ENGINE`, `TESSERACT_BIN`, `AI_CLOUD_MODEL`, `AI_CLOUD_ENDPOINT`, `AI_CLOUD_API_KEY`, `AI_MAX_COST_MICROS_PER_DOC`, `AI_MAX_REMOTE_CALLS_PER_DOC` |
+| Limits        | `MAX_UPLOAD_MB`, `MAX_REQUEST_MB`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_*`                                                                                                   |
+| Exports, jobs | `EXPORTS_TTL_SECONDS`, `WORKER_ENABLED`, `WORKER_POLL_INTERVAL_MS`                                                                                                        |
+| Desktop build | `API_BASE_URL` baked into the desktop release artefact (public URL, never a secret); production `CORS_ORIGINS` must include `app://idcp`                                  |
 
 This table is a selection, not an exhaustive list. The Compose file forwards only the variables
 listed in its `environment` mapping; setting another key in `.env.compose` does not automatically
@@ -251,8 +251,21 @@ no longer exist.
 - Certificate expiry monitoring, MFA on the host and the provider console, and access review.
 - Cloud cost controls: `AI_MAX_COST_MICROS_PER_DOC` is required to enable cloud OCR, but only
   triggers a warning on an estimated cost after a request has completed. It is not a spending cap;
-  missing usage is treated as zero, pricing is approximate, and there is no cumulative per-document
-  or per-organisation budget enforcement. Set provider-side limits and monitor billing before use.
+  missing usage is treated as zero, pricing is approximate, and there is no cumulative monetary
+  per-document or per-organisation budget enforcement. Set provider-side limits and monitor billing.
+- `AI_MAX_REMOTE_CALLS_PER_DOC` defaults to 5 (0–1000; 0 stops new current-version remote OCR
+  reservations). The worker commits a reservation against the document before calling a nonlocal
+  provider. The count persists across retries and reprocesses, and a crash, provider failure or lost
+  acknowledgement consumes a reservation even if no request arrived. Exhausted jobs fail through the
+  normal finite retry path; a local provider does not consume this count. Inspect the document's
+  `remote_ocr_invocations` and configuration under approved access controls before retry decisions.
+  This is a call-count bound, **not a monetary cap**: one call can cost an unknown amount, new uploads
+  receive new counters, and retries or effects inside a provider are not controlled. Historical calls
+  before migration 013 start at an unknown baseline represented by zero; old binaries, direct adapter
+  calls, restored older backups, inconsistent worker configuration and out-of-band writers can bypass
+  or roll back the count. A zero setting cannot cancel in-flight calls. Avoid mixed versions and use
+  consistent configuration; apply migration 013 and validate backups, rollout and rollback before use.
+  Cloud requests no longer follow HTTP redirects: configure the final endpoint explicitly.
 
 ## 11. Known gaps between this plan and the repository
 

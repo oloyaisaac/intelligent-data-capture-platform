@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { Pool } from 'pg';
 import type { Database } from '../src/db/database';
 import { AuditRepository, JobsRepository } from '../src/repositories/system-repo';
+import { DocumentsRepository } from '../src/repositories/document-repo';
 import { WorkerRecoveryRepository } from '../src/repositories/worker-recovery-repo';
 import { WorkflowRunsRepository } from '../src/repositories/workflow-repo';
 import {
@@ -34,6 +35,53 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
   afterAll(async () => {
     await harness?.close();
   });
+
+  it('serializes competing remote OCR reservations on the PostgreSQL document row', async () => {
+    const isolated = await createHarness();
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let competing: Promise<boolean> | undefined;
+    try {
+      const account = await registerAccount(isolated);
+      const id = (await isolated.api.upload(account.accessToken)).json<{ id: string }>().id;
+      await isolated.db.execute("UPDATE documents SET status = 'processing' WHERE id = ?", [id]);
+      await isolated.db.transaction(async (tx) => {
+        expect(
+          await new DocumentsRepository(tx).reserveRemoteOcrInvocation(
+            account.organisationId,
+            id,
+            1,
+          ),
+        ).toBe(true);
+        const holder = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        if (!holder) throw new Error('Could not identify lock holder');
+        competing = isolated.db.transaction((other) =>
+          new DocumentsRepository(other).reserveRemoteOcrInvocation(account.organisationId, id, 1),
+        );
+        void competing.catch(() => undefined);
+        const deadline = Date.now() + 10_000;
+        let blocked = 0;
+        while (Date.now() < deadline && blocked === 0) {
+          const result = await observer.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+             WHERE $1::int = ANY(pg_blocking_pids(activity.pid)) AND activity.wait_event_type = 'Lock'
+               AND activity.query LIKE 'UPDATE documents SET remote_ocr_invocations%'`,
+            [holder.pid],
+          );
+          blocked = result.rows[0]?.count ?? 0;
+          if (blocked === 0) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(1);
+      });
+      expect(await competing!).toBe(false);
+      expect(
+        await isolated.db.one('SELECT remote_ocr_invocations FROM documents WHERE id = ?', [id]),
+      ).toEqual({ remote_ocr_invocations: 1 });
+    } finally {
+      if (competing) await competing.catch(() => undefined);
+      await observer.end();
+      await isolated.close();
+    }
+  }, 30_000);
 
   it('rolls back recovery on audit failure and commits only one concurrent recovery', async () => {
     const account = await registerAccount(harness);

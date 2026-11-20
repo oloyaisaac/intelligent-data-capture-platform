@@ -541,6 +541,13 @@ export const MIGRATIONS: Migration[] = [
     id: '012_workflow_execution_protocol',
     sql: ['ALTER TABLE workflow_runs ADD COLUMN execution_protocol INTEGER NOT NULL DEFAULT 0'],
   },
+  {
+    // Historical remote calls are unknowable here; zero means counted since this migration only.
+    id: '013_remote_ocr_invocation_count',
+    sql: [
+      'ALTER TABLE documents ADD COLUMN remote_ocr_invocations INTEGER NOT NULL DEFAULT 0 CHECK (remote_ocr_invocations >= 0)',
+    ],
+  },
 ];
 
 export async function applyMigrations(db: {
