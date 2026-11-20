@@ -44,7 +44,10 @@ export function toExportDto(row: ExportRow, downloadUrl: string | null = null): 
 export interface ExportServiceRepositories {
   documents: Pick<DocumentsRepository, 'listApproved'>;
   reviews: Pick<ReviewsRepository, 'findApprovedUdm'>;
-  exports: Pick<ExportsRepository, 'create' | 'findById' | 'list' | 'markFailed' | 'markReady'>;
+  exports: Pick<
+    ExportsRepository,
+    'create' | 'findById' | 'list' | 'reserveStorageKey' | 'markFailed' | 'markReady'
+  >;
   audit: Pick<AuditRepository, 'record'>;
 }
 
@@ -68,12 +71,18 @@ export class ExportService {
   }
 
   async create(actor: AuthenticatedActor, request: CreateExportRequest): Promise<ExportRecord> {
-    const record = await this.exports.create({
-      organisationId: actor.organisationId,
-      requestedBy: actor.userId,
-      format: request.format,
-      filter: request,
-    });
+    let record: ExportRow;
+    try {
+      record = await this.exports.create({
+        organisationId: actor.organisationId,
+        requestedBy: actor.userId,
+        format: request.format,
+        filter: request,
+      });
+    } catch {
+      // Database exceptions may contain SQL, parameters or connection details.
+      throw new AppError('INTERNAL_ERROR', 'Could not create the export. Please retry.');
+    }
 
     try {
       const table = await this.buildTable(actor, request);
@@ -95,9 +104,16 @@ export class ExportService {
             )
           : await this.buildWorkbook(table);
 
+      // Persist the intended key before the first possible storage write. Queued rows have no
+      // expiry: an old or slow writer cannot safely be presumed dead by the maintenance sweep.
+      if (!(await this.exports.reserveStorageKey(record.id, storageKey))) {
+        throw new Error('Export reservation failed');
+      }
       await this.storage.put(storageKey, buffer, extensionForMimeType(extension));
       const expiresAt = new Date(Date.now() + this.config.EXPORTS_TTL_SECONDS * 1000).toISOString();
-      await this.exports.markReady(record.id, storageKey, table.rows.length, expiresAt);
+      if (!(await this.exports.markReady(record.id, storageKey, table.rows.length, expiresAt))) {
+        throw new Error('Export completion failed');
+      }
 
       await this.audit.record({
         organisationId: actor.organisationId,
@@ -115,10 +131,16 @@ export class ExportService {
 
       const updated = await this.exports.findById(actor.organisationId, record.id);
       return toExportDto(updated ?? record, `/api/v1/exports/${record.id}/download`);
-    } catch (error) {
-      await this.exports.markFailed(record.id);
-      this.logger.warn('export failed', { exportId: record.id, error: (error as Error).message });
-      throw error;
+    } catch {
+      try {
+        await this.exports.markFailed(record.id);
+      } catch {
+        // The reserved key may still be on a queued or ready row; operators must reconcile it.
+        this.logger.warn('could not mark export failed', { exportId: record.id });
+      }
+      this.logger.warn('export failed', { exportId: record.id });
+      // Storage, database and workbook exception text may contain paths or document content.
+      throw new AppError('INTERNAL_ERROR', 'Could not create the export. Please retry.');
     }
   }
 

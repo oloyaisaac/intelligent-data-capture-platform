@@ -325,19 +325,40 @@ export class ExportsRepository {
     );
   }
 
+  /** Reserve the key before writing bytes, without expiring a possibly live writer. */
+  async reserveStorageKey(id: string, storageKey: string): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      `UPDATE exports SET storage_key = ?
+       WHERE id = ? AND status = 'queued' AND storage_key IS NULL AND expires_at IS NULL
+       RETURNING id`,
+      [storageKey, id],
+    );
+    return row !== null;
+  }
+
   async markReady(
     id: string,
     storageKey: string,
     rowCount: number,
     expiresAt: string,
-  ): Promise<void> {
-    await this.db.execute(
-      `UPDATE exports SET status = 'ready', storage_key = ?, row_count = ?, expires_at = ? WHERE id = ?`,
-      [storageKey, rowCount, expiresAt, id],
+  ): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      `UPDATE exports SET status = 'ready', row_count = ?, expires_at = ?
+       WHERE id = ? AND status = 'queued' AND storage_key = ? AND expires_at IS NULL
+       RETURNING id`,
+      [rowCount, expiresAt, id, storageKey],
     );
+    return row !== null;
   }
 
   async markFailed(id: string): Promise<void> {
-    await this.db.execute("UPDATE exports SET status = 'failed' WHERE id = ?", [id]);
+    // A possibly partial write becomes eligible for normal expiry cleanup. Preserve an existing
+    // expiry if markReady committed but its acknowledgement was lost.
+    await this.db.execute(
+      `UPDATE exports SET status = 'failed',
+       expires_at = CASE WHEN storage_key IS NOT NULL THEN COALESCE(expires_at, ?) ELSE expires_at END
+       WHERE id = ? AND status IN ('queued', 'ready')`,
+      [nowIso(), id],
+    );
   }
 }

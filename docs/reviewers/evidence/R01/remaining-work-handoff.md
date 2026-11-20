@@ -23,7 +23,10 @@ designed and authorized reconciliation and deletion strategy. Known cross-table 
 now block retention, erasure-file and expired-export deletion, and stale export metadata updates are
 conditional. Neither change fences file deletion or enforces key non-reuse; test and design for
 concurrent references, changed exports and mixed versions. Measure cross-table scan costs and plan
-indexing with a safe deployment strategy.
+indexing with a safe deployment strategy. ARC-026 adds an export key reservation before file writes
+and schedules cleanup of caught failures when possible, but interrupted/failed-status queued exports
+still need detection and authorized offline reconciliation. Historical orphans, publication and
+external-effect races are not repaired; age alone cannot establish that a writer is dead.
 
 ## P8 — connector isolation
 

@@ -282,6 +282,12 @@ Additional gaps:
   per-file cross-table lookups may scan tables; assess query plans and sweep duration on production-sized
   data before rollout. Historical leaked files need authorized reconciliation, not an assumption that
   a successful job proves deletion. See R01 ARC-024.
+- New exports reserve their storage key before writing. Caught write/publication failures become
+  eligible for expiry cleanup when failure status can be recorded; a committed ready expiry is
+  preserved. A crash or failure to record failure can leave a queued export with a key and no expiry.
+  Monitor and investigate these rows; never delete solely because they are old, since a writer may
+  still be running. Old orphaned export files, backup copies and the storage/DB race remain. Follow
+  authorized incident procedures and stop or fence all writers before reconciliation; see ARC-026.
 - Playwright exercises browser journeys in CI; native mobile and packaged desktop end-to-end
   tests are not established.
 - Worker crash recovery lacks ownership fencing; connector subprocesses are not security-isolated.

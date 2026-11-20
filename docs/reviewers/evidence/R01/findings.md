@@ -17,6 +17,27 @@ owner has accepted these findings or provided a dated exception.
 | ARC-021 | HIGH     | `apps/backend/src/services/worker.ts` (`stop`, `drain`), `apps/backend/src/index.ts` (shutdown)                                                       | **Partially remediated:** a normal SIGTERM previously exited and closed the database while an extraction was running; concurrent calls to one worker's drain could also overlap. Shutdown now waits for startup and active work and coalesces drains. Active maintenance sweeps are also awaited. No shutdown deadline or forced-kill safety is established.                   | `worker-lifecycle.test.ts` and `worker-shutdown-process.test.ts` fail on the prior worker and pass locally with this change; test uses synthetic OCR and SQLite. Design and test bounded shutdown, crashes, ownership and fencing; validate maintenance across replicas.                                                                                 | Unassigned; backend reliability                   |
 | ARC-022 | HIGH     | `apps/backend/src/ai/providers/cloud.ts` (`ocr`), `apps/backend/src/config.ts`, `DEPLOYMENT.md` §10                                                   | **Not remediated:** despite the configuration name, the cloud cost setting is not a hard spend cap. The request is made before a rough token estimate is compared; it only logs a warning, absent usage becomes zero, and there is no cumulative budget or reservation. The prior implementation comment and deployment guide incorrectly claimed enforcement.                 | `ai.test.ts` demonstrates that an over-threshold response is returned and only warned after the request. Comments and operator guidance now describe the limitation; implement provider-aware pricing and pre-request budget controls, and verify billed usage before claiming enforcement.                                                              | Unassigned; AI/product and operations             |
 
+### ARC-026 — HIGH: export creation can strand files or disclose exception details
+
+Before this change, export creation wrote its file before recording the storage key. A partial write
+or a failure before `markReady` left a failed export with no key or expiry and no normal cleanup
+path; the raw exception was also logged by the export service and HTTP error handler.
+`export-cleanup-safety.test.ts` reproduced both defects with synthetic failures. New exports now
+reserve their generated key on a queued row before writing. A caught failure schedules cleanup when
+possible, preserves an existing expiry if `markReady` may have committed, and returns a generic
+error without logging exception text. Cleanup still uses the existing reference and retry checks.
+
+This is partial mitigation, not atomic or automatic crash recovery. A killed writer or failed
+`markFailed` can leave a queued row with a reserved key and no expiry; maintenance intentionally
+cannot infer the writer is dead from age. `export-crash-process.test.ts` kills one SQLite/filesystem
+writer after its file write and confirms that state persists and no age-based sweep deletes it. It
+is not a PostgreSQL crash or filesystem durability proof. A lost database acknowledgement, storage
+operations still in flight after failure, export publication/audit/event races, mixed old binaries,
+key reuse, untracked old exports and other application logging remain unresolved. Existing orphaned
+files are not identified or removed, and queue monitoring and authorized offline reconciliation
+need an owner-approved procedure. Production-scale cleanup, backup copies and independent security
+review are unverified. Owner: unassigned; backend reliability and privacy/security.
+
 ### ARC-025 — HIGH: worker exception details exposed through persistence, logs and events
 
 Previously `Worker.processJob` copied arbitrary exception messages from OCR, storage, SQL and
