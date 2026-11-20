@@ -497,6 +497,53 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     expect(row).toEqual({ udm: json, literal_question: '?' });
   });
 
+  it('paginates the read-only worker recovery inventory CLI against PostgreSQL', async () => {
+    const isolated = await createHarness();
+    try {
+      await isolated.db.execute(
+        `INSERT INTO jobs (id, organisation_id, type, status, attempts, payload, last_error, created_at)
+         SELECT 'job-' || lpad(n::text, 4, '0'), 'org', 'retention_purge', 'running', 1,
+                'synthetic-secret-payload', 'synthetic-secret-error', '2000-01-01T00:00:00.000Z'
+         FROM generate_series(0, 1001) n`,
+      );
+      const schema = await isolated.db.one<{ schema: string }>('SELECT current_schema() AS schema');
+      const url = new URL(process.env.DATABASE_URL!);
+      url.searchParams.set('options', `-c search_path=${schema!.schema}`);
+      const cli = (...args: string[]) =>
+        spawnSync(process.execPath, ['--import', 'tsx', 'src/db/worker-recovery-cli.ts', ...args], {
+          cwd: resolve(__dirname, '..'),
+          env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            DB_DRIVER: 'postgres',
+            DATABASE_URL: url.toString(),
+          },
+          encoding: 'utf8',
+        });
+      const first = cli('--list', '--confirm-offline');
+      expect(first.status).toBe(0);
+      expect(first.stdout).not.toContain('synthetic-secret');
+      const page = JSON.parse(first.stdout) as {
+        count: number;
+        jobs: Array<{ id: string }>;
+        truncated: boolean;
+        nextAfter: string | null;
+      };
+      expect(page.count).toBe(1002);
+      expect(page.jobs).toHaveLength(1000);
+      expect(page.nextAfter).toBe('job-0999');
+      expect(page.truncated).toBe(true);
+      const second = cli('--list', '--after', page.nextAfter!, '--confirm-offline');
+      expect(second.status).toBe(0);
+      const next = JSON.parse(second.stdout) as typeof page;
+      expect(next.jobs.map((job) => job.id)).toEqual(['job-1000', 'job-1001']);
+      expect(next.truncated).toBe(false);
+      expect(next.nextAfter).toBeNull();
+    } finally {
+      await isolated.close();
+    }
+  }, 30_000);
+
   it('runs the read-only export inventory CLI against PostgreSQL', async () => {
     const account = await registerAccount(harness);
     const id = randomUUID();

@@ -34,13 +34,20 @@ From the backend workspace, using the same configuration as the application:
 
 ```sh
 npm run db:worker-recovery -- --list --confirm-offline
+npm run db:worker-recovery -- --list --after LAST_ID --confirm-offline
 npm run db:worker-recovery -- --requeue JOB_ID --attempt N --operator OPERATOR_REF --incident INCIDENT_REF --confirm-offline --confirm-effects-reviewed
 ```
 
 For the built container or backend build, use `node dist/worker-recovery.js` with the same arguments.
-The list returns at most 1,000 running claims and a total count and `truncated` flag. It omits payloads
-and error text. Investigate each selected job's owner, current status, attempt, document, logs and
-possible external effects using authorized operational tools. Confirm the old process cannot resume;
+Each list page returns at most 1,000 running claims in ID order, a total running count, a `truncated`
+flag and `nextAfter`. When `nextAfter` is not null, pass its exact value as `LAST_ID` to get the next
+page. The count is global, not the number remaining. Each invocation is a point-in-time observation;
+page and count queries and subsequent pages are not a consistent snapshot if anyone changes jobs,
+so keep writers stopped and repeat the inventory if that assumption fails. Listing opens SQLite
+read-only and uses a read-only PostgreSQL transaction; requeue still needs write access. Output omits
+payloads and error text, but identifiers are sensitive. Investigate each selected job's owner,
+current status, attempt, document, logs and possible external effects using authorized operational
+tools. Confirm the old process cannot resume;
 reconcile the provider, billing and destination state as appropriate. Obtain an explicit owner decision
 for each retry. Replace `JOB_ID` and `N` with that job's actual ID and current attempt. Supply
 `OPERATOR_REF` and `INCIDENT_REF` as non-secret, approved operator and incident references (1–80
