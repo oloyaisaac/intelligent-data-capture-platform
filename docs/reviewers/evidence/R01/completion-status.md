@@ -40,7 +40,7 @@ be refreshed against the final reviewed commit; a blank or unchecked reviewer it
 | ARC-024 HIGH   | Complete retention/erasure policy, old soft-deletes, page files, derived records, file/DB races, references, backups, reconciliation and proof of deletion. |
 | ARC-025 HIGH   | Historical worker error logs, records and events plus other application/provider logging require exposure assessment and remediation.                       |
 | ARC-026 HIGH   | Interrupted and historical export files, publication/audit races, writer fencing and authorized reconciliation; inventory is advisory only.                 |
-| ARC-027 HIGH   | Workflow deletion and approval lack an atomic, fenced execution, audit and crash-recovery state machine; automatic runs can prematurely report success.     |
+| ARC-027 HIGH   | Current-version database-only deletion and approval are transactional; assess stuck matched runs, historical records, mixed versions and external effects.  |
 
 These are the currently recorded findings, not a claim that no other defects exist. Owners and gate
 chairs must determine whether fixes or permitted, written and dated exceptions satisfy P12.

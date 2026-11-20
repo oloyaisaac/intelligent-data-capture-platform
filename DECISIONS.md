@@ -512,10 +512,12 @@ and are audited (`workflow.run_approved`). Rules cannot branch — a condition l
 **Implementation note:** Workflow `notify`, `send_to_connector` and `create_export` do not dispatch
 anything. Plans containing these actions now fail closed before executing any action; approval of a
 pending plan fails with a conflict. Historical completed runs may contain misleading placeholder
-outputs and do not prove delivery. `delete_document` remains a soft-delete whose execution and
-approval are not transactionally fenced (ARC-027). See the R01 findings and route the missing
-features and execution protocol to R02. The historical decision above is not a guarantee that its
-proposed effects ship.
+outputs and do not prove delivery. `delete_document` remains a soft-delete; current-version workflow
+execution locks the run and transactionally commits the deletion, its audit, completion and workflow
+audit. Crashed automatic executions can leave a `matched` run needing investigation. Mixed old
+binaries, historical rows, file deletion and future external actions are not covered (ARC-027).
+See the R01 findings and route missing features and execution protocol to R02. The historical
+decision above is not a guarantee that its proposed effects ship.
 
 ---
 

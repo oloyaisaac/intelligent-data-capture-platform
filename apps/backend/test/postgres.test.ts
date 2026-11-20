@@ -121,6 +121,80 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [id]);
   }, 30_000);
 
+  it('serializes workflow approvals behind the PostgreSQL run lock', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account);
+    const documentId = upload.json<{ id: string }>().id;
+    const workflow = await harness.api.json('POST', '/api/v1/workflows', {
+      token: account.accessToken,
+      body: {
+        name: 'Approve delete',
+        trigger: 'document.extracted',
+        conditions: [],
+        actions: [{ type: 'delete_document' }],
+      },
+    });
+    expect(workflow.statusCode).toBe(201);
+    const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
+      token: account.accessToken,
+      body: { trigger: 'document.extracted', documentId },
+    });
+    const runId = evaluation.json<{ runs: Array<{ id: string; status: string }> }>().runs[0]!.id;
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let approvals: Promise<ApiResponse[]> | undefined;
+    try {
+      await harness.db.transaction(async (tx) => {
+        await tx.one('SELECT id FROM workflow_runs WHERE id = ? FOR UPDATE', [runId]);
+        const locker = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        if (!locker) throw new Error('Could not identify locking session');
+        const approve = () =>
+          harness.api.json('POST', `/api/v1/workflows/runs/${runId}/approve`, {
+            token: account.accessToken,
+          });
+        approvals = Promise.all([approve(), approve()]);
+        void approvals.catch(() => undefined);
+        const deadline = Date.now() + 10_000;
+        let blocked = 0;
+        while (Date.now() < deadline && blocked < 2) {
+          const result = await observer.query<{ count: number }>(
+            `WITH RECURSIVE blocked(pid) AS (
+               SELECT $1::int UNION
+               SELECT activity.pid FROM pg_stat_activity activity JOIN blocked
+                 ON blocked.pid = ANY(pg_blocking_pids(activity.pid))
+             ) SELECT COUNT(*)::int AS count FROM pg_stat_activity activity JOIN blocked ON blocked.pid = activity.pid
+               WHERE activity.pid <> $1 AND activity.wait_event_type = 'Lock'
+                 AND activity.query LIKE 'SELECT * FROM workflow_runs WHERE organisation_id = %'`,
+            [locker.pid],
+          );
+          blocked = result.rows[0]?.count ?? 0;
+          if (blocked < 2) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(2);
+      });
+      const responses = await approvals!;
+      expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 409]);
+      expect(
+        await harness.db.one('SELECT status FROM workflow_runs WHERE id = ?', [runId]),
+      ).toEqual({ status: 'completed' });
+      expect(
+        await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+          'document.deleted',
+          documentId,
+        ]),
+      ).toHaveLength(1);
+      expect(
+        await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+          'workflow.run_approved',
+          workflow.json<{ id: string }>().id,
+        ]),
+      ).toHaveLength(1);
+      await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [documentId]);
+    } finally {
+      await observer.end();
+      if (approvals) await approvals.catch(() => undefined);
+    }
+  }, 30_000);
+
   it('skips a locked job and claims it once after the lock is released', async () => {
     const jobs = new JobsRepository(harness.db);
     const job = await jobs.enqueue({ organisationId: randomUUID(), type: 'test-concurrent-claim' });

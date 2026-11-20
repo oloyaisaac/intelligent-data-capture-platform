@@ -1215,7 +1215,7 @@ paths:
     post:
       tags: [Workflows]
       summary: Approve one pending run and execute its destructive actions
-      description: Unavailable notify, send_to_connector and create_export actions cause a 409 and no actions execute. Workflow deletion is soft-delete only and its approval is not transactionally fenced.
+      description: Unavailable notify, send_to_connector and create_export actions cause a 409 and no actions execute. Workflow deletion is soft-delete only; its metadata, run completion and audits commit together for current-version executions.
       operationId: approveWorkflowRun
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
