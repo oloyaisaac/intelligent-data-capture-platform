@@ -50,11 +50,21 @@ it.each(['partial write', 'ready update failure', 'lost ready acknowledgement'] 
       }>('SELECT id, status, storage_key, expires_at FROM exports WHERE organisation_id = ?', [
         account.organisationId,
       ]);
-      expect(row?.status).toBe('failed');
       expect(row?.storage_key).toBeTruthy();
-      expect(row?.expires_at).toBeTruthy();
       expect(await harness.storage.exists(row!.storage_key!)).toBe(true);
       expect(logs.join('\n')).not.toContain('SECRET-EXPORT-PATH');
+      if (scenario === 'partial write') {
+        // The write may not have created this object: leave it for offline ownership review.
+        expect(row).toMatchObject({ status: 'queued', expires_at: null });
+        expect(
+          (await harness.services.maintenance.runOnce(new Date('2999-01-01T00:00:00.000Z')))
+            .exportsExpired,
+        ).toBe(0);
+        expect(await harness.storage.exists(row!.storage_key!)).toBe(true);
+        return;
+      }
+      expect(row?.status).toBe('failed');
+      expect(row?.expires_at).toBeTruthy();
       const failure = jest
         .spyOn(harness.storage, 'delete')
         .mockRejectedValueOnce(new Error('SECRET-DELETE-PATH'));
@@ -143,7 +153,7 @@ it('does not write export bytes if the key reservation fails', async () => {
       await harness.db.one('SELECT status, storage_key FROM exports WHERE organisation_id = ?', [
         account.organisationId,
       ]),
-    ).toEqual({ status: 'failed', storage_key: null });
+    ).toEqual({ status: 'queued', storage_key: null });
   } finally {
     reserve.mockRestore();
     put.mockRestore();

@@ -76,6 +76,12 @@ it('keeps the reservation after SIGKILL during remote OCR and blocks retry at th
     expect(
       await db.one('SELECT remote_ocr_invocations FROM documents WHERE id = ?', [document.id]),
     ).toEqual({ remote_ocr_invocations: 1 });
+    expect(
+      await db.one(
+        'SELECT invocations FROM remote_ocr_organisation_counts WHERE organisation_id = ?',
+        [org.id],
+      ),
+    ).toEqual({ invocations: 1 });
     expect((await jobs.findById(job.id))?.status).toBe('running');
     expect(
       await new WorkerRecoveryRepository(db).requeueWithAudit({
@@ -101,6 +107,12 @@ it('keeps the reservation after SIGKILL during remote OCR and blocks retry at th
     expect(
       await db.one('SELECT remote_ocr_invocations FROM documents WHERE id = ?', [document.id]),
     ).toEqual({ remote_ocr_invocations: 1 });
+    expect(
+      await db.one(
+        'SELECT invocations FROM remote_ocr_organisation_counts WHERE organisation_id = ?',
+        [org.id],
+      ),
+    ).toEqual({ invocations: 1 });
     expect((await jobs.findById(job.id))?.status).toBe('queued');
   } finally {
     if (timer) clearTimeout(timer);

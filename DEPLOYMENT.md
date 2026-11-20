@@ -266,6 +266,25 @@ no longer exist.
   or roll back the count. A zero setting cannot cancel in-flight calls. Avoid mixed versions and use
   consistent configuration; apply migration 013 and validate backups, rollout and rollback before use.
   Cloud requests no longer follow HTTP redirects: configure the final endpoint explicitly.
+- `AI_MAX_REMOTE_CALLS_PER_ORG` adds a **lifetime**, per-organisation remote-call reservation cap
+  since migration 014. It defaults to 10,000, accepts 0–10,000,000, and never automatically resets;
+  zero blocks new current-version remote reservations. Before deployment, set a reviewed value and
+  capacity/alerting plan: reaching the cap makes remote jobs retry finitely and eventually fail.
+  The job's fixed organisation-limit reason appears in the job failure log and final failure event;
+  there is no dedicated alert, and UI display has not been verified. Local OCR is unaffected. Each nonlocal call reserves the
+  organisation and document counters together before invoking the provider; failed reservation
+  transactions roll both back, while crashes, provider failures and lost acknowledgements consume
+  both. Deleting a document does not release the organisation counter. The organisation's deletion
+  cascades the counter; a new organisation starts again. No automatic refunds or resets are provided.
+  Under approved access controls, inspect `remote_ocr_organisation_counts.invocations` for the
+  organisation ID; a missing row means no reservations recorded since migration, not no past calls.
+  Raising the environment limit affects every organisation using that worker and requires coordinated
+  deployment; lowering it does not cancel already-reserved or running calls. All workers must use the
+  same configuration and current code, and migration 014 must be applied before rollout. Direct
+  provider calls, old binaries, separate databases, new organisations, out-of-band changes and backup
+  restores can bypass or reset accounting. This is **not** a monetary budget, organisation-specific
+  price control, time-window quota or provider-side enforcement. Set and verify provider-side spending
+  controls and billing alerts; review historical usage and operate backups/rollbacks accordingly.
 
 ## 11. Known gaps between this plan and the repository
 
@@ -308,14 +327,21 @@ Additional gaps:
   locks are held; measure query plans, lock duration and sweep time on representative data before
   rollout. Historical leaked files need authorized reconciliation, not an assumption that a
   successful job proves deletion. See R01 ARC-024.
-- New exports reserve their storage key before writing. Caught write/publication failures become
-  eligible for expiry cleanup when failure status can be recorded; a committed ready expiry is
-  preserved. A crash or failure to record failure can leave a queued export with a key and no expiry.
-  Monitor and investigate these rows; never delete solely because they are old, since a writer may
-  still be running. Old orphaned export files, backup copies and the storage/DB race remain. Follow
-  authorized incident procedures and stop or fence all writers before reconciliation; see ARC-026.
-  `docs/export-inventory.md` provides a read-only offline investigation tool, not automated cleanup
-  or proof that an apparent legacy candidate is safe to remove.
+- Filesystem and memory writes now create new keys exclusively rather than overwrite existing
+  objects. Existing filesystem entries, including final symlinks, cause a safe failure. This relies
+  on the backing filesystem's exclusive-create semantics; it does not make storage immutable or
+  protect against parent symlinks, untrusted mounts, older binaries, later key reuse, other writers
+  or file/database races. Upload failures can leave partial, untracked files.
+- New exports reserve their storage key before writing. An uncertain reservation, collision or
+  unsuccessful write is left for offline investigation rather than being scheduled for expiry: the
+  bytes could be pre-existing or only partially written. This can leave queued rows indefinitely,
+  including rows without a key if reservation failed before committing. Failures after a confirmed
+  exclusive write can still be marked failed and scheduled for expiry; a committed ready expiry is
+  preserved. Monitor and investigate stuck rows; never delete solely because they are old, since a
+  writer may still be running. Old orphaned export files, backup copies and the storage/DB race remain.
+  Follow authorized incident procedures and stop or fence all writers before reconciliation; see
+  ARC-026. `docs/export-inventory.md` provides read-only investigation, not automated cleanup or
+  proof that a candidate is safe to remove.
 - Playwright exercises browser journeys in CI; native mobile and packaged desktop end-to-end
   tests are not established.
 - Worker crash recovery lacks ownership fencing; connector subprocesses are not security-isolated.

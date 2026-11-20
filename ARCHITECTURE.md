@@ -132,15 +132,16 @@ These are code paths to exercise, not claims of completed device or production v
    The API stores a file, then commits document, page, upload audit and extraction-job metadata in
    one database transaction. A retry with the same organisation/key returns an existing extraction
    job rather than scheduling another; an older document without a job requires explicit reprocessing.
-   Storage is outside the transaction: failures, process crashes or ambiguous commit outcomes can
-   leave orphan files and require reconciliation. The worker runs OCR and extraction; the review
+   Current filesystem writes use exclusive creation and reject an existing final path; they do not
+   provide storage/database atomicity or secure a hostile filesystem. Failures, crashes or ambiguous
+   commit outcomes can leave orphan files and require reconciliation. The worker runs OCR and extraction; the review
    API accepts human corrections and approval. Events are sent to local SSE subscribers.
 3. **Export and connector write:** approved records can be exported or sent through configured
    mapping and connector operations. External systems and side effects need their own reconciliation
    and idempotency guarantees; a local job claim is not an exactly-once guarantee. Workflow action
-   execution is a separate path: its connector-send and export actions currently record placeholder
-   output without dispatching the operation, and its notify action does not deliver a notification.
-   A completed workflow run is therefore not evidence that these effects occurred.
+   execution is a separate path: current-version connector-send, export and notify actions fail
+   closed rather than dispatching effects. Historical workflow rows may still falsely report success;
+   a completed historical run is not evidence that these effects occurred.
 
 ## 4. Technology and decisions
 

@@ -240,6 +240,12 @@ it('keeps an ambiguously committed reservation and does not call the provider af
     try {
       await worker.drain();
       expect(await count(harness, id)).toBe(1);
+      expect(
+        await harness.db.one(
+          'SELECT invocations FROM remote_ocr_organisation_counts WHERE organisation_id = ?',
+          [account.organisationId],
+        ),
+      ).toEqual({ invocations: 1 });
       expect(ocr).not.toHaveBeenCalled();
       await harness.db.execute("UPDATE jobs SET run_after = ? WHERE status = 'queued'", [
         new Date(0).toISOString(),
@@ -247,6 +253,12 @@ it('keeps an ambiguously committed reservation and does not call the provider af
       await worker.drain();
       expect(ocr).not.toHaveBeenCalled();
       expect(await count(harness, id)).toBe(1);
+      expect(
+        await harness.db.one(
+          'SELECT invocations FROM remote_ocr_organisation_counts WHERE organisation_id = ?',
+          [account.organisationId],
+        ),
+      ).toEqual({ invocations: 1 });
     } finally {
       reserve.mockRestore();
       transaction.mockRestore();

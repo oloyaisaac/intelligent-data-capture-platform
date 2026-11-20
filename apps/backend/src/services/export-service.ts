@@ -14,7 +14,12 @@ import type { ExportsRepository } from '../repositories/connector-repo';
 import type { AuditRepository } from '../repositories/system-repo';
 import type { ReviewsRepository } from '../repositories/review-repo';
 import type { ExportRow } from '../repositories/types';
-import { buildStorageKey, extensionForMimeType, type Storage } from '../storage';
+import {
+  buildStorageKey,
+  extensionForMimeType,
+  StorageKeyExistsError,
+  type Storage,
+} from '../storage';
 import type { AuthenticatedActor } from './auth-service';
 import type { RealtimeHub } from '../realtime/hub';
 
@@ -84,6 +89,8 @@ export class ExportService {
       throw new AppError('INTERNAL_ERROR', 'Could not create the export. Please retry.');
     }
 
+    let keyCollision = false;
+    let ownershipUncertain = false;
     try {
       const table = await this.buildTable(actor, request);
       const extension = request.format;
@@ -106,10 +113,21 @@ export class ExportService {
 
       // Persist the intended key before the first possible storage write. Queued rows have no
       // expiry: an old or slow writer cannot safely be presumed dead by the maintenance sweep.
+      // A rejected or ambiguously acknowledged reservation may still have committed. Do not
+      // schedule its key for deletion unless this process has confirmed exclusive creation.
+      ownershipUncertain = true;
       if (!(await this.exports.reserveStorageKey(record.id, storageKey))) {
         throw new Error('Export reservation failed');
       }
-      await this.storage.put(storageKey, buffer, extensionForMimeType(extension));
+      try {
+        await this.storage.put(storageKey, buffer, extensionForMimeType(extension));
+      } catch (error) {
+        // This adapter has proved it did not create the existing object. Do not schedule it
+        // for automatic deletion: its ownership is unknown even when no DB reference is visible.
+        if (error instanceof StorageKeyExistsError) keyCollision = true;
+        throw error;
+      }
+      ownershipUncertain = false;
       const expiresAt = new Date(Date.now() + this.config.EXPORTS_TTL_SECONDS * 1000).toISOString();
       if (!(await this.exports.markReady(record.id, storageKey, table.rows.length, expiresAt))) {
         throw new Error('Export completion failed');
@@ -132,11 +150,22 @@ export class ExportService {
       const updated = await this.exports.findById(actor.organisationId, record.id);
       return toExportDto(updated ?? record, `/api/v1/exports/${record.id}/download`);
     } catch {
-      try {
-        await this.exports.markFailed(record.id);
-      } catch {
-        // The reserved key may still be on a queued or ready row; operators must reconcile it.
-        this.logger.warn('could not mark export failed', { exportId: record.id });
+      if (ownershipUncertain) {
+        // Leave the row untouched for offline investigation. An unsuccessful put may have written
+        // nothing, partially written, or encountered somebody else's pre-existing object.
+        this.logger.warn(
+          keyCollision
+            ? 'export key collision requires investigation'
+            : 'export storage ownership requires investigation',
+          { exportId: record.id },
+        );
+      } else {
+        try {
+          await this.exports.markFailed(record.id);
+        } catch {
+          // The reserved key may still be on a queued or ready row; operators must reconcile it.
+          this.logger.warn('could not mark export failed', { exportId: record.id });
+        }
       }
       this.logger.warn('export failed', { exportId: record.id });
       // Storage, database and workbook exception text may contain paths or document content.

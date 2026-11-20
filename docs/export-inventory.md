@@ -3,7 +3,9 @@
 This tool helps an authorized operator investigate interrupted and historical export records. It
 **does not reconcile, delete, restore, adopt, expire or repair anything** and its output is not proof
 of erasure or of file ownership. An export file can remain even if a record is failed, expired or
-has no storage key. Conversely, a queued writer may still be alive. `--confirm-offline` is an
+has no storage key. A current-version collision, uncertain reservation or failed file write leaves
+the export queued for investigation rather than authorizing deletion. Conversely, a queued writer
+may still be alive. `--confirm-offline` is an
 operator assertion, not a lock or process-liveness test. ARC-024 and ARC-026 remain open.
 
 ## Before inspection
