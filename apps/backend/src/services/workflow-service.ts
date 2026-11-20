@@ -327,6 +327,23 @@ export class WorkflowService {
           locked.outputs !== '[]'
         )
           throw new WorkflowRunUnavailable();
+        let actions: unknown;
+        try {
+          actions = JSON.parse(locked.actions);
+        } catch {
+          throw new WorkflowRunUnavailable();
+        }
+        if (
+          !Array.isArray(actions) ||
+          actions.length === 0 ||
+          actions.some(
+            (action: unknown) =>
+              !action ||
+              typeof action !== 'object' ||
+              (action as { type?: unknown }).type !== 'delete_document',
+          )
+        )
+          throw new WorkflowRunUnavailable();
         const cancelled = await repositories.runs.markFailedIfStatus(
           actor.organisationId,
           runId,

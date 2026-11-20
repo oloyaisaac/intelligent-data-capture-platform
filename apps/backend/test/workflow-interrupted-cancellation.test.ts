@@ -150,6 +150,17 @@ it('rejects legacy and inconsistent matched rows without changing them', async (
       [runId],
     );
     expect((await cancel()).statusCode).toBe(409);
+    await harness.db.execute('UPDATE workflow_runs SET outputs = ?, actions = ? WHERE id = ?', [
+      '[]',
+      'not valid json',
+      runId,
+    ]);
+    expect((await cancel()).statusCode).toBe(409);
+    await harness.db.execute('UPDATE workflow_runs SET actions = ? WHERE id = ?', [
+      '[{"type":"send_to_connector"}]',
+      runId,
+    ]);
+    expect((await cancel()).statusCode).toBe(409);
     expect(await harness.db.one('SELECT status FROM workflow_runs WHERE id = ?', [runId])).toEqual({
       status: 'matched',
     });
