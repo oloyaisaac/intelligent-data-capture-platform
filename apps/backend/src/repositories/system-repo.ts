@@ -49,21 +49,50 @@ export class JobsRepository {
   }
 
   /**
-   * Atomically claim a queued job. Recheck the target row after acquiring its write lock: on
-   * PostgreSQL another claimant may have selected the same queued row before this update waited.
-   * This protects the claim only; it does not make crash recovery or job side effects idempotent.
+   * Claim one runnable job. Extraction jobs for the same document serialize on its row; after
+   * taking that lock, recheck for another running extraction before claiming. The queued/runnable
+   * predicate is rechecked on update because a competing claimant can select the same row.
+   * This does not make retries, crash recovery or external effects exactly-once.
    */
   async claimNext(now: string = nowIso()): Promise<JobRow | null> {
-    return this.db.one<JobRow>(
-      `UPDATE jobs SET status = 'running', started_at = ?, attempts = attempts + 1
-        WHERE id = (
-          SELECT id FROM jobs
-           WHERE status = 'queued' AND (run_after IS NULL OR run_after <= ?)
-           ORDER BY created_at LIMIT 1
-        ) AND status = 'queued' AND (run_after IS NULL OR run_after <= ?)
-        RETURNING *`,
-      [now, now, now],
-    );
+    return this.db.transaction(async (tx) => {
+      // Job before document matches the worker's publication/failure lock order. SKIP LOCKED
+      // allows other jobs to make progress instead of waiting behind a busy candidate.
+      const candidateLock = tx.driver === 'postgres' ? ' FOR UPDATE OF j SKIP LOCKED' : '';
+      const candidate = await tx.one<JobRow>(
+        `SELECT j.* FROM jobs j
+         WHERE j.status = 'queued' AND (j.run_after IS NULL OR j.run_after <= ?)
+           AND (j.type <> 'extract_document' OR j.document_id IS NULL OR NOT EXISTS (
+             SELECT 1 FROM jobs active WHERE active.organisation_id = j.organisation_id
+               AND active.document_id = j.document_id AND active.type = 'extract_document'
+               AND active.status = 'running'
+           ))
+         ORDER BY j.created_at, j.id LIMIT 1${candidateLock}`,
+        [now],
+      );
+      if (!candidate) return null;
+      if (candidate.type === 'extract_document' && candidate.document_id) {
+        const lock = tx.driver === 'postgres' ? ' FOR UPDATE' : '';
+        // SQLite's transaction already owns the write lock. PostgreSQL row locking serializes
+        // different queued jobs for the same existing document across worker processes.
+        await tx.one(`SELECT id FROM documents WHERE organisation_id = ? AND id = ?${lock}`, [
+          candidate.organisation_id,
+          candidate.document_id,
+        ]);
+        const running = await tx.one<{ id: string }>(
+          `SELECT id FROM jobs WHERE organisation_id = ? AND document_id = ?
+           AND type = 'extract_document' AND status = 'running' LIMIT 1`,
+          [candidate.organisation_id, candidate.document_id],
+        );
+        if (running) return null;
+      }
+      return tx.one<JobRow>(
+        `UPDATE jobs SET status = 'running', started_at = ?, attempts = attempts + 1
+         WHERE id = ? AND status = 'queued' AND (run_after IS NULL OR run_after <= ?)
+         RETURNING *`,
+        [now, candidate.id, now],
+      );
+    });
   }
 
   /** Lock and validate a claim inside a transaction, serialising against recovery on PostgreSQL. */

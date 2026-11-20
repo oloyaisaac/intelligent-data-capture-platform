@@ -1,6 +1,7 @@
 import { createHarness, registerAccount, type Harness } from './helpers';
 import { JobsRepository } from '../src/repositories/system-repo';
 import { ExtractionsRepository } from '../src/repositories/document-repo';
+import { buildServices } from '../src/services/container';
 
 /** Attempt guards and explicit recovery; offline safety depends on operator actions. */
 describe('worker recovery of interrupted jobs', () => {
@@ -224,6 +225,77 @@ describe('worker recovery of interrupted jobs', () => {
     } finally {
       resume();
       if (first) await first.catch(() => undefined);
+      ocr.mockRestore();
+    }
+  });
+
+  it('does not run two distinct extraction jobs for the same document at once', async () => {
+    const account = await registerAccount(harness);
+    const upload = await harness.api.upload(account.accessToken);
+    expect(upload.statusCode).toBe(201);
+    const documentId = upload.json<{ id: string }>().id;
+    const jobs = new JobsRepository(harness.db);
+    const firstJob = (await jobs.listForDocument(documentId))[0]!;
+    const duplicate = await jobs.enqueue({
+      organisationId: account.organisationId,
+      type: 'extract_document',
+      documentId,
+    });
+    // Make candidate order deterministic even when the rows were created in the same millisecond.
+    await harness.db.execute('UPDATE jobs SET created_at = ? WHERE id = ?', [
+      '2000-01-01T00:00:00.000Z',
+      firstJob.id,
+    ]);
+    let resume!: () => void;
+    let entered!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const originalOcr = harness.ocr.ocr.bind(harness.ocr);
+    const ocr = jest.spyOn(harness.ocr, 'ocr').mockImplementationOnce(async () => {
+      entered();
+      await paused;
+      return originalOcr();
+    });
+    const secondWorker = buildServices({
+      db: harness.db,
+      config: harness.config,
+      storage: harness.storage,
+      provider: harness.ocr,
+      hub: harness.hub,
+      logger: harness.services.logger,
+    }).worker;
+    let first: Promise<number> | undefined;
+    try {
+      first = harness.services.worker.drain();
+      await started;
+      expect((await jobs.findById(firstJob.id))?.status).toBe('running');
+      expect(await secondWorker.drain()).toBe(0);
+      const blocked = await jobs.findById(duplicate.id);
+      expect(blocked?.status).toBe('queued');
+      expect(blocked?.attempts).toBe(0);
+      const unrelated = await jobs.enqueue({
+        organisationId: account.organisationId,
+        type: 'other_job',
+      });
+      const otherClaim = await jobs.claimNext();
+      expect(otherClaim?.id).toBe(unrelated.id);
+      expect(await jobs.markSucceeded(unrelated.id, otherClaim!.attempts)).toBe(true);
+      resume();
+      await first;
+      await secondWorker.drain();
+      expect(harness.ocr.calls).toBe(1);
+      expect(
+        await harness.db.query('SELECT id FROM extractions WHERE document_id = ?', [documentId]),
+      ).toHaveLength(1);
+      expect((await jobs.findById(duplicate.id))?.status).toBe('succeeded');
+    } finally {
+      resume();
+      if (first) await first.catch(() => undefined);
+      await secondWorker.stop();
       ocr.mockRestore();
     }
   });

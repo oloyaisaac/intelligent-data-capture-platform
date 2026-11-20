@@ -45,6 +45,18 @@ inserted overlapping jobs, cross-job review races, duplicate OCR cost, nondurabl
 and owner/lease semantics remain unproven. The revised repair locking and subprocess test passed CI on `e115a8e`, including the PostgreSQL
 suite; the subprocess crash test itself uses SQLite. P6 remains open.
 
+### ARC-013 update — distinct extraction claims
+
+A regression with two worker instances reproduced concurrent OCR from two different jobs for one
+document. Claiming now locks the job and then the existing document, and rechecks for a running
+extraction before changing the candidate to running. Focused synthetic SQLite tests cover two
+workers, two separate processes, and unrelated job progress; a PostgreSQL barrier test is included
+for CI. This is a partial concurrency guard, not a lease or a database constraint: existing running
+duplicates, missing documents, old binaries, out-of-band writers and manual requeue of live jobs are
+not fenced. External OCR may still repeat on retries. Review approval/rejection/corrections remain
+nontransactional relative to reprocessing and can act on stale extractions; see
+`worker-recovery-design.md`. P6 remains open.
+
 ### ARC-017 update — connector write success values
 
 Create, update and merge results are now reduced to validated nonnegative safe-integer counts and a
