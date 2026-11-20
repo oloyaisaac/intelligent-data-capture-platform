@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ConnectorProcess } from '../src/adapters/connector-process';
@@ -61,6 +61,35 @@ it('limits input and concurrent execution, kills a hung child and releases its s
     }
   }
 });
+
+(process.platform === 'win32' ? it.skip : it)(
+  'kills a same-process-group descendant when a hung connector times out',
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'idcp-connector-descendant-'));
+    const marker = join(directory, 'marker');
+    const pidFile = join(directory, 'pid');
+    try {
+      const transport = new ConnectorProcess(
+        process.execPath,
+        [resolve(__dirname, 'fixtures/connector-process-descendants.js')],
+        { ...limits, timeoutMs: 1500 },
+      );
+      await expect(transport.invoke({ marker, pidFile })).rejects.toThrow(
+        'Connector invocation failed',
+      );
+      const descendantPid = Number(await readFile(pidFile, 'utf8'));
+      expect(Number.isInteger(descendantPid) && descendantPid > 0).toBe(true);
+      // Wait beyond the synthetic descendant's delayed write; checking the PID alone can mistake a
+      // terminated-but-unreaped process for a running descendant.
+      await new Promise((done) => setTimeout(done, 1800));
+      await expect(access(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      // The synthetic descendant exits after its single delayed write, even if the assertion fails.
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+  15_000,
+);
 
 it('rejects invalid limits and non-serializable requests', async () => {
   expect(

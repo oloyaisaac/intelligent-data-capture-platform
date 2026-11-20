@@ -3,7 +3,9 @@
 R01 is **not complete or passed**. This note identifies work still requiring implementation,
 operational evidence and independent review. It is not a substitute for the checklist in
 `docs/reviewers/R01-software-architect.md`; unlisted checklist items must also be answered. No owner,
-exception, production execution, reviewer or approval is implied by this note.
+exception, production execution, reviewer or approval is implied by this note. For an item-by-item
+inventory of all twelve passing conditions, currently recorded findings and required runtime evidence,
+see `completion-status.md`.
 
 ## P6 — recovery and duplicate work
 
@@ -23,7 +25,12 @@ designed and authorized reconciliation and deletion strategy. Known cross-table 
 now block retention, erasure-file and expired-export deletion, and stale export metadata updates are
 conditional. Neither change fences file deletion or enforces key non-reuse; test and design for
 concurrent references, changed exports and mixed versions. Measure cross-table scan costs and plan
-indexing with a safe deployment strategy.
+indexing with a safe deployment strategy. ARC-026 adds an export key reservation before file writes
+and schedules cleanup of caught failures when possible, but interrupted/failed-status queued exports
+still need detection and authorized offline reconciliation. Historical orphans, publication and
+external-effect races are not repaired; age alone cannot establish that a writer is dead. The
+read-only `docs/export-inventory.md` tool assists offline investigation only; it does not reconcile,
+delete or prove that a candidate belongs to an export, and cannot find files with no export row.
 
 ## P8 — connector isolation
 

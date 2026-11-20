@@ -17,6 +17,32 @@ owner has accepted these findings or provided a dated exception.
 | ARC-021 | HIGH     | `apps/backend/src/services/worker.ts` (`stop`, `drain`), `apps/backend/src/index.ts` (shutdown)                                                       | **Partially remediated:** a normal SIGTERM previously exited and closed the database while an extraction was running; concurrent calls to one worker's drain could also overlap. Shutdown now waits for startup and active work and coalesces drains. Active maintenance sweeps are also awaited. No shutdown deadline or forced-kill safety is established.                   | `worker-lifecycle.test.ts` and `worker-shutdown-process.test.ts` fail on the prior worker and pass locally with this change; test uses synthetic OCR and SQLite. Design and test bounded shutdown, crashes, ownership and fencing; validate maintenance across replicas.                                                                                 | Unassigned; backend reliability                   |
 | ARC-022 | HIGH     | `apps/backend/src/ai/providers/cloud.ts` (`ocr`), `apps/backend/src/config.ts`, `DEPLOYMENT.md` §10                                                   | **Not remediated:** despite the configuration name, the cloud cost setting is not a hard spend cap. The request is made before a rough token estimate is compared; it only logs a warning, absent usage becomes zero, and there is no cumulative budget or reservation. The prior implementation comment and deployment guide incorrectly claimed enforcement.                 | `ai.test.ts` demonstrates that an over-threshold response is returned and only warned after the request. Comments and operator guidance now describe the limitation; implement provider-aware pricing and pre-request budget controls, and verify billed usage before claiming enforcement.                                                              | Unassigned; AI/product and operations             |
 
+### ARC-026 — HIGH: export creation can strand files or disclose exception details
+
+Before this change, export creation wrote its file before recording the storage key. A partial write
+or a failure before `markReady` left a failed export with no key or expiry and no normal cleanup
+path; the raw exception was also logged by the export service and HTTP error handler.
+`export-cleanup-safety.test.ts` reproduced both defects with synthetic failures. New exports now
+reserve their generated key on a queued row before writing. A caught failure schedules cleanup when
+possible, preserves an existing expiry if `markReady` may have committed, and returns a generic
+error without logging exception text. Cleanup still uses the existing reference and retry checks.
+
+This is partial mitigation, not atomic or automatic crash recovery. A killed writer or failed
+`markFailed` can leave a queued row with a reserved key and no expiry; maintenance intentionally
+cannot infer the writer is dead from age. `export-crash-process.test.ts` kills one SQLite/filesystem
+writer after its file write and confirms that state persists and no age-based sweep deletes it. It
+is not a PostgreSQL crash or filesystem durability proof. A lost database acknowledgement, storage
+operations still in flight after failure, export publication/audit/event races, mixed old binaries,
+key reuse, untracked old exports and other application logging remain unresolved. Existing orphaned
+files are not identified or removed, and queue monitoring and authorized offline reconciliation
+need an owner-approved procedure. A read-only offline inventory can now page through export rows
+and inspect stored and canonical candidate key metadata, known references and pending erasure work;
+`export-inventory.test.ts` tests SQLite and configured-driver queries, with a PostgreSQL CLI case in
+CI. It does not delete or repair files, prove ownership, enumerate objects without rows, stop writers,
+or establish production evidence. See `docs/export-inventory.md`. Production-scale cleanup, backup
+copies and independent security review remain unverified. Owner: unassigned; backend reliability
+and privacy/security.
+
 ### ARC-025 — HIGH: worker exception details exposed through persistence, logs and events
 
 Previously `Worker.processJob` copied arbitrary exception messages from OCR, storage, SQL and
@@ -52,6 +78,15 @@ jobs also rechecks for a running purge under the same lock. The focused tests de
 exactly-once effects nor multi-replica maintenance safety. Old binaries, out-of-band jobs, already
 running overlaps and operator-directed recovery can bypass the mitigation. See
 `worker-recovery-design.md` and keep ARC-013, ARC-021 and ARC-024 open.
+
+### ARC-024 update — atomic user soft-delete and audit
+
+The user-facing document delete now performs a conditional, tenant-scoped soft-delete and its audit
+in one database transaction. A forced audit failure previously left the document deleted without
+its audit; the rollback regression now preserves the document, and concurrent delete requests yield
+one success and one not-found. This improves database consistency only: the endpoint does not remove
+file bytes or derived records, and retention still skips already soft-deleted documents. Workflow
+deletes and retention file/DB operations have different boundaries. ARC-024 remains open.
 
 ### ARC-024 update — broader reference checks and stale export metadata
 
@@ -196,6 +231,16 @@ schema endpoint now validates the declared field types and strips extra schema/f
 not data-at-rest cleanup or an isolation boundary: historical rows, prior responses, logs, backups,
 destination-supplied schema strings, duplicate-preview values and direct in-process access remain
 potential exposure paths. Independent security review and P8 remain open.
+
+### ARC-014 update — best-effort descendant cleanup on POSIX
+
+The transport now starts POSIX connector children in separate process groups and attempts to kill
+that group on failure or timeout while its leader is still running. A regression with one synthetic
+same-group descendant observed a delayed write before the change and no write after timeout with the
+change. On Windows only the immediate process is signalled. This is not a sandbox or complete process
+containment: descendants can escape the group, the leader may exit first, signals can fail, and a
+remote operation may already have happened. The same-UID host-kill reproduction still applies. P8
+remains unmet, with the enforced boundary and independent security review still required.
 
 ### ARC-014 update — fatal connector process reproduction
 

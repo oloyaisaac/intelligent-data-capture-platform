@@ -307,6 +307,10 @@ A rollback to older code can reopen the race. Review history can now contain sta
 | PATCH    | `/mapping-profiles/:id`  | Update mapping, duplicate policy                               |
 | POST     | `/documents/:id/send`    | Send an approved record through a connector                    |
 
+Export creation failures return generic guidance rather than internal storage or database details.
+A failed response does not prove that no file was written; interrupted exports may require operator
+reconciliation (see `DEPLOYMENT.md` and R01 ARC-026).
+
 **Connector configuration:** `config` and `credentials` are write-only. Responses include an empty
 `config` object for compatibility with the response shape, rather than returning stored settings.
 Creating or replacing configuration encrypts both objects; credentials override matching config

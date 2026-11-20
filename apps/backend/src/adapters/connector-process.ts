@@ -42,6 +42,9 @@ export class ConnectorProcess {
       child = spawn(this.executable, [...this.args], {
         env: {},
         stdio: ['pipe', 'pipe', 'ignore'],
+        // Give ordinary descendants their own process group on POSIX so timeout cleanup can
+        // signal the group without touching the API's group. This is not a security boundary.
+        detached: process.platform !== 'win32',
         windowsHide: true,
       });
     } catch {
@@ -61,10 +64,22 @@ export class ConnectorProcess {
           reject(new Error('Connector invocation failed'));
         }
         // Keep the concurrency slot until the OS reports the process closed.
-        try {
-          if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-        } catch {
-          // The slot remains occupied until the close event if termination fails.
+        if (child.exitCode === null && child.signalCode === null) {
+          try {
+            if (process.platform !== 'win32' && child.pid) {
+              process.kill(-child.pid, 'SIGKILL');
+            } else {
+              child.kill('SIGKILL');
+            }
+          } catch {
+            // A failed group signal is not proof the leader has exited. Try it directly; the slot
+            // stays occupied until close. Descendants may survive either attempt.
+            try {
+              child.kill('SIGKILL');
+            } catch {
+              // No further cleanup can be guaranteed here.
+            }
+          }
         }
       };
       const timer = setTimeout(fail, this.limits.timeoutMs);

@@ -209,13 +209,13 @@ export class DocumentsRepository {
   }
 
   async softDelete(organisationId: string, id: string): Promise<boolean> {
-    const existing = await this.findById(organisationId, id);
-    if (!existing || existing.deleted_at) return false;
-    await this.db.execute(
-      "UPDATE documents SET status = 'deleted', deleted_at = ?, updated_at = ? WHERE id = ?",
-      [nowIso(), nowIso(), id],
+    const now = nowIso();
+    const updated = await this.db.one<{ id: string }>(
+      `UPDATE documents SET status = 'deleted', deleted_at = ?, updated_at = ?
+       WHERE organisation_id = ? AND id = ? AND deleted_at IS NULL RETURNING id`,
+      [now, now, organisationId, id],
     );
-    return true;
+    return updated !== null;
   }
 
   /** Fail closed on known references other than this document and its pages. */

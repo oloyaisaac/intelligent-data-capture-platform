@@ -275,6 +275,7 @@ it('uses injected export repositories and marks a failed export without a databa
       create: jest.fn().mockResolvedValue({ id: 'export-1' }),
       findById: jest.fn().mockResolvedValue(null),
       list: jest.fn().mockResolvedValue([]),
+      reserveStorageKey: jest.fn(),
       markReady: jest.fn(),
       markFailed: jest.fn().mockResolvedValue(undefined),
     },
@@ -291,7 +292,9 @@ it('uses injected export repositories and marks a failed export without a databa
   expect(repositories.exports.list).toHaveBeenCalledWith('org');
   await expect(service.get(actor, 'foreign-export')).rejects.toMatchObject({ code: 'NOT_FOUND' });
   expect(repositories.exports.findById).toHaveBeenCalledWith('org', 'foreign-export');
-  await expect(service.create(actor, { format: 'csv' })).rejects.toThrow('database unavailable');
+  await expect(service.create(actor, { format: 'csv' })).rejects.toThrow(
+    'Could not create the export. Please retry.',
+  );
   expect(repositories.documents.listApproved).toHaveBeenCalledWith('org', expect.any(Object));
   expect(repositories.exports.markFailed).toHaveBeenCalledWith('export-1');
   expect(repositories.exports.markReady).not.toHaveBeenCalled();
@@ -500,6 +503,7 @@ it('uses injected document repositories and rejects a document outside the actor
           findByIdempotencyKey: jest.fn(),
           lockForReprocess: jest.fn(),
           queueForReprocess: jest.fn(),
+          softDelete: jest.fn(),
         },
         pages: { create: jest.fn() },
         reviews: { supersedeOpenForDocument: jest.fn() },

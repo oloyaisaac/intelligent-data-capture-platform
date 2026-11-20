@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { loadConfig } from '../config';
 import { JobsRepository } from '../repositories/system-repo';
+import { WorkerRecoveryRepository } from '../repositories/worker-recovery-repo';
 import type { Database } from './database';
 import { PostgresDatabase } from './postgres';
 import { SqliteDatabase } from './sqlite';
@@ -10,14 +11,18 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const listing = args.length === 2 && args[0] === '--list' && args[1] === '--confirm-offline';
   const recovering =
-    args.length === 6 &&
+    args.length === 10 &&
     args[0] === '--requeue' &&
     !!args[1] &&
     args[2] === '--attempt' &&
     /^[1-9]\d*$/.test(args[3] ?? '') &&
     Number.isSafeInteger(Number(args[3])) &&
-    args[4] === '--confirm-offline' &&
-    args[5] === '--confirm-effects-reviewed';
+    args[4] === '--operator' &&
+    /^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,79}$/.test(args[5] ?? '') &&
+    args[6] === '--incident' &&
+    /^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,79}$/.test(args[7] ?? '') &&
+    args[8] === '--confirm-offline' &&
+    args[9] === '--confirm-effects-reviewed';
   if (!listing && !recovering) {
     throw new Error('Invalid arguments');
   }
@@ -40,7 +45,12 @@ async function main(): Promise<void> {
         JSON.stringify({ count, jobs: jobsToReview, truncated: count > jobsToReview.length }),
       );
     } else {
-      const changed = await jobs.requeueInterrupted(args[1]!, Number(args[3]));
+      const changed = await new WorkerRecoveryRepository(db).requeueWithAudit({
+        id: args[1]!,
+        attempt: Number(args[3]),
+        operatorReference: args[5]!,
+        incidentReference: args[7]!,
+      });
       console.log(JSON.stringify({ requeued: changed }));
       if (!changed) process.exitCode = 2;
     }
@@ -52,7 +62,7 @@ async function main(): Promise<void> {
 main().catch(() => {
   // Driver and configuration errors can contain connection strings and other secrets.
   console.error(
-    'Worker recovery failed. Use --list --confirm-offline, or --requeue JOB_ID --attempt N --confirm-offline --confirm-effects-reviewed; see docs/worker-recovery.md.',
+    'Worker recovery failed. See docs/worker-recovery.md for required arguments and offline controls.',
   );
   process.exitCode = 1;
 });

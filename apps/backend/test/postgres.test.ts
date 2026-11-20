@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { Pool } from 'pg';
-import { JobsRepository } from '../src/repositories/system-repo';
+import type { Database } from '../src/db/database';
+import { AuditRepository, JobsRepository } from '../src/repositories/system-repo';
+import { WorkerRecoveryRepository } from '../src/repositories/worker-recovery-repo';
 import {
   createHarness,
   openReview,
@@ -27,6 +33,93 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
   afterAll(async () => {
     await harness?.close();
   });
+
+  it('rolls back recovery on audit failure and commits only one concurrent recovery', async () => {
+    const account = await registerAccount(harness);
+    const jobs = new JobsRepository(harness.db);
+    const job = await jobs.enqueue({
+      organisationId: account.organisationId,
+      type: 'retention_purge',
+    });
+    await harness.db.execute("UPDATE jobs SET status = 'running', attempts = 1 WHERE id = ?", [
+      job.id,
+    ]);
+    const input = {
+      id: job.id,
+      attempt: 1,
+      operatorReference: 'operator-1',
+      incidentReference: 'INC-42',
+    };
+    const failing = {
+      transaction: <T>(run: (db: Database) => Promise<T>) =>
+        harness.db.transaction((tx) =>
+          run({
+            ...tx,
+            execute: async (sql, params) => {
+              if (sql.includes('INSERT INTO audit_logs'))
+                throw new Error('synthetic audit failure');
+              return tx.execute(sql, params);
+            },
+          }),
+        ),
+    } as Database;
+    try {
+      await expect(new WorkerRecoveryRepository(failing).requeueWithAudit(input)).rejects.toThrow(
+        'synthetic audit failure',
+      );
+      expect((await jobs.findById(job.id))?.status).toBe('running');
+      const recovery = new WorkerRecoveryRepository(harness.db);
+      const results = await Promise.all([
+        recovery.requeueWithAudit(input),
+        recovery.requeueWithAudit(input),
+      ]);
+      expect(results.filter(Boolean)).toHaveLength(1);
+      expect((await jobs.findById(job.id))?.status).toBe('queued');
+      expect(
+        await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+          'worker.job_requeued_offline',
+          job.id,
+        ]),
+      ).toHaveLength(1);
+    } finally {
+      await harness.db.execute('DELETE FROM jobs WHERE id = ?', [job.id]);
+    }
+  }, 30_000);
+
+  it('rolls back document deletion when auditing fails and audits only one concurrent delete', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account);
+    const id = upload.json<{ id: string }>().id;
+    const original = AuditRepository.prototype.record;
+    const audit = jest
+      .spyOn(AuditRepository.prototype, 'record')
+      .mockImplementation(async function (this: AuditRepository, input) {
+        if (input.action === 'document.deleted') throw new Error('synthetic audit failure');
+        await original.call(this, input);
+      });
+    try {
+      const failed = await harness.api.json('DELETE', `/api/v1/documents/${id}`, {
+        token: account.accessToken,
+      });
+      expect(failed.statusCode).toBe(500);
+      expect(
+        await harness.db.one('SELECT status, deleted_at FROM documents WHERE id = ?', [id]),
+      ).toEqual({ status: 'queued', deleted_at: null });
+    } finally {
+      audit.mockRestore();
+    }
+    const remove = () =>
+      harness.api.json('DELETE', `/api/v1/documents/${id}`, { token: account.accessToken });
+    const responses = await Promise.all([remove(), remove()]);
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([204, 404]);
+    expect(
+      await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+        'document.deleted',
+        id,
+      ]),
+    ).toHaveLength(1);
+    await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [id]);
+  }, 30_000);
 
   it('skips a locked job and claims it once after the lock is released', async () => {
     const jobs = new JobsRepository(harness.db);
@@ -329,6 +422,48 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     );
     expect(row).toEqual({ udm: json, literal_question: '?' });
   });
+
+  it('runs the read-only export inventory CLI against PostgreSQL', async () => {
+    const account = await registerAccount(harness);
+    const id = randomUUID();
+    await harness.db.execute(
+      `INSERT INTO exports (id, organisation_id, requested_by, format, filter, status, created_at)
+       VALUES (?, ?, ?, 'csv', '{}', 'failed', ?)`,
+      [id, account.organisationId, account.userId, '2000-01-01T00:00:00.000Z'],
+    );
+    const schema = await harness.db.one<{ schema: string }>('SELECT current_schema() AS schema');
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.set('options', `-c search_path=${schema!.schema}`);
+    const root = await mkdtemp(join(tmpdir(), 'idcp-pg-inventory-'));
+    try {
+      const run = spawnSync(
+        process.execPath,
+        ['--import', 'tsx', 'src/db/export-inventory-cli.ts', '--inspect', id, '--confirm-offline'],
+        {
+          cwd: resolve(__dirname, '..'),
+          env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            DB_DRIVER: 'postgres',
+            DATABASE_URL: url.toString(),
+            STORAGE_PATH: root,
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(run.status).toBe(0);
+      expect(JSON.parse(run.stdout)).toMatchObject({
+        found: true,
+        export: { id, status: 'failed' },
+        observations: [{ source: 'canonicalCandidate', file: 'missing' }],
+      });
+      expect(
+        await harness.db.one('SELECT status, storage_key FROM exports WHERE id = ?', [id]),
+      ).toEqual({ status: 'failed', storage_key: null });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it('applies migrations and executes placeholder queries, transactions, and an API health check', async () => {
     expect(harness.db.driver).toBe('postgres');
