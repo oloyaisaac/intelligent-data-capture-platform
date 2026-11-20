@@ -536,6 +536,11 @@ export const MIGRATIONS: Migration[] = [
       'CREATE INDEX idx_erasure_file_deletions_created ON erasure_file_deletions(created_at)',
     ],
   },
+  {
+    // Existing or old-version runs are not assumed safe to replay under the new protocol.
+    id: '012_workflow_execution_protocol',
+    sql: ['ALTER TABLE workflow_runs ADD COLUMN execution_protocol INTEGER NOT NULL DEFAULT 0'],
+  },
 ];
 
 export async function applyMigrations(db: {

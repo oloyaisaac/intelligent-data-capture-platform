@@ -5,14 +5,19 @@ import { WorkflowRunsRepository, WorkflowsRepository } from '../../src/repositor
 import { WorkflowService } from '../../src/services/workflow-service';
 import { silentLogger } from '../../src/logger';
 
-const [path, organisationId, runId] = process.argv.slice(2);
+const [path, organisationId, runId, mode] = process.argv.slice(2);
 if (!path || !organisationId || !runId || !process.send) throw new Error('Missing test inputs');
 const db = new SqliteDatabase({ path });
 const originalAudit = AuditRepository.prototype.record;
 AuditRepository.prototype.record = async function (input) {
   await originalAudit.call(this, input);
-  if (input.action === 'document.deleted') {
-    process.send?.({ type: 'inside-delete-transaction' });
+  if (
+    (mode === 'cancel' && input.action === 'workflow.run_cancelled_interrupted') ||
+    (mode !== 'cancel' && input.action === 'document.deleted')
+  ) {
+    process.send?.({
+      type: mode === 'cancel' ? 'inside-cancel-transaction' : 'inside-delete-transaction',
+    });
     await new Promise<void>(() => undefined);
   }
 };
@@ -37,13 +42,21 @@ const service = new WorkflowService(
 process.send({ type: 'ready' });
 process.on('message', (message) => {
   if (message !== 'start') return;
-  void service
-    .approveRun(
-      { organisationId, userId: 'synthetic-user', actorType: 'user', role: 'owner' },
-      runId,
-    )
-    .then(
-      () => process.send?.({ type: 'unexpected-completion' }),
-      () => process.send?.({ type: 'error' }),
-    );
+  const actor = {
+    organisationId,
+    userId: 'synthetic-user',
+    actorType: 'user' as const,
+    role: 'owner' as const,
+  };
+  const action =
+    mode === 'cancel'
+      ? service.cancelInterruptedRun(actor, runId, {
+          confirmReviewed: true,
+          incidentReference: 'INC-99',
+        })
+      : service.approveRun(actor, runId);
+  void action.then(
+    () => process.send?.({ type: 'unexpected-completion' }),
+    () => process.send?.({ type: 'error' }),
+  );
 });

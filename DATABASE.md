@@ -290,22 +290,23 @@ deletable, runs are append-only (AGENT-001).
 | created_by            | uuid FK     | admin who created it                                                                        |
 | created_at/updated_at | timestamptz |                                                                                             |
 
-| `workflow_runs` column | Type        | Notes                                                                    |
-| ---------------------- | ----------- | ------------------------------------------------------------------------ |
-| id                     | uuid PK     |                                                                          |
-| organisation_id        | uuid FK     |                                                                          |
-| workflow_id            | uuid        | kept after the rule is deleted                                           |
-| document_id            | uuid        | null for document-less triggers                                          |
-| trigger_event          | text        | what fired                                                               |
-| status                 | text        | `matched` \| `skipped` \| `awaiting_approval` \| `completed` \| `failed` |
-| matched                | integer     | 0 when a condition or the type did not match                             |
-| explanation            | text        | the sentence shown in the UI                                             |
-| actions                | jsonb/text  | the plan, including `requiresApproval` and `reason`                      |
-| outputs                | jsonb/text  | what each action actually did                                            |
-| failure                | text        | the message when an action threw                                         |
-| approved_by            | uuid FK     | the person who approved the run                                          |
-| approved_at            | timestamptz |                                                                          |
-| created_at             | timestamptz |                                                                          |
+| `workflow_runs` column | Type        | Notes                                                                     |
+| ---------------------- | ----------- | ------------------------------------------------------------------------- |
+| id                     | uuid PK     |                                                                           |
+| organisation_id        | uuid FK     |                                                                           |
+| workflow_id            | uuid        | kept after the rule is deleted                                            |
+| document_id            | uuid        | null for document-less triggers                                           |
+| trigger_event          | text        | what fired                                                                |
+| status                 | text        | `matched` \| `skipped` \| `awaiting_approval` \| `completed` \| `failed`  |
+| matched                | integer     | 0 when a condition or the type did not match                              |
+| explanation            | text        | the sentence shown in the UI                                              |
+| actions                | jsonb/text  | the plan, including `requiresApproval` and `reason`                       |
+| outputs                | jsonb/text  | what each action actually did                                             |
+| failure                | text        | the message when an action threw                                          |
+| approved_by            | uuid FK     | the person who approved the run                                           |
+| approved_at            | timestamptz |                                                                           |
+| created_at             | timestamptz |                                                                           |
+| execution_protocol     | integer     | 1 for newly created transactional automatic runs, 0 for legacy/other runs |
 
 Indexes: `(organisation_id, created_at DESC)` on both, plus `(status, created_at DESC)` on runs so
 the approval queue is a cheap query.

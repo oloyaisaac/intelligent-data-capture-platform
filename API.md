@@ -347,15 +347,17 @@ packages stay listed with `revokedReason` but cannot be installed.
 
 ### 7c. Workflow automation (AGENT-001)
 
-| Method | Path                          | Purpose                                                       |
-| ------ | ----------------------------- | ------------------------------------------------------------- |
-| GET    | `/workflows`                  | Rules for this organisation                                   |
-| POST   | `/workflows`                  | Create a rule (admin; `auto_approve` needs an owner)          |
-| PATCH  | `/workflows/:id`              | Pause or enable                                               |
-| DELETE | `/workflows/:id`              | Delete the rule; its run history stays                        |
-| POST   | `/workflows/evaluate`         | Evaluate every enabled rule for a trigger and log the outcome |
-| GET    | `/workflows/runs`             | Run log, newest first                                         |
-| POST   | `/workflows/runs/:id/approve` | Approve one pending run and execute its actions (reviewer)    |
+| Method | Path                                     | Purpose                                                       |
+| ------ | ---------------------------------------- | ------------------------------------------------------------- |
+| GET    | `/workflows`                             | Rules for this organisation                                   |
+| POST   | `/workflows`                             | Create a rule (admin; `auto_approve` needs an owner)          |
+| PATCH  | `/workflows/:id`                         | Pause or enable                                               |
+| DELETE | `/workflows/:id`                         | Delete the rule; its run history stays                        |
+| POST   | `/workflows/evaluate`                    | Evaluate every enabled rule for a trigger and log the outcome |
+| GET    | `/workflows/runs`                        | Run log, newest first                                         |
+| GET    | `/workflows/runs/:id`                    | Inspect one run and its recorded plan                         |
+| POST   | `/workflows/runs/:id/approve`            | Approve one pending run and execute its actions (reviewer)    |
+| POST   | `/workflows/runs/:id/cancel-interrupted` | Cancel one reviewed interrupted run (signed-in owner)         |
 
 ```json
 {
@@ -381,8 +383,16 @@ the run failed. Historical completed runs may have contained placeholder outputs
 any delivery. Workflow `delete_document` is a soft-delete only. For current-version executions, the
 run is locked and its deletion, audit and completion commit in one database transaction. Automatic
 runs start as `matched`; a crash can leave a matched run requiring investigation, not automatic retry.
-This does not remove files, repair historical runs, or fence older application versions. The response
-to `/workflows/evaluate` is `{ plans[], runs[] }`, including runs that skipped.
+A signed-in owner may inspect a run and send `{"confirmReviewed":true,"incidentReference":"INC-42"}`
+to `cancel-interrupted`. This marks an eligible `matched` run failed without executing or retrying its
+plan, and records an owner audit in the same transaction. Only new protocol-1 runs with consistent
+pending state are eligible; existing and old-binary runs are protocol 0 and must not be assumed safe.
+The incident reference is a non-secret 1–80 character ASCII identifier using letters, digits or
+`_.:@/-`. Stop or fence old binaries and investigate the run and any possible effects first; the
+confirmation does not prove this was done. If the response is ambiguous, inspect the run before
+acting. Creating a fresh evaluation can execute other plans or duplicate effects. This does not remove
+files, repair historical runs, or fence older application versions. The response to
+`/workflows/evaluate` is `{ plans[], runs[] }`, including runs that skipped.
 
 ---
 

@@ -126,6 +126,24 @@ export function registerWorkflowRoutes(
     return services.workflows.listRuns(actor, Number(query.limit) || 50);
   });
 
+  app.get('/workflows/runs/:id', async (request) => {
+    const actor = await guards.authenticate(request);
+    return services.workflows.getRun(actor, guards.uuidParam(request));
+  });
+
+  app.post('/workflows/runs/:id/cancel-interrupted', async (request) => {
+    const actor = await guards.authenticate(request);
+    const body = request.body as
+      { confirmReviewed?: unknown; incidentReference?: unknown } | undefined;
+    if (body?.confirmReviewed !== true || typeof body.incidentReference !== 'string') {
+      throw badRequest('Confirm review and supply a non-secret incident reference.');
+    }
+    return services.workflows.cancelInterruptedRun(actor, guards.uuidParam(request), {
+      confirmReviewed: true,
+      incidentReference: body.incidentReference,
+    });
+  });
+
   /** Evaluates every enabled workflow for a trigger; the answers are logged, matched or not. */
   app.post('/workflows/evaluate', async (request) => {
     const actor = await guards.authenticate(request);
