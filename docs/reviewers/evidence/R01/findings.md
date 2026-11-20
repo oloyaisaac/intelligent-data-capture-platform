@@ -54,8 +54,10 @@ workers, two separate processes, and unrelated job progress; a PostgreSQL barrie
 for CI. This is a partial concurrency guard, not a lease or a database constraint: existing running
 duplicates, missing documents, old binaries, out-of-band writers and manual requeue of live jobs are
 not fenced. External OCR may still repeat on retries. Review approval/rejection/corrections remain
-nontransactional relative to reprocessing and can act on stale extractions; see
-`worker-recovery-design.md`. P6 remains open.
+nontransactional relative to reprocessing and can act on stale extractions. In the synthetic
+`review-reprocess-risk.test.ts` characterization, rejecting an old review during new OCR changes the
+document to failed; the job then reports success without publishing its new result. This test records
+a defect, not an acceptable contract; see `worker-recovery-design.md`. P6 remains open.
 
 ### ARC-017 update — connector write success values
 

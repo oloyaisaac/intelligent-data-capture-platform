@@ -82,6 +82,10 @@ included for CI; neither test establishes production safety or exactly-once prov
 
 Review actions remain a separate unresolved race: approval, rejection and corrections currently use
 multiple independent writes without the reprocess document lock and can refer to an old extraction
-while reprocessing is queued or running. The serialization above does not make those actions atomic
-or prevent stale review decisions from changing document state. A complete fix needs agreed version
-and review lifecycle semantics, transactional locking and race tests; do not treat P6 as passed.
+while reprocessing is queued or running. `review-reprocess-risk.test.ts` is a characterization of a
+defect, not an acceptance test: it opens an old review, starts reprocessing and pauses synthetic OCR,
+then rejects the old review. The API currently accepts the rejection, sets the document to failed,
+and the resumed job is marked succeeded without publishing the new extraction. The serialization
+above does not make review actions atomic or prevent stale decisions from changing document state.
+A complete fix needs agreed version and review lifecycle semantics, transactional locking and race
+tests on both databases; do not treat P6 as passed.

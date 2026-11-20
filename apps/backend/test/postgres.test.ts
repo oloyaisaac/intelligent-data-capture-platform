@@ -64,9 +64,15 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
         let blocked = 0;
         while (Date.now() < deadline && blocked < 2) {
           const result = await observer.query<{ count: number }>(
-            `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
-             WHERE $1::int = ANY(pg_blocking_pids(activity.pid))
-               AND activity.wait_event_type = 'Lock'
+            `WITH RECURSIVE blocked(pid) AS (
+               SELECT $1::int
+               UNION
+               SELECT activity.pid FROM pg_stat_activity activity
+                 JOIN blocked ON blocked.pid = ANY(pg_blocking_pids(activity.pid))
+             )
+             SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+               JOIN blocked ON blocked.pid = activity.pid
+             WHERE activity.pid <> $1 AND activity.wait_event_type = 'Lock'
                AND activity.query LIKE 'SELECT id FROM documents WHERE organisation_id = %'`,
             [locker.pid],
           );
