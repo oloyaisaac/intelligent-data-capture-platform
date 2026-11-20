@@ -373,9 +373,14 @@ packages stay listed with `revokedReason` but cannot be installed.
 
 Triggers: `document.approved`, `document.extracted`, `document.needs_review`, `batch.completed`.
 Actions: `notify`, `send_to_connector`, `create_export`, `delete_document` — the last three are
-destructive, so their run is held as `awaiting_approval` until a person approves that specific run.
-The response to `/workflows/evaluate` is `{ plans[], runs[] }`, and each run records the sentence that
-explains its outcome — including the runs that skipped.
+destructive, so their run is held as `awaiting_approval` until a person approves that specific run,
+unless an owner has set `auto_approve`. `notify`, `send_to_connector` and `create_export` are not
+implemented: a matched plan containing any of them fails without executing any actions, including a
+preceding delete. Approval-required plans remain pending until approval, which returns 409 and marks
+the run failed. Historical completed runs may have contained placeholder outputs; they do not prove
+any delivery. Workflow `delete_document` remains a soft-delete only and its execution and approval
+are not transactionally fenced; see ARC-027 before relying on it. The response to
+`/workflows/evaluate` is `{ plans[], runs[] }`, including runs that skipped.
 
 ---
 

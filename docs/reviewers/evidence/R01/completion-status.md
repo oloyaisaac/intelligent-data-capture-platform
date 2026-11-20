@@ -32,7 +32,7 @@ be refreshed against the final reviewed commit; a blank or unchecked reviewer it
 | ARC-016 HIGH   | Historical connector-run error leakage, retained copies and independent security assessment.                                                                |
 | ARC-017 HIGH   | Connector errors, successful outputs, logging and injected/same-privilege code boundaries.                                                                  |
 | ARC-018 HIGH   | Upload storage/database atomicity, ambiguous commits, orphan reconciliation and recovery effects.                                                           |
-| ARC-019 HIGH   | Workflow send/export/notification actions can report placeholder success without dispatch; coordinate the R02/product fix.                                  |
+| ARC-019 HIGH   | Workflow send/export/notification now fail closed, but actual dispatch and historical false-success review remain; coordinate the R02/product fix.          |
 | ARC-020 MEDIUM | Documentation/handoff and localization drift; finish cross-document and UI review.                                                                          |
 | ARC-021 HIGH   | Bounded shutdown, forced kill, ownership, effect fencing and maintenance across replicas.                                                                   |
 | ARC-022 HIGH   | Cloud cost configuration is a post-request warning, not a hard budget; provider-aware controls and billing verification remain.                             |
@@ -40,6 +40,7 @@ be refreshed against the final reviewed commit; a blank or unchecked reviewer it
 | ARC-024 HIGH   | Complete retention/erasure policy, old soft-deletes, page files, derived records, file/DB races, references, backups, reconciliation and proof of deletion. |
 | ARC-025 HIGH   | Historical worker error logs, records and events plus other application/provider logging require exposure assessment and remediation.                       |
 | ARC-026 HIGH   | Interrupted and historical export files, publication/audit races, writer fencing and authorized reconciliation; inventory is advisory only.                 |
+| ARC-027 HIGH   | Workflow deletion and approval lack an atomic, fenced execution, audit and crash-recovery state machine; automatic runs can prematurely report success.     |
 
 These are the currently recorded findings, not a claim that no other defects exist. Owners and gate
 chairs must determine whether fixes or permitted, written and dated exceptions satisfy P12.

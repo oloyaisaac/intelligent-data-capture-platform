@@ -509,11 +509,13 @@ owner opts out; unattended runs of destructive actions are possible only by expl
 and are audited (`workflow.run_approved`). Rules cannot branch — a condition list is one AND — and
 `notify` does not deliver anything until a mail transport exists.
 
-**Implementation note:** SMTP is now available for other flows, but workflow `notify` is not wired
-up to it. More importantly, `send_to_connector` and `create_export` currently return placeholder
-strings saying they were queued without dispatching either operation; their reported completion is
-not proof that anything was sent or exported. See the R01 findings and route this feature-correctness
-issue to R02. The historical decision above is not a guarantee that all of its proposed effects ship.
+**Implementation note:** Workflow `notify`, `send_to_connector` and `create_export` do not dispatch
+anything. Plans containing these actions now fail closed before executing any action; approval of a
+pending plan fails with a conflict. Historical completed runs may contain misleading placeholder
+outputs and do not prove delivery. `delete_document` remains a soft-delete whose execution and
+approval are not transactionally fenced (ARC-027). See the R01 findings and route the missing
+features and execution protocol to R02. The historical decision above is not a guarantee that its
+proposed effects ship.
 
 ---
 

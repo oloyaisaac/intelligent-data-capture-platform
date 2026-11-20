@@ -1194,6 +1194,7 @@ paths:
     post:
       tags: [Workflows]
       summary: Evaluate every enabled workflow for a trigger and record the results
+      description: Plans containing notify, send_to_connector or create_export do not dispatch and fail without executing actions. Approval-required plans fail on approval instead.
       operationId: evaluateWorkflows
       requestBody:
         required: true
@@ -1214,6 +1215,7 @@ paths:
     post:
       tags: [Workflows]
       summary: Approve one pending run and execute its destructive actions
+      description: Unavailable notify, send_to_connector and create_export actions cause a 409 and no actions execute. Workflow deletion is soft-delete only and its approval is not transactionally fenced.
       operationId: approveWorkflowRun
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
