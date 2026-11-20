@@ -530,6 +530,7 @@ it('runs independent maintenance steps with injected repositories and no databas
     maintenance: {
       organisationsWithRetention: jest.fn().mockResolvedValue([]),
       expiredExports: jest.fn().mockResolvedValue([]),
+      hasOtherStorageReference: jest.fn(),
       markExportExpired: jest.fn(),
       expirePairingSessions: jest.fn().mockResolvedValue(2),
       deleteExpiredSessions: jest.fn().mockResolvedValue(3),

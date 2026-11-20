@@ -368,7 +368,7 @@ export class DocumentService {
     let incomplete = false;
     for (const document of expired) {
       try {
-        // Check all tenants and page references; storage keys must not be reused. The check and
+        // Check known references across tenants; storage keys must not be reused. The check and
         // external delete are not atomic, so out-of-band writers remain an unsupported race.
         if (await this.documents.hasOtherStorageReference(document.id, document.storage_key)) {
           incomplete = true;
