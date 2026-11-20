@@ -3,9 +3,9 @@
 Data model reference for the shipped schema. The authoritative DDL is
 `apps/backend/src/db/migrations.ts` — this document explains it and lists what each table is for.
 
-> **Status:** implemented. Seven forward-only migrations
-> (`001_initial_schema` … `007_workflows`) create 30 tables on SQLite (`node:sqlite`, the local and
-> tested path) or PostgreSQL (the production path). There is no ORM: repositories hold the SQL, and
+> **Status:** implemented. Forward-only migrations through `013_remote_ocr_invocation_count` run
+> on SQLite (`node:sqlite`, the local path) or PostgreSQL (the production path). There is no ORM:
+> repositories hold the SQL, and
 > one schema serves both drivers (DEC-013). Types below are written in PostgreSQL terms; on SQLite
 > the same columns are `text`/`integer`/`real` and timestamps are ISO-8601 text.
 
@@ -151,6 +151,7 @@ Unique: `(organisation_id, user_id)`.
 | status                  | text not null              | `uploaded`,`queued`,`processing`,`extracted`,`needs_review`,`approved`,`failed`,`deleted` |
 | template_id             | uuid FK → templates null   |                                                                                           |
 | project_id              | uuid FK → projects null    | TEAM-001 grouping label; never widens visibility                                          |
+| remote_ocr_invocations  | integer not null default 0 | Counted current-version remote reservations since migration 013, not historical billing   |
 | deleted_at              | timestamptz                | soft delete before purge                                                                  |
 | created_at / updated_at | timestamptz                |                                                                                           |
 
@@ -600,8 +601,10 @@ Deletion must remove the storage object and the database rows, and must be recor
 - `DB-001` must include a seed script creating one demo organisation, one admin user and one disabled sample connector.
 - Applied migrations, in order, recorded in `schema_migrations`:
   `001_initial_schema` (the 19 core tables), `002_api_keys_and_webhooks`, `003_template_versions`,
-  `004_batches_projects_invitations`, `005_corrections_learning_opt_in` (`review_changes.document_type`
-  and `organisations.learning_opt_in`, REV-002), `006_marketplace_installs` (MARKET-001) and
-  `007_workflows` (`workflows`, `workflow_runs`, AGENT-001).
+  `004_batches_projects_invitations`, `005_corrections_learning_opt_in`, `006_marketplace_installs`,
+  `007_workflows`, `008_password_resets`, `010_mfa`, `009_terms_acceptance`,
+  `011_erasure_file_deletions`, `012_workflow_execution_protocol`, and
+  `013_remote_ocr_invocation_count` (a nonnegative counter added to existing documents). The
+  migration array is the authoritative order, including the `010`/`009` ordering.
 - `npm run db:migrate` applies pending migrations and is safe to re-run; `npm run db:seed` creates one
   demo organisation, one owner and a sample export without duplicating them on a second run.

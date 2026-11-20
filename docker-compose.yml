@@ -24,6 +24,7 @@ x-backend-environment: &backend-environment
   STORAGE_PATH: /data/documents
   LEGAL_DIR: /app/legal
   TESSERACT_BIN: /usr/bin/tesseract
+  AI_MAX_REMOTE_CALLS_PER_DOC: ${AI_MAX_REMOTE_CALLS_PER_DOC:-5}
   TRUST_PROXY: ${TRUST_PROXY:-true}
   WORKER_ENABLED: ${WORKER_ENABLED:-true}
   MAINTENANCE_ENABLED: ${MAINTENANCE_ENABLED:-true}

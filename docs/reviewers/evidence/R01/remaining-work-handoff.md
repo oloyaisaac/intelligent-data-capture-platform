@@ -101,3 +101,12 @@ New batch failures use fixed messages and API/CSV reads mask arbitrary historica
 Historical rows and copies still contain their original values and require an authorized exposure
 assessment and remediation. Other provider, runtime and registry error boundaries were narrowed;
 they do not establish that every application or third-party log and output is safe. See `findings.md`.
+
+### Cloud cost controls (ARC-022)
+
+A per-document, current-version remote OCR invocation reservation and configurable count limit now
+bound calls on the guarded worker path; zero blocks new reservations. This does not bound the price
+of one call, organisation-wide spend, provider-internal retries, old/direct writers, prior calls or
+rollback to a backup. A crash or ambiguous commit consumes a slot. Operators need provider-side
+budgets, verified billing, consistent deployments and a reviewed response to exhausted limits; see
+`DEPLOYMENT.md`. ARC-022 and independent review remain open.

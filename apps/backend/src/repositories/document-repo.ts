@@ -172,6 +172,24 @@ export class DocumentsRepository {
     );
   }
 
+  /**
+   * Reserve before a nonlocal OCR call, with the running job already locked in the transaction.
+   * A crash or uncertain response consumes the reservation; it is never refunded automatically.
+   */
+  async reserveRemoteOcrInvocation(
+    organisationId: string,
+    id: string,
+    maximum: number,
+  ): Promise<boolean> {
+    const row = await this.db.one<{ id: string }>(
+      `UPDATE documents SET remote_ocr_invocations = remote_ocr_invocations + 1
+       WHERE organisation_id = ? AND id = ? AND deleted_at IS NULL AND status = 'processing'
+         AND remote_ocr_invocations < ? RETURNING id`,
+      [organisationId, id, maximum],
+    );
+    return row !== null;
+  }
+
   /** Publish only while the document is still in processing; the transaction holds the row lock. */
   async finishProcessing(
     organisationId: string,

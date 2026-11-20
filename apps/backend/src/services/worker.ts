@@ -26,7 +26,10 @@ import type { TemplateService } from './template-service';
 /** Repository operations used by the worker, supplied by the composition root. */
 export interface WorkerTransactionRepositories {
   jobs: Pick<JobsRepository, 'lockRunning' | 'markSucceeded' | 'markFailed'>;
-  documents: Pick<DocumentsRepository, 'beginProcessing' | 'finishProcessing' | 'failProcessing'>;
+  documents: Pick<
+    DocumentsRepository,
+    'beginProcessing' | 'finishProcessing' | 'failProcessing' | 'reserveRemoteOcrInvocation'
+  >;
   extractions: Pick<ExtractionsRepository, 'create' | 'replaceFields'>;
   pages: Pick<DocumentPagesRepository, 'upsertOcr'>;
 }
@@ -271,6 +274,24 @@ export class Worker {
           (hint ?? 'unknown') as import('@idcp/shared').DocumentType,
         )
       : null;
+
+    if (!this.provider.isLocal) {
+      // Commit a durable reservation before invoking the provider. The job lock serializes
+      // current-version offline recovery and this check; it cannot fence already-started calls.
+      const reservation = await this.transaction(async (repositories) => {
+        if (!(await repositories.jobs.lockRunning(job.id, job.attempts)))
+          return 'obsolete' as const;
+        return (await repositories.documents.reserveRemoteOcrInvocation(
+          job.organisation_id,
+          documentId,
+          this.config.AI_MAX_REMOTE_CALLS_PER_DOC,
+        ))
+          ? ('reserved' as const)
+          : ('unavailable' as const);
+      });
+      if (reservation === 'obsolete') return;
+      if (reservation === 'unavailable') throw new Error('Remote OCR invocation unavailable');
+    }
 
     const result = await runExtractionPipeline(
       {

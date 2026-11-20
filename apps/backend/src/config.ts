@@ -65,6 +65,8 @@ const ConfigSchema = z.object({
   AI_CLOUD_API_KEY: z.string().optional(),
   AI_CLOUD_MODEL: z.string().default('gpt-4o-mini'),
   AI_MAX_COST_MICROS_PER_DOC: IntFromString(0, 0),
+  /** Durable per-document remote invocation limit, not a monetary spending cap. Zero disables calls. */
+  AI_MAX_REMOTE_CALLS_PER_DOC: IntFromString(5, 0, 1000),
   AI_REVIEW_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
 
   MAX_UPLOAD_MB: IntFromString(20, 1, 200),
