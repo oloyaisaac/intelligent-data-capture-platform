@@ -592,6 +592,69 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     }
   }, 30_000);
 
+  it('rechecks export expiry after waiting for a PostgreSQL row lock', async () => {
+    const isolated = await createHarness();
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let sweep:
+      Promise<Awaited<ReturnType<typeof isolated.services.maintenance.runOnce>>> | undefined;
+    try {
+      const account = await registerAccount(isolated);
+      const key = `org/${account.organisationId}/exports/locked.csv`;
+      await isolated.storage.put(key, Buffer.from('synthetic'));
+      await isolated.db.execute(
+        `INSERT INTO exports (id, organisation_id, requested_by, format, filter, storage_key, status, expires_at, created_at)
+         VALUES (?, ?, ?, 'csv', '{}', ?, 'ready', ?, ?)`,
+        [
+          'locked-export',
+          account.organisationId,
+          account.userId,
+          key,
+          '2000-01-01T00:00:00.000Z',
+          '2000-01-01T00:00:00.000Z',
+        ],
+      );
+      await isolated.db.transaction(async (tx) => {
+        await tx.one('SELECT id FROM exports WHERE id = ? FOR UPDATE', ['locked-export']);
+        const locker = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        if (!locker) throw new Error('Could not identify locking session');
+        sweep = isolated.services.maintenance.runOnce(new Date('2026-01-01T00:00:00.000Z'));
+        void sweep.catch(() => undefined);
+        const deadline = Date.now() + 10_000;
+        let blocked = 0;
+        while (Date.now() < deadline && blocked < 1) {
+          const result = await observer.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+             WHERE $1::int = ANY(pg_blocking_pids(activity.pid)) AND activity.wait_event_type = 'Lock'
+               AND activity.query LIKE 'SELECT id, storage_key, status, expires_at FROM exports WHERE id = %'`,
+            [locker.pid],
+          );
+          blocked = result.rows[0]?.count ?? 0;
+          if (blocked < 1) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(1);
+        await tx.execute('UPDATE exports SET expires_at = ? WHERE id = ?', [
+          '2999-01-01T00:00:00.000Z',
+          'locked-export',
+        ]);
+      });
+      expect((await sweep!).exportsExpired).toBe(0);
+      expect(await isolated.storage.exists(key)).toBe(true);
+      expect(
+        await isolated.db.one('SELECT status, storage_key, expires_at FROM exports WHERE id = ?', [
+          'locked-export',
+        ]),
+      ).toEqual({
+        status: 'ready',
+        storage_key: key,
+        expires_at: '2999-01-01T00:00:00.000Z',
+      });
+    } finally {
+      if (sweep) await sweep.catch(() => undefined);
+      await observer.end();
+      await isolated.close();
+    }
+  }, 30_000);
+
   it('preserves question marks in a document extraction JSON parameter', async () => {
     const account = await registerAccount(harness);
     const upload = await uploadDocument(harness, account);

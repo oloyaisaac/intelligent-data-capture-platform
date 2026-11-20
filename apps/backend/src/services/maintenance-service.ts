@@ -33,19 +33,26 @@ export interface MaintenanceServiceRepositories {
     MaintenanceRepository,
     | 'organisationsWithRetention'
     | 'expiredExports'
-    | 'hasOtherStorageReference'
-    | 'markExportExpired'
     | 'expirePairingSessions'
     | 'deleteExpiredSessions'
     | 'deleteSpentResetTokens'
   >;
   erasureFiles: ErasureFileQueue;
+  transaction: <T>(
+    run: (
+      maintenance: Pick<
+        MaintenanceRepository,
+        'lockExport' | 'hasOtherStorageReference' | 'markExportExpired'
+      >,
+    ) => Promise<T>,
+  ) => Promise<T>;
 }
 
 export class MaintenanceService {
   private readonly jobs: MaintenanceServiceRepositories['jobs'];
   private readonly maintenance: MaintenanceServiceRepositories['maintenance'];
   private readonly erasureFiles: MaintenanceServiceRepositories['erasureFiles'];
+  private readonly transaction: MaintenanceServiceRepositories['transaction'];
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private generation = 0;
@@ -61,6 +68,7 @@ export class MaintenanceService {
     this.jobs = repositories.jobs;
     this.maintenance = repositories.maintenance;
     this.erasureFiles = repositories.erasureFiles;
+    this.transaction = repositories.transaction;
   }
 
   async runOnce(now: Date = new Date()): Promise<MaintenanceReport> {
@@ -87,11 +95,9 @@ export class MaintenanceService {
     const step = async <K extends keyof MaintenanceReport>(key: K, run: () => Promise<number>) => {
       try {
         report[key] = await run();
-      } catch (error) {
-        this.logger.warn('maintenance step failed', {
-          step: key,
-          error: (error as Error).message,
-        });
+      } catch {
+        // Database/provider errors can contain storage paths or credentials.
+        this.logger.warn('maintenance step failed', { step: key });
       }
     };
 
@@ -131,27 +137,35 @@ export class MaintenanceService {
     const expired = await this.maintenance.expiredExports(now.toISOString());
     let completed = 0;
     for (const row of expired) {
-      if (row.storage_key) {
-        try {
-          // This is a point-in-time check, not atomic with storage deletion. Keys must not be reused.
-          if (await this.maintenance.hasOtherStorageReference(row.id, row.storage_key)) {
-            this.logger.warn('expired export file is referenced; retry pending', {
-              exportId: row.id,
-            });
-            continue;
+      try {
+        const changed = await this.transaction(async (maintenance) => {
+          // Lock before checking the selected snapshot or removing bytes. A concurrent update to
+          // this row cannot slip between the check and deletion (but other references can race).
+          const current = await maintenance.lockExport(row.id);
+          if (
+            !current ||
+            current.status !== row.status ||
+            current.storage_key !== row.storage_key ||
+            current.expires_at === null ||
+            current.expires_at !== row.expires_at ||
+            current.expires_at > now.toISOString() ||
+            !['ready', 'failed'].includes(current.status)
+          )
+            return false;
+          if (current.storage_key) {
+            if (await maintenance.hasOtherStorageReference(current.id, current.storage_key)) {
+              throw new Error('Export is referenced');
+            }
+            await this.storage.delete(current.storage_key);
           }
-          await this.storage.delete(row.storage_key);
-        } catch {
-          // Keep the key and original status so the next sweep can retry. Do not log storage
-          // error details, which may contain a filesystem path or other sensitive data.
-          this.logger.warn('could not delete an expired export file; retry pending', {
-            exportId: row.id,
-          });
-          continue;
-        }
+          // Storage is not transactional. A failed or ambiguous commit still requires retry/review.
+          return maintenance.markExportExpired({ ...current, expires_at: row.expires_at });
+        });
+        if (changed) completed += 1;
+      } catch {
+        // Keep state for retry when possible; never log provider paths or error details.
+        this.logger.warn('could not expire export; review or retry pending', { exportId: row.id });
       }
-      // A stale sweep must not clear a replacement key or overwrite newer export state.
-      if (await this.maintenance.markExportExpired(row)) completed += 1;
     }
     return completed;
   }
@@ -181,8 +195,8 @@ export class MaintenanceService {
       if (!this.running || this.generation !== generation) return;
       try {
         await this.runOnce();
-      } catch (error) {
-        this.logger.error('maintenance run failed', { error: (error as Error).message });
+      } catch {
+        this.logger.error('maintenance run failed');
       }
       if (this.running && this.generation === generation) {
         this.timer = setTimeout(tick, this.config.MAINTENANCE_INTERVAL_MS);

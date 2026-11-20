@@ -146,16 +146,20 @@ rows, count as references; only the document being purged and its own pages, or 
 expired, are excluded. Known aliases therefore block and require investigation, even when both owners
 are expired. Tests use deliberately aliased database keys; they are not production incident evidence.
 
-Expired-export metadata updates now compare the selected key, status and expiry before clearing the
-key; `maintenance.test.ts` covers a concurrent replacement. This does **not** fence the storage
-operation: a separate test extends an export with the same key during deletion and observes the
-file gone while the changed metadata remains. The reference checks and deletes are not atomic;
-new references, overwritten/reused keys, old binaries, external files and out-of-band writers can
-still race. No storage-key non-reuse constraint exists. Existing files and records are not repaired,
-separate retention page files remain untouched, and a database failure after a file deletion still
-requires reconciliation. These checks add potentially unindexed cross-table lookups per file; assess
-query plans and sweep cost on representative data before production rollout. ARC-024 and P6 remain
-open; the owner must design durable, fenced storage lifecycle and recovery semantics.
+Expired-export cleanup now locks the selected export row and rechecks its key, status and expiry
+before removing bytes; queued or unknown states are not expired. The lock is held during storage
+deletion and the conditional expired transition, serializing compliant row updates and competing
+sweeps. SQLite takes a database-wide write lock; PostgreSQL takes a row lock, so slow or stalled
+storage can delay writers and shutdown. A writer must still guard its own transition against an
+already expired row; an unconditional update after the lock releases can resurrect invalid metadata.
+The reference checks and deletes are not atomic with new references or object writes; reused keys,
+old binaries, external files and out-of-band writers can still race. No storage-key non-reuse
+constraint exists. Existing files and records are not repaired, separate retention page files remain
+untouched, and a database failure after a file deletion can still leave a ready row without bytes
+until a successful retry; an ambiguous commit needs inspection. These checks add potentially
+unindexed cross-table lookups per file; assess query plans, lock duration and sweep cost on
+representative data before production rollout. ARC-024, ARC-026 and P6 remain open; the owner must
+design durable, fenced storage lifecycle and recovery semantics.
 
 ### ARC-013 update — partial job-row guard
 

@@ -16,8 +16,22 @@ export class MaintenanceRepository {
   > {
     return this.db.query(
       `SELECT id, storage_key, status, expires_at FROM exports
-        WHERE expires_at IS NOT NULL AND expires_at <= ? AND status <> 'expired'`,
+        WHERE expires_at IS NOT NULL AND expires_at <= ? AND status IN ('ready', 'failed')`,
       [now],
+    );
+  }
+
+  /** Call only inside a transaction. SQLite's write transaction already serializes writers. */
+  lockExport(id: string): Promise<{
+    id: string;
+    storage_key: string | null;
+    status: string;
+    expires_at: string | null;
+  } | null> {
+    const lock = this.db.driver === 'postgres' ? ' FOR UPDATE' : '';
+    return this.db.one(
+      `SELECT id, storage_key, status, expires_at FROM exports WHERE id = ?${lock}`,
+      [id],
     );
   }
 

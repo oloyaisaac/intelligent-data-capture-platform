@@ -530,11 +530,10 @@ it('uses injected document repositories and rejects a document outside the actor
 it('runs independent maintenance steps with injected repositories and no database', async () => {
   const repositories: MaintenanceServiceRepositories = {
     jobs: { enqueueRetentionIfAbsent: jest.fn() },
+    transaction: jest.fn(),
     maintenance: {
       organisationsWithRetention: jest.fn().mockResolvedValue([]),
       expiredExports: jest.fn().mockResolvedValue([]),
-      hasOtherStorageReference: jest.fn(),
-      markExportExpired: jest.fn(),
       expirePairingSessions: jest.fn().mockResolvedValue(2),
       deleteExpiredSessions: jest.fn().mockResolvedValue(3),
       deleteSpentResetTokens: jest.fn().mockResolvedValue(4),
