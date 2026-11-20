@@ -357,7 +357,7 @@ describe('worker recovery of interrupted jobs', () => {
     const repository = new JobsRepository(harness.db);
     const job = (await repository.listForDocument(documentId))[0]!;
     expect(job.status).toBe('queued');
-    expect(job.last_error).toBe('field write failed');
+    expect(job.last_error).toBe('Document extraction failed. Investigate the worker and retry.');
     expect(
       await harness.db.query('SELECT id FROM extractions WHERE document_id = ?', [documentId]),
     ).toHaveLength(0);

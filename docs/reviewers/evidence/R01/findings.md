@@ -17,6 +17,20 @@ owner has accepted these findings or provided a dated exception.
 | ARC-021 | HIGH     | `apps/backend/src/services/worker.ts` (`stop`, `drain`), `apps/backend/src/index.ts` (shutdown)                                                       | **Partially remediated:** a normal SIGTERM previously exited and closed the database while an extraction was running; concurrent calls to one worker's drain could also overlap. Shutdown now waits for startup and active work and coalesces drains. Active maintenance sweeps are also awaited. No shutdown deadline or forced-kill safety is established.                   | `worker-lifecycle.test.ts` and `worker-shutdown-process.test.ts` fail on the prior worker and pass locally with this change; test uses synthetic OCR and SQLite. Design and test bounded shutdown, crashes, ownership and fencing; validate maintenance across replicas.                                                                                 | Unassigned; backend reliability                   |
 | ARC-022 | HIGH     | `apps/backend/src/ai/providers/cloud.ts` (`ocr`), `apps/backend/src/config.ts`, `DEPLOYMENT.md` §10                                                   | **Not remediated:** despite the configuration name, the cloud cost setting is not a hard spend cap. The request is made before a rough token estimate is compared; it only logs a warning, absent usage becomes zero, and there is no cumulative budget or reservation. The prior implementation comment and deployment guide incorrectly claimed enforcement.                 | `ai.test.ts` demonstrates that an over-threshold response is returned and only warned after the request. Comments and operator guidance now describe the limitation; implement provider-aware pricing and pre-request budget controls, and verify billed usage before claiming enforcement.                                                              | Unassigned; AI/product and operations             |
 
+### ARC-025 — HIGH: worker exception details exposed through persistence, logs and events
+
+Previously `Worker.processJob` copied arbitrary exception messages from OCR, storage, SQL and
+other work into `jobs.last_error`, logs and the `document:failed` organisation event. A synthetic
+secret-bearing OCR error reproduced this for both ordinary errors and `ProviderUnavailableError` in
+`worker-error-boundary.test.ts`. The worker now substitutes fixed per-job-type guidance and suppresses
+exception details in tick and shutdown logs. Retry and terminal status behavior is unchanged, but
+diagnostics are less specific. The tests cover injected OCR failures and mocked retention, unknown-job,
+tick and shutdown failures; they do not prove all logging or other application paths safe.
+Historical job rows, logs, delivered events and backups are not cleaned. Other services and custom
+providers may still log sensitive data directly. Operators and security owners must assess prior
+exposure, retention and credential rotation, and independently review the broader boundary before
+closing this finding. Owner: unassigned; backend security and operations.
+
 ### ARC-024 — HIGH: incomplete retention deletion and unsafe file failure handling
 
 `apps/backend/src/services/document-service.ts` (`purgeExpired`) formerly swallowed primary-file

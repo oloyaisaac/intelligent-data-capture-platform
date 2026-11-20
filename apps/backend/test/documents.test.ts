@@ -349,7 +349,7 @@ Thank you for your purchase`);
     expect(body.extraction.udm.fields['total.amount']?.value).toBe(45000);
   });
 
-  it('marks a document failed when OCR is unavailable, and reports why (AI-004, TC-14)', async () => {
+  it('marks a document failed when OCR is unavailable and reports a safe message (AI-004, TC-14)', async () => {
     const account = await registerAccount(harness);
     harness.ocr.failWith(new Error('Local OCR engine is not installed.'));
 
@@ -375,7 +375,7 @@ Thank you for your purchase`);
       [documentId],
     );
     expect(job?.status).toBe('dead');
-    expect(job?.last_error).toContain('OCR engine is not installed');
+    expect(job?.last_error).toBe('Document extraction failed. Investigate the worker and retry.');
 
     harness.ocr.setText(SAMPLE_INVOICE_TEXT);
   });
