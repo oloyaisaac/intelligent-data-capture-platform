@@ -4,7 +4,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Pool } from 'pg';
-import { JobsRepository } from '../src/repositories/system-repo';
+import type { Database } from '../src/db/database';
+import { AuditRepository, JobsRepository } from '../src/repositories/system-repo';
+import { WorkerRecoveryRepository } from '../src/repositories/worker-recovery-repo';
 import {
   createHarness,
   openReview,
@@ -31,6 +33,93 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
   afterAll(async () => {
     await harness?.close();
   });
+
+  it('rolls back recovery on audit failure and commits only one concurrent recovery', async () => {
+    const account = await registerAccount(harness);
+    const jobs = new JobsRepository(harness.db);
+    const job = await jobs.enqueue({
+      organisationId: account.organisationId,
+      type: 'retention_purge',
+    });
+    await harness.db.execute("UPDATE jobs SET status = 'running', attempts = 1 WHERE id = ?", [
+      job.id,
+    ]);
+    const input = {
+      id: job.id,
+      attempt: 1,
+      operatorReference: 'operator-1',
+      incidentReference: 'INC-42',
+    };
+    const failing = {
+      transaction: <T>(run: (db: Database) => Promise<T>) =>
+        harness.db.transaction((tx) =>
+          run({
+            ...tx,
+            execute: async (sql, params) => {
+              if (sql.includes('INSERT INTO audit_logs'))
+                throw new Error('synthetic audit failure');
+              return tx.execute(sql, params);
+            },
+          }),
+        ),
+    } as Database;
+    try {
+      await expect(new WorkerRecoveryRepository(failing).requeueWithAudit(input)).rejects.toThrow(
+        'synthetic audit failure',
+      );
+      expect((await jobs.findById(job.id))?.status).toBe('running');
+      const recovery = new WorkerRecoveryRepository(harness.db);
+      const results = await Promise.all([
+        recovery.requeueWithAudit(input),
+        recovery.requeueWithAudit(input),
+      ]);
+      expect(results.filter(Boolean)).toHaveLength(1);
+      expect((await jobs.findById(job.id))?.status).toBe('queued');
+      expect(
+        await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+          'worker.job_requeued_offline',
+          job.id,
+        ]),
+      ).toHaveLength(1);
+    } finally {
+      await harness.db.execute('DELETE FROM jobs WHERE id = ?', [job.id]);
+    }
+  }, 30_000);
+
+  it('rolls back document deletion when auditing fails and audits only one concurrent delete', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account);
+    const id = upload.json<{ id: string }>().id;
+    const original = AuditRepository.prototype.record;
+    const audit = jest
+      .spyOn(AuditRepository.prototype, 'record')
+      .mockImplementation(async function (this: AuditRepository, input) {
+        if (input.action === 'document.deleted') throw new Error('synthetic audit failure');
+        await original.call(this, input);
+      });
+    try {
+      const failed = await harness.api.json('DELETE', `/api/v1/documents/${id}`, {
+        token: account.accessToken,
+      });
+      expect(failed.statusCode).toBe(500);
+      expect(
+        await harness.db.one('SELECT status, deleted_at FROM documents WHERE id = ?', [id]),
+      ).toEqual({ status: 'queued', deleted_at: null });
+    } finally {
+      audit.mockRestore();
+    }
+    const remove = () =>
+      harness.api.json('DELETE', `/api/v1/documents/${id}`, { token: account.accessToken });
+    const responses = await Promise.all([remove(), remove()]);
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([204, 404]);
+    expect(
+      await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+        'document.deleted',
+        id,
+      ]),
+    ).toHaveLength(1);
+    await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [id]);
+  }, 30_000);
 
   it('skips a locked job and claims it once after the lock is released', async () => {
     const jobs = new JobsRepository(harness.db);
