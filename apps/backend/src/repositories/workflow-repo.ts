@@ -32,6 +32,7 @@ export interface WorkflowRunRow {
   approved_by: string | null;
   approved_at: string | null;
   created_at: string;
+  execution_protocol: number;
 }
 
 /** AGENT-001: workflow definitions and the run log. */
@@ -145,6 +146,7 @@ export class WorkflowRunsRepository {
     actions: unknown;
     outputs?: unknown;
     failure?: string | null;
+    executionProtocol?: number;
   }): Promise<WorkflowRunRow> {
     const row: WorkflowRunRow = {
       id: newId(),
@@ -161,13 +163,14 @@ export class WorkflowRunsRepository {
       approved_by: null,
       approved_at: null,
       created_at: nowIso(),
+      execution_protocol: input.executionProtocol ?? 0,
     };
 
     await this.db.execute(
       `INSERT INTO workflow_runs (id, organisation_id, workflow_id, document_id, trigger_event,
         status, matched, explanation, actions, outputs, failure, approved_by, approved_at,
-        created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        created_at, execution_protocol)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.organisation_id,
@@ -183,6 +186,7 @@ export class WorkflowRunsRepository {
         row.approved_by,
         row.approved_at,
         row.created_at,
+        row.execution_protocol,
       ],
     );
     return row;

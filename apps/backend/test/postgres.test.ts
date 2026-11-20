@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import type { Database } from '../src/db/database';
 import { AuditRepository, JobsRepository } from '../src/repositories/system-repo';
 import { WorkerRecoveryRepository } from '../src/repositories/worker-recovery-repo';
+import { WorkflowRunsRepository } from '../src/repositories/workflow-repo';
 import {
   createHarness,
   openReview,
@@ -192,6 +193,119 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     } finally {
       await observer.end();
       if (approvals) await approvals.catch(() => undefined);
+    }
+  }, 30_000);
+
+  it('serializes interrupted cancellation against the original workflow execution', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account);
+    const documentId = upload.json<{ id: string }>().id;
+    const workflow = await harness.api.json('POST', '/api/v1/workflows', {
+      token: account.accessToken,
+      body: {
+        name: 'Auto delete',
+        trigger: 'document.extracted',
+        conditions: [],
+        approvalPolicy: 'auto_approve',
+        actions: [{ type: 'delete_document' }],
+      },
+    });
+    expect(workflow.statusCode).toBe(201);
+    let release!: () => void;
+    let created!: (id: string) => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<string>((resolve) => {
+      created = resolve;
+    });
+    const original = WorkflowRunsRepository.prototype.create;
+    const spy = jest
+      .spyOn(WorkflowRunsRepository.prototype, 'create')
+      .mockImplementation(async function (this: WorkflowRunsRepository, input) {
+        const row = await original.call(this, input);
+        created(row.id);
+        await gate;
+        return row;
+      });
+    const evaluation = harness.api.json('POST', '/api/v1/workflows/evaluate', {
+      token: account.accessToken,
+      body: { trigger: 'document.extracted', documentId },
+    });
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let cancellation: Promise<ApiResponse> | undefined;
+    try {
+      const runId = await ready;
+      await harness.db.transaction(async (tx) => {
+        await tx.one('SELECT id FROM workflow_runs WHERE id = ? FOR UPDATE', [runId]);
+        const locker = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        if (!locker) throw new Error('Could not identify locking session');
+        cancellation = harness.api.json(
+          'POST',
+          `/api/v1/workflows/runs/${runId}/cancel-interrupted`,
+          {
+            token: account.accessToken,
+            body: { confirmReviewed: true, incidentReference: 'INC-99' },
+          },
+        );
+        void cancellation.catch(() => undefined);
+        release();
+        const deadline = Date.now() + 10_000;
+        let blocked = 0;
+        while (Date.now() < deadline && blocked < 2) {
+          const result = await observer.query<{ count: number }>(
+            `WITH RECURSIVE blocked(pid) AS (
+               SELECT $1::int UNION
+               SELECT activity.pid FROM pg_stat_activity activity JOIN blocked
+                 ON blocked.pid = ANY(pg_blocking_pids(activity.pid))
+             ) SELECT COUNT(*)::int AS count FROM pg_stat_activity activity JOIN blocked ON blocked.pid = activity.pid
+               WHERE activity.pid <> $1 AND activity.wait_event_type = 'Lock'
+                 AND activity.query LIKE 'SELECT * FROM workflow_runs WHERE organisation_id = %'`,
+            [locker.pid],
+          );
+          blocked = result.rows[0]?.count ?? 0;
+          if (blocked < 2) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(2);
+      });
+      const [evaluated, cancelled] = await Promise.all([evaluation, cancellation!]);
+      const row = await harness.db.one<{ status: string }>(
+        'SELECT status FROM workflow_runs WHERE id = ?',
+        [runId],
+      );
+      const document = await harness.db.one<{ deleted_at: string | null }>(
+        'SELECT deleted_at FROM documents WHERE id = ?',
+        [documentId],
+      );
+      const cancellationAudits = await harness.db.query(
+        'SELECT id FROM audit_logs WHERE action = ? AND target_id = ?',
+        ['workflow.run_cancelled_interrupted', workflow.json<{ id: string }>().id],
+      );
+      const deletionAudits = await harness.db.query(
+        'SELECT id FROM audit_logs WHERE action = ? AND target_id = ?',
+        ['document.deleted', documentId],
+      );
+      if (cancelled.statusCode === 200) {
+        expect(evaluated.statusCode).toBe(500);
+        expect(row?.status).toBe('failed');
+        expect(document?.deleted_at).toBeNull();
+        expect(cancellationAudits).toHaveLength(1);
+        expect(deletionAudits).toHaveLength(0);
+      } else {
+        expect(cancelled.statusCode).toBe(409);
+        expect(evaluated.statusCode).toBe(200);
+        expect(row?.status).toBe('completed');
+        expect(document?.deleted_at).not.toBeNull();
+        expect(cancellationAudits).toHaveLength(0);
+        expect(deletionAudits).toHaveLength(1);
+      }
+      await harness.db.execute('DELETE FROM jobs WHERE document_id = ?', [documentId]);
+    } finally {
+      release();
+      spy.mockRestore();
+      await observer.end();
+      await evaluation.catch(() => undefined);
+      if (cancellation) await cancellation.catch(() => undefined);
     }
   }, 30_000);
 

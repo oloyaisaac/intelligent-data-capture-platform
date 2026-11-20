@@ -154,6 +154,13 @@ export class WorkflowService {
     return { items: rows.map(toRun) };
   }
 
+  /** Read one tenant-scoped run, including the immutable action plan, before recovery. */
+  async getRun(actor: AuthenticatedActor, runId: string) {
+    const run = await this.runs.findById(actor.organisationId, runId);
+    if (!run) throw new AppError('NOT_FOUND', 'Workflow run not found.');
+    return toRun(run);
+  }
+
   /**
    * Evaluates every workflow for one trigger and records a run for each.
    *
@@ -216,6 +223,9 @@ export class WorkflowService {
         actions: plan.actions,
         outputs: [],
         failure: status === 'failed' ? unavailable : null,
+        // Only runs created under this version's transactional execution protocol are eligible
+        // for owner-directed cancellation. Older and unknown runs remain operator-only cases.
+        executionProtocol: status === 'matched' ? 1 : 0,
       });
 
       // A crash before execution leaves a matched run, never a false completed result.
@@ -281,6 +291,88 @@ export class WorkflowService {
     if (run.status === 'failed')
       throw new AppError('CONFLICT', run.failure ?? 'Workflow action failed.');
     return toRun(run);
+  }
+
+  /** Cancel a reviewed interrupted run without replaying its actions. */
+  async cancelInterruptedRun(
+    actor: AuthenticatedActor,
+    runId: string,
+    input: { confirmReviewed: boolean; incidentReference: string },
+  ) {
+    if (actor.actorType !== 'user' || !roleAtLeast(actor.role, 'owner')) {
+      throw new AppError('ROLE_REQUIRED', 'Only a signed-in owner can cancel an interrupted run.');
+    }
+    if (
+      input.confirmReviewed !== true ||
+      typeof input.incidentReference !== 'string' ||
+      !/^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,79}$/.test(input.incidentReference)
+    ) {
+      throw new AppError(
+        'FIELD_VALIDATION_FAILED',
+        'Confirm review and provide a valid non-secret incident reference.',
+      );
+    }
+    try {
+      const run = await this.transaction(async (repositories) => {
+        const locked = await repositories.runs.lockForExecution(actor.organisationId, runId);
+        if (!locked) throw new WorkflowRunNotFound();
+        // Never apply this path to historical/old-binary records or inconsistent rows.
+        if (
+          locked.status !== 'matched' ||
+          locked.execution_protocol !== 1 ||
+          Number(locked.matched) !== 1 ||
+          locked.approved_by !== null ||
+          locked.approved_at !== null ||
+          locked.failure !== null ||
+          locked.outputs !== '[]'
+        )
+          throw new WorkflowRunUnavailable();
+        let actions: unknown;
+        try {
+          actions = JSON.parse(locked.actions);
+        } catch {
+          throw new WorkflowRunUnavailable();
+        }
+        if (
+          !Array.isArray(actions) ||
+          actions.length === 0 ||
+          actions.some(
+            (action: unknown) =>
+              !action ||
+              typeof action !== 'object' ||
+              (action as { type?: unknown }).type !== 'delete_document',
+          )
+        )
+          throw new WorkflowRunUnavailable();
+        const cancelled = await repositories.runs.markFailedIfStatus(
+          actor.organisationId,
+          runId,
+          'matched',
+          'Cancelled after owner review. Inspect history before creating another run.',
+        );
+        if (!cancelled) throw new WorkflowRunUnavailable();
+        await repositories.audit.record({
+          organisationId: actor.organisationId,
+          actorType: actor.actorType,
+          actorId: actor.userId,
+          action: 'workflow.run_cancelled_interrupted',
+          targetType: 'workflow',
+          targetId: locked.workflow_id,
+          metadata: { runId, incidentReference: input.incidentReference, executionProtocol: 1 },
+        });
+        return cancelled;
+      });
+      return toRun(run);
+    } catch (error) {
+      if (error instanceof WorkflowRunNotFound)
+        throw new AppError('NOT_FOUND', 'Workflow run not found.');
+      if (error instanceof WorkflowRunUnavailable)
+        throw new AppError(
+          'CONFLICT',
+          'This run is not eligible for interrupted-run cancellation.',
+        );
+      throw new AppError('INTERNAL_ERROR', 'Workflow cancellation could not be confirmed.');
+    }
   }
 
   /** Only database-local deletion is implemented. Do not add external effects to this transaction. */
@@ -409,5 +501,6 @@ function toRun(row: WorkflowRunRow) {
     approvedBy: row.approved_by,
     approvedAt: row.approved_at,
     createdAt: row.created_at,
+    executionProtocol: row.execution_protocol,
   };
 }

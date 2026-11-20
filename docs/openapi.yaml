@@ -1211,6 +1211,46 @@ paths:
                 documentId: { type: string, format: uuid }
       responses:
         '200': { description: '`plans[]` and the recorded `runs[]`' }
+  /workflows/runs/{id}:
+    get:
+      tags: [Workflows]
+      summary: Inspect one tenant-scoped workflow run
+      operationId: getWorkflowRun
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: The run, recorded plan, outcome and execution protocol }
+        '404': { description: Run not found }
+  /workflows/runs/{id}/cancel-interrupted:
+    post:
+      tags: [Workflows]
+      summary: Cancel a reviewed interrupted workflow run without replaying it
+      description: Requires a signed-in owner, explicit review and an incident reference. Only consistent matched runs created under execution protocol 1 are eligible. Old binaries and external effects are not fenced.
+      operationId: cancelInterruptedWorkflowRun
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmReviewed, incidentReference]
+              properties:
+                confirmReviewed: { type: boolean, const: true }
+                incidentReference:
+                  {
+                    type: string,
+                    minLength: 1,
+                    maxLength: 80,
+                    pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,79}$',
+                  }
+      responses:
+        '200': { description: The cancelled run, now failed, and its recorded plan }
+        '400': { description: Review confirmation or incident reference is invalid }
+        '403': { description: Signed-in owner required }
+        '404': { description: Run not found }
+        '409': { description: Run is not eligible or was already completed or cancelled }
   /workflows/runs/{id}/approve:
     post:
       tags: [Workflows]
