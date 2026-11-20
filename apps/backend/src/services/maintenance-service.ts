@@ -28,11 +28,10 @@ export interface MaintenanceReport {
  * individually guarded, so a failure in one does not stop the others.
  */
 export interface MaintenanceServiceRepositories {
-  jobs: Pick<JobsRepository, 'enqueue'>;
+  jobs: Pick<JobsRepository, 'enqueueRetentionIfAbsent'>;
   maintenance: Pick<
     MaintenanceRepository,
     | 'organisationsWithRetention'
-    | 'findPendingPurge'
     | 'expiredExports'
     | 'markExportExpired'
     | 'expirePairingSessions'
@@ -113,14 +112,12 @@ export class MaintenanceService {
     const organisations = await this.maintenance.organisationsWithRetention();
     let enqueued = 0;
     for (const organisation of organisations) {
-      const existing = await this.maintenance.findPendingPurge(organisation.id);
-      if (existing) continue;
-      await this.jobs.enqueue({
+      const result = await this.jobs.enqueueRetentionIfAbsent({
         organisationId: organisation.id,
-        type: 'retention_purge',
-        payload: { scheduledAt: now.toISOString() },
+        scheduledAt: now.toISOString(),
+        onlyEnabled: true,
       });
-      enqueued += 1;
+      if (result.created) enqueued += 1;
     }
     return enqueued;
   }

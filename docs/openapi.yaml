@@ -1664,10 +1664,11 @@ paths:
   /retention/purge:
     post:
       tags: [Organisation]
-      summary: Purge expired documents now (admin)
+      summary: Queue a retention purge (admin)
       operationId: purgeRetention
       responses:
-        '202': { description: '`purged`: number of documents removed' }
+        '202':
+          { description: '`jobId` of the queued or already-active purge; not proof of deletion' }
   /projects:
     get:
       tags: [Projects]

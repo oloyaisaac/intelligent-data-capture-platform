@@ -49,10 +49,44 @@ export class JobsRepository {
   }
 
   /**
-   * Claim one runnable job. Extraction jobs for the same document serialize on its row; after
-   * taking that lock, recheck for another running extraction before claiming. The queued/runnable
-   * predicate is rechecked on update because a competing claimant can select the same row.
-   * This does not make retries, crash recovery or external effects exactly-once.
+   * Serialize supported manual and scheduled purge requests on the organisation row. This does
+   * not deduplicate pre-existing jobs, fence running side effects, or constrain older writers.
+   */
+  async enqueueRetentionIfAbsent(input: {
+    organisationId: string;
+    scheduledAt?: string;
+    onlyEnabled?: boolean;
+  }): Promise<{ job: JobRow | null; created: boolean }> {
+    return this.db.transaction(async (tx) => {
+      const lock = tx.driver === 'postgres' ? ' FOR UPDATE' : '';
+      const organisation = await tx.one<{ retention_days: number }>(
+        `SELECT retention_days FROM organisations WHERE id = ?${lock}`,
+        [input.organisationId],
+      );
+      if (!organisation) throw new Error('Organisation not found for retention job.');
+      if (input.onlyEnabled && Number(organisation.retention_days) <= 0) {
+        return { job: null, created: false };
+      }
+      const existing = await tx.one<JobRow>(
+        `SELECT * FROM jobs WHERE organisation_id = ? AND type = 'retention_purge'
+         AND status IN ('queued', 'running') ORDER BY created_at, id LIMIT 1`,
+        [input.organisationId],
+      );
+      if (existing) return { job: existing, created: false };
+      const job = await new JobsRepository(tx).enqueue({
+        organisationId: input.organisationId,
+        type: 'retention_purge',
+        ...(input.scheduledAt ? { payload: { scheduledAt: input.scheduledAt } } : {}),
+      });
+      return { job, created: true };
+    });
+  }
+
+  /**
+   * Claim one runnable job. Extraction jobs serialize on their document row; retention purges
+   * serialize on their organisation row. After locking, recheck for a running equivalent job.
+   * The queued/runnable predicate is also rechecked. This prevents concurrent claims by these
+   * binaries but does not make retries, crash recovery or external effects exactly-once.
    */
   async claimNext(now: string = nowIso()): Promise<JobRow | null> {
     return this.db.transaction(async (tx) => {
@@ -66,6 +100,10 @@ export class JobsRepository {
              SELECT 1 FROM jobs active WHERE active.organisation_id = j.organisation_id
                AND active.document_id = j.document_id AND active.type = 'extract_document'
                AND active.status = 'running'
+           ))
+           AND (j.type <> 'retention_purge' OR NOT EXISTS (
+             SELECT 1 FROM jobs active WHERE active.organisation_id = j.organisation_id
+               AND active.type = 'retention_purge' AND active.status = 'running'
            ))
          ORDER BY j.created_at, j.id LIMIT 1${candidateLock}`,
         [now],
@@ -83,6 +121,19 @@ export class JobsRepository {
           `SELECT id FROM jobs WHERE organisation_id = ? AND document_id = ?
            AND type = 'extract_document' AND status = 'running' LIMIT 1`,
           [candidate.organisation_id, candidate.document_id],
+        );
+        if (running) return null;
+      }
+      if (candidate.type === 'retention_purge') {
+        const lock = tx.driver === 'postgres' ? ' FOR UPDATE' : '';
+        // Distinct queued purge jobs for one organisation serialize on the same row.
+        await tx.one(`SELECT id FROM organisations WHERE id = ?${lock}`, [
+          candidate.organisation_id,
+        ]);
+        const running = await tx.one<{ id: string }>(
+          `SELECT id FROM jobs WHERE organisation_id = ? AND type = 'retention_purge'
+           AND status = 'running' LIMIT 1`,
+          [candidate.organisation_id],
         );
         if (running) return null;
       }

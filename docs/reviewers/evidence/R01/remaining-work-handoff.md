@@ -16,7 +16,10 @@ databases with real separate processes at claim, failure, recovery, concurrent w
 publication and external-effect boundaries. Cover conflicting distinct jobs, purge and review as
 well as the same-claim publication guard. Establish operational detection and bounded shutdown.
 See `worker-recovery-design.md` and findings ARC-013/ARC-021. A happy-path 20-document test and the
-new narrow SQLite live-claim regression do not by themselves satisfy P6.
+new narrow SQLite live-claim regression do not by themselves satisfy P6. ARC-024 additionally
+records incomplete retention deletion: primary file failures are now retried instead of silently
+reported as purged, but prior soft-deleted files, separate pages and retained/derived rows require a
+designed and authorized reconciliation and deletion strategy.
 
 ## P8 — connector isolation
 

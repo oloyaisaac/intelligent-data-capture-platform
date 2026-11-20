@@ -62,6 +62,7 @@ export interface DocumentServiceRepositories {
     | 'findById'
     | 'findByIdempotencyKey'
     | 'findExpiredForPurge'
+    | 'hasOtherStorageReference'
     | 'list'
     | 'softDelete'
     | 'updateStatus'
@@ -342,7 +343,7 @@ export class DocumentService {
     });
   }
 
-  /** Soft delete: the record disappears from the app; the purge job removes the bytes. */
+  /** Soft delete hides the record. Existing soft-deleted files are not purged by retention. */
   async delete(actor: AuthenticatedActor, id: string): Promise<void> {
     const ok = await this.documents.softDelete(actor.organisationId, id);
     if (!ok) throw new AppError('NOT_FOUND', 'Document not found.');
@@ -357,25 +358,40 @@ export class DocumentService {
   }
 
   /**
-   * SEC-001 retention purge: removes storage objects and rows, and audits what it did.
-   * Returns the number of documents purged.
+   * Attempt to delete each expired document's primary file, then soft-delete its metadata.
+   * A failed or shared file remains eligible for retry; this is not an atomic storage/DB purge.
    */
   async purgeExpired(organisationId: string, retentionDays: number): Promise<number> {
     if (retentionDays <= 0) return 0;
     const expired = await this.documents.findExpiredForPurge(organisationId, retentionDays);
+    let purged = 0;
+    let incomplete = false;
     for (const document of expired) {
-      await this.storage.delete(document.storage_key).catch(() => undefined);
-      await this.documents.softDelete(organisationId, document.id);
+      try {
+        // Check all tenants and page references; storage keys must not be reused. The check and
+        // external delete are not atomic, so out-of-band writers remain an unsupported race.
+        if (await this.documents.hasOtherStorageReference(document.id, document.storage_key)) {
+          incomplete = true;
+          continue;
+        }
+        await this.storage.delete(document.storage_key);
+        if (await this.documents.softDelete(organisationId, document.id)) purged += 1;
+      } catch {
+        // Storage errors may contain paths or secrets. Do not mark this row deleted or log details.
+        incomplete = true;
+      }
     }
-    if (expired.length > 0) {
+    if (purged > 0) {
       await this.audit.record({
         organisationId,
         actorType: 'system',
         action: 'retention.purged',
-        metadata: { count: expired.length, retentionDays, purgedAt: nowIso() },
+        metadata: { count: purged, retentionDays, purgedAt: nowIso() },
       });
-      this.logger.info('retention purge complete', { organisationId, count: expired.length });
+      this.logger.info('retention documents soft-deleted', { organisationId, count: purged });
     }
-    return expired.length;
+    if (incomplete)
+      throw new Error('Retention purge incomplete; file deletion needs review or retry.');
+    return purged;
   }
 }

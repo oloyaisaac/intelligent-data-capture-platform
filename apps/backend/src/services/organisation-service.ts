@@ -17,7 +17,7 @@ export interface OrganisationServiceRepositories {
     'listForOrganisation' | 'countOwners' | 'updateRole' | 'remove'
   >;
   audit: Pick<AuditRepository, 'list' | 'record'>;
-  jobs: Pick<JobsRepository, 'countByStatus' | 'enqueue'>;
+  jobs: Pick<JobsRepository, 'countByStatus' | 'enqueueRetentionIfAbsent'>;
   dashboard: Pick<
     DashboardRepository,
     | 'documentsByStatus'
@@ -254,10 +254,10 @@ export class OrganisationService {
     if (!roleAtLeast(actor.role, 'admin')) {
       throw new AppError('ROLE_REQUIRED', 'Only admins can run retention.');
     }
-    const job = await this.jobs.enqueue({
+    const { job } = await this.jobs.enqueueRetentionIfAbsent({
       organisationId: actor.organisationId,
-      type: 'retention_purge',
     });
+    if (!job) throw new AppError('NOT_FOUND', 'Organisation not found.');
     return { jobId: job.id };
   }
 

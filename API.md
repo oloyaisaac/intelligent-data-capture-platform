@@ -196,15 +196,15 @@ Errors: `422 PAIRING_TOKEN_EXPIRED`, `422 PAIRING_TOKEN_USED`, `404 PAIRING_SESS
 
 ## 5. Documents
 
-| Method | Path                       | Purpose                                                                               |
-| ------ | -------------------------- | ------------------------------------------------------------------------------------- |
-| POST   | `/documents`               | Upload a document (multipart: `file`, optional `documentType`, `templateId`)          |
-| GET    | `/documents`               | List/filter (`status`, `type`, `deviceId`, `from`, `to`)                              |
-| GET    | `/documents/:id`           | Metadata + processing status                                                          |
-| GET    | `/documents/:id/file`      | Stream the original image (authorised, never public)                                  |
-| GET    | `/documents/:id/result`    | Current extraction (UDM + flattened fields/tables)                                    |
-| POST   | `/documents/:id/reprocess` | Re-run extraction (admin/reviewer); returns 409 while extraction is queued or running |
-| DELETE | `/documents/:id`           | Soft delete, then purge per retention policy                                          |
+| Method | Path                       | Purpose                                                                                    |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------------ |
+| POST   | `/documents`               | Upload a document (multipart: `file`, optional `documentType`, `templateId`)               |
+| GET    | `/documents`               | List/filter (`status`, `type`, `deviceId`, `from`, `to`)                                   |
+| GET    | `/documents/:id`           | Metadata + processing status                                                               |
+| GET    | `/documents/:id/file`      | Stream the original image (authorised, never public)                                       |
+| GET    | `/documents/:id/result`    | Current extraction (UDM + flattened fields/tables)                                         |
+| POST   | `/documents/:id/reprocess` | Re-run extraction (admin/reviewer); returns 409 while extraction is queued or running      |
+| DELETE | `/documents/:id`           | Soft delete (the retention worker currently skips already-deleted records and their files) |
 
 `POST /documents` — requires `Idempotency-Key`; max 20 MB per image, JPEG/PNG/PDF/HEIC.
 
@@ -377,29 +377,29 @@ explains its outcome — including the runs that skipped.
 
 ## 8. Organisation, users and audit
 
-| Method | Path                         | Purpose                                                         |
-| ------ | ---------------------------- | --------------------------------------------------------------- |
-| GET    | `/organisation`              | Current organisation and settings                               |
-| PATCH  | `/organisation`              | Update name, retention, AI provider (owner/admin)               |
-| GET    | `/users`                     | Members and roles                                               |
-| POST   | `/users/invite`              | Invite member; returns a single-use link (no email delivery)    |
-| PATCH  | `/users/:id/role`            | Change role                                                     |
-| DELETE | `/users/:id`                 | Remove member                                                   |
-| GET    | `/audit-logs`                | Filter by actor, action, target, date range (admin)             |
-| GET    | `/audit-logs.csv`            | The same rows as a CSV attachment; the export is itself audited |
-| GET    | `/stats`                     | Counts for the dashboard                                        |
-| POST   | `/retention/purge`           | Purge expired documents now (admin)                             |
-| GET    | `/documents/{id}/duplicates` | Preview duplicate matches against a destination (`DUP-001`)     |
-| POST   | `/documents/{id}/send`       | Send with the mapping profile's duplicate policy (`DUP-001`)    |
-| GET    | `/templates`                 | Document templates, optionally by document type                 |
-| POST   | `/templates`                 | Create a template (from scratch or a processed document)        |
-| GET    | `/templates/:id`             | Template with its version history                               |
-| PATCH  | `/templates/:id`             | Update a template; a field-list change creates a version        |
-| DELETE | `/templates/:id`             | Disable a template (history is kept)                            |
-| GET    | `/api-keys`                  | API keys (secrets are never returned)                           |
-| POST   | `/api-keys`                  | Create a key — the secret is returned in this response only     |
-| DELETE | `/api-keys/:id`              | Revoke a key                                                    |
-| GET    | `/events`                    | Server-sent events for the desktop (see §9)                     |
+| Method | Path                         | Purpose                                                                                  |
+| ------ | ---------------------------- | ---------------------------------------------------------------------------------------- |
+| GET    | `/organisation`              | Current organisation and settings                                                        |
+| PATCH  | `/organisation`              | Update name, retention, AI provider (owner/admin)                                        |
+| GET    | `/users`                     | Members and roles                                                                        |
+| POST   | `/users/invite`              | Invite member; returns a single-use link (no email delivery)                             |
+| PATCH  | `/users/:id/role`            | Change role                                                                              |
+| DELETE | `/users/:id`                 | Remove member                                                                            |
+| GET    | `/audit-logs`                | Filter by actor, action, target, date range (admin)                                      |
+| GET    | `/audit-logs.csv`            | The same rows as a CSV attachment; the export is itself audited                          |
+| GET    | `/stats`                     | Counts for the dashboard                                                                 |
+| POST   | `/retention/purge`           | Queue retention work (admin); returns an existing queued/running purge job if one exists |
+| GET    | `/documents/{id}/duplicates` | Preview duplicate matches against a destination (`DUP-001`)                              |
+| POST   | `/documents/{id}/send`       | Send with the mapping profile's duplicate policy (`DUP-001`)                             |
+| GET    | `/templates`                 | Document templates, optionally by document type                                          |
+| POST   | `/templates`                 | Create a template (from scratch or a processed document)                                 |
+| GET    | `/templates/:id`             | Template with its version history                                                        |
+| PATCH  | `/templates/:id`             | Update a template; a field-list change creates a version                                 |
+| DELETE | `/templates/:id`             | Disable a template (history is kept)                                                     |
+| GET    | `/api-keys`                  | API keys (secrets are never returned)                                                    |
+| POST   | `/api-keys`                  | Create a key — the secret is returned in this response only                              |
+| DELETE | `/api-keys/:id`              | Revoke a key                                                                             |
+| GET    | `/events`                    | Server-sent events for the desktop (see §9)                                              |
 
 ### 8b. Projects and invitations (TEAM-001)
 
