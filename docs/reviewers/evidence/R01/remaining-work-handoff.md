@@ -94,3 +94,10 @@ must inspect the actual reviewed commit, execute or verify the required R01 chec
 passing condition and finding/exception, and record their own named, dated decision in the specified
 review artefact. That person's decision cannot be delegated to the author of these changes or
 pre-filled here. G1/G8 remain unsigned until the required people actually review and decide.
+
+### Batch and runtime error disclosure (ARC-028 / ARC-025)
+
+New batch failures use fixed messages and API/CSV reads mask arbitrary historical batch error text.
+Historical rows and copies still contain their original values and require an authorized exposure
+assessment and remediation. Other provider, runtime and registry error boundaries were narrowed;
+they do not establish that every application or third-party log and output is safe. See `findings.md`.

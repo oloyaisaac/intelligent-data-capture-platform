@@ -41,6 +41,7 @@ be refreshed against the final reviewed commit; a blank or unchecked reviewer it
 | ARC-025 HIGH   | Historical worker error logs, records and events plus other application/provider logging require exposure assessment and remediation.                                                                                                    |
 | ARC-026 HIGH   | Interrupted and historical export files, publication/audit races, writer fencing and authorized reconciliation; inventory is advisory only.                                                                                              |
 | ARC-027 HIGH   | Current-version database-only deletion and approval are transactional; reviewed protocol-1 matched runs can be cancelled without replay. Historical records, mixed versions, repeated evaluation and external effects remain unresolved. |
+| ARC-028 HIGH   | Batch exception text was persisted and returned; current responses mask legacy values, but historical rows, exports, logs and backups need authorized exposure assessment and remediation. Other error boundaries remain unaudited.      |
 
 These are the currently recorded findings, not a claim that no other defects exist. Owners and gate
 chairs must determine whether fixes or permitted, written and dated exceptions satisfy P12.

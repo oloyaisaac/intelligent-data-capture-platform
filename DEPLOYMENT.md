@@ -123,6 +123,11 @@ without TLS. `docker compose down` preserves the named database and document vol
 `docker compose down --volumes` on a deployment** unless you intend to delete that data. Keep
 `.env.compose` outside version control and use a secret manager for a real production host.
 
+Startup and migration/seed command failures print generic diagnostics rather than raw exception text,
+which can contain database credentials or paths. If startup fails, inspect configuration, database
+connectivity and migration state using approved operational tools; avoid copying secrets into logs or
+incident reports. Historical logs are not changed by this behavior.
+
 On `SIGTERM`/`SIGINT`, shutdown waits for active maintenance and claimed worker work before
 closing the HTTP server and database. There is no application shutdown deadline; configure the
 supervisor's grace period accordingly. A forced kill may interrupt work. Startup no longer requeues

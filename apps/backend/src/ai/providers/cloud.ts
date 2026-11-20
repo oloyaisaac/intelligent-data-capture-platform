@@ -38,6 +38,11 @@ export class CloudVisionProvider implements OcrProvider {
     const fetchImpl = this.options.fetchImpl ?? fetch;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 45_000);
+    let ownedFailure: ProviderUnavailableError | undefined;
+    const fail = (message: string): never => {
+      ownedFailure = new ProviderUnavailableError(message);
+      throw ownedFailure;
+    };
 
     try {
       const response = await fetchImpl(this.options.endpoint, {
@@ -80,14 +85,14 @@ export class CloudVisionProvider implements OcrProvider {
       if (!response.ok) {
         const status = response.status;
         if (status === 401 || status === 403) {
-          throw new ProviderUnavailableError('The cloud AI provider rejected our credentials.');
+          fail('The cloud AI provider rejected our credentials.');
         }
         if (status === 429) {
-          throw new ProviderUnavailableError(
-            'The cloud AI provider is rate limiting us. Try again shortly.',
-          );
+          fail('The cloud AI provider is rate limiting us. Try again shortly.');
         }
-        throw new ProviderUnavailableError(`The cloud AI provider returned HTTP ${status}.`);
+        if (Number.isInteger(status) && status >= 100 && status <= 599)
+          fail(`The cloud AI provider returned HTTP ${status}.`);
+        fail('The cloud AI provider returned an invalid response.');
       }
 
       const payload = (await response.json()) as {
@@ -114,13 +119,12 @@ export class CloudVisionProvider implements OcrProvider {
         costMicros,
       };
     } catch (error) {
-      if (error instanceof ProviderUnavailableError) throw error;
-      if ((error as Error).name === 'AbortError') {
+      if (ownedFailure && error === ownedFailure) throw ownedFailure;
+      if (error instanceof Error && error.name === 'AbortError') {
         throw new ProviderUnavailableError('The cloud AI provider timed out.');
       }
-      throw new ProviderUnavailableError(
-        `Could not reach the cloud AI provider: ${(error as Error).message}`,
-      );
+      // Fetch and response parsing exceptions may contain credentials, URLs or document text.
+      throw new ProviderUnavailableError('Could not reach or read the cloud AI provider response.');
     } finally {
       clearTimeout(timeout);
     }

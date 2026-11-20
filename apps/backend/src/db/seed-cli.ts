@@ -67,7 +67,7 @@ async function main(): Promise<void> {
   await db.close();
 }
 
-main().catch((error: unknown) => {
-  console.error('Seed failed:', error instanceof Error ? error.message : error);
+main().catch(() => {
+  console.error('Seed failed. Check configuration and database state.');
   process.exit(1);
 });

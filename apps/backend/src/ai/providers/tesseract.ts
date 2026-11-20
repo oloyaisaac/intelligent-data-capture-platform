@@ -30,16 +30,22 @@ export class TesseractProvider implements OcrProvider {
 
   async ocr(input: OcrInput, context: { logger: Logger }): Promise<OcrResult> {
     const started = Date.now();
-    const directory = await mkdtemp(join(tmpdir(), 'idcp-ocr-'));
-    const extension = extensionForMimeType(input.mimeType);
-    const file = join(directory, `page.${extension}`);
+    let directory: string | null = null;
+    let result: OcrResult | undefined;
+    let failure: ProviderUnavailableError | undefined;
+    let launchingEngine = false;
 
     try {
+      directory = await mkdtemp(join(tmpdir(), 'idcp-ocr-'));
+      const extension = extensionForMimeType(input.mimeType);
+      const file = join(directory, `page.${extension}`);
       await writeFile(file, input.buffer);
+      launchingEngine = true;
       const { stdout } = await run(this.binary, [file, 'stdout', '--psm', '6', 'tsv'], {
         timeout: 60_000,
         maxBuffer: 32 * 1024 * 1024,
       });
+      launchingEngine = false;
       const parsed = parseTsv(stdout);
       context.logger.debug('ocr completed', {
         provider: this.name,
@@ -47,7 +53,7 @@ export class TesseractProvider implements OcrProvider {
         words: parsed.words.length,
         latencyMs: Date.now() - started,
       });
-      return {
+      result = {
         text: parsed.text,
         words: parsed.words,
         provider: this.name,
@@ -55,21 +61,31 @@ export class TesseractProvider implements OcrProvider {
         costMicros: 0,
       };
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
-        throw new ProviderUnavailableError(
+      const code =
+        error && typeof error === 'object' ? (error as NodeJS.ErrnoException).code : undefined;
+      if (launchingEngine && code === 'ENOENT') {
+        failure = new ProviderUnavailableError(
           'Local OCR engine is not installed. Install tesseract (or set TESSERACT_BIN) and try again.',
         );
+      } else if (launchingEngine && code === 'ETIMEDOUT') {
+        failure = new ProviderUnavailableError('OCR timed out. Try a smaller or clearer image.');
+      } else {
+        // A child-process error can include file paths, stderr or sensitive document text.
+        failure = new ProviderUnavailableError('Local OCR failed. Check the engine and try again.');
       }
-      if (code === 'ETIMEDOUT') {
-        throw new ProviderUnavailableError('OCR timed out. Try a smaller or clearer image.');
-      }
-      throw new ProviderUnavailableError(
-        `OCR failed: ${error instanceof Error ? error.message : 'unknown error'}`,
-      );
-    } finally {
-      await rm(directory, { recursive: true, force: true });
     }
+    if (directory) {
+      try {
+        await rm(directory, { recursive: true, force: true });
+      } catch {
+        // Don't leak filesystem error text; do not silently claim temporary data was removed.
+        throw new ProviderUnavailableError('Could not clean up temporary OCR files.');
+      }
+    }
+    if (failure) throw failure;
+    if (!result)
+      throw new ProviderUnavailableError('Local OCR failed. Check the engine and try again.');
+    return result;
   }
 }
 

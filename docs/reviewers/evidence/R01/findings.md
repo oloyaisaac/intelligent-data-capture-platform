@@ -388,3 +388,29 @@ values with the target key alone in the transaction, and a later check requires 
 zero. `connector-config-migration.test.ts` reproduces the prior false clean result and tests the
 corrected CLI. This is synthetic and does not migrate MFA or prove a production rollout. Historical
 backups still require their original keys. ARC-023 and independent security review remain open.
+
+### ARC-028 — batch exception text persisted and exposed (HIGH, partially remediated)
+
+Batch creation previously copied arbitrary storage, database and adapter exception messages into
+`batch_items.error`, application logs, batch JSON and CSV. A connector registry lookup also copied
+arbitrary adapter exception text into an HTTP validation error. Those paths can disclose credentials,
+filesystem paths or document content. The batch service now persists and logs only fixed
+application-owned messages, and masks historical free-text errors on all batch JSON and CSV reads;
+legacy database values themselves are not rewritten. Known validation classes retain fixed messages.
+Registry lookup failures now return a fixed message. Synthetic HTTP tests cover ordinary and
+application errors, non-Error throws, legacy database values, CSV/list/detail/items, tenant scope
+and subsequent successful items. This is output masking, not deletion of old rows, exports, logs,
+backups, screenshots or other copies. Authorized assessment and remediation of historical exposure
+remain open, as does a broader audit of other error/output boundaries. Owner: unassigned; backend
+security and data governance.
+
+### ARC-025 update — additional runtime and provider error boundaries
+
+Current-version cloud OCR transport/parsing and local OCR child failures now return fixed error
+messages; the cloud provider only rethrows its own status errors. Unhandled process rejections,
+realtime subscriber failures and batch temporary-file cleanup failures no longer log exception text.
+API startup, migration and seed fatal errors now log generic diagnostics rather than potentially
+sensitive database/configuration exceptions; this sacrifices detailed startup diagnostics, so
+operators must inspect configuration and dependencies without copying secrets. Tests exercise real
+subprocesses, injected failures and a synthetic OCR executable. Historical log copies and other
+logging paths are not remediated or comprehensively assessed; ARC-025 and security review remain open.

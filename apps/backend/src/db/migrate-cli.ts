@@ -15,7 +15,9 @@ async function main(): Promise<void> {
   await db.close();
 }
 
-main().catch((error: unknown) => {
-  console.error('Migration failed:', error instanceof Error ? error.message : error);
+main().catch(() => {
+  console.error(
+    'Migration failed. Check configuration, database connectivity and migration state.',
+  );
   process.exit(1);
 });

@@ -34,6 +34,34 @@ export interface BatchFile {
 
 const DONE_STATUSES = new Set(['extracted', 'needs_review', 'approved', 'failed', 'deleted']);
 
+// Never expose exception text from storage, database or injected adapters. Legacy batch rows can
+// already contain such text; only these exact application-owned strings are safe to return.
+const BATCH_FAILURE = 'This file could not be processed. Please retry or contact an administrator.';
+const BATCH_UNSUPPORTED =
+  'That file type is not supported. Upload a JPEG, PNG, HEIC image or a PDF.';
+const BATCH_TOO_LARGE = 'That file exceeds the upload size limit.';
+const BATCH_INVALID = 'That file could not be accepted. Check the file and try again.';
+const SAFE_BATCH_ERRORS = new Set([
+  BATCH_FAILURE,
+  BATCH_UNSUPPORTED,
+  BATCH_TOO_LARGE,
+  BATCH_INVALID,
+]);
+
+function batchFailure(error: unknown): string {
+  if (error instanceof AppError) {
+    if (error.code === 'UNSUPPORTED_MEDIA_TYPE') return BATCH_UNSUPPORTED;
+    if (error.code === 'PAYLOAD_TOO_LARGE') return BATCH_TOO_LARGE;
+    if (error.code === 'FIELD_VALIDATION_FAILED') return BATCH_INVALID;
+  }
+  return BATCH_FAILURE;
+}
+
+function publicBatchError(error: string | null): string | undefined {
+  if (!error) return undefined;
+  return SAFE_BATCH_ERRORS.has(error) ? error : BATCH_FAILURE;
+}
+
 export interface BatchServiceRepositories {
   batches: Pick<BatchesRepository, 'create' | 'addItem' | 'findById' | 'items' | 'list'>;
   documents: Pick<DocumentsRepository, 'findById'>;
@@ -125,13 +153,13 @@ export class BatchService {
         });
       } catch (error) {
         // A bad file must not fail the batch (BATCH-001 acceptance criteria).
-        const message = error instanceof Error ? error.message : 'This file could not be read.';
+        const message = batchFailure(error);
         await this.batches.addItem({
           batchId: batch.id,
           documentId: null,
           position: index,
           filename: file.filename ?? null,
-          error: message.slice(0, 300),
+          error: message,
         });
         this.logger.warn('batch item rejected', {
           batchId: batch.id,
@@ -213,7 +241,7 @@ export class BatchService {
         documentId: row.document_id ?? null,
         documentType: document?.document_type,
         status,
-        error: row.error ?? undefined,
+        error: publicBatchError(row.error),
         updatedAt: document?.updated_at ?? row.created_at,
       });
     }
