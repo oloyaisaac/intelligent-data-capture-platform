@@ -83,10 +83,9 @@ describe('maintenance scheduler', () => {
     const query = jest.fn().mockReturnValue(pending);
     const scheduler = new MaintenanceService(
       {
-        jobs: { enqueue: jest.fn() },
+        jobs: { enqueueRetentionIfAbsent: jest.fn() },
         maintenance: {
           organisationsWithRetention: query,
-          findPendingPurge: jest.fn(),
           expiredExports: jest.fn().mockResolvedValue([]),
           markExportExpired: jest.fn(),
           expirePairingSessions: jest.fn().mockResolvedValue(0),

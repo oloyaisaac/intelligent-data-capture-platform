@@ -217,6 +217,16 @@ export class DocumentsRepository {
     return true;
   }
 
+  /** Fail closed before retention deletes a key referenced by any other document or its pages. */
+  async hasOtherStorageReference(documentId: string, key: string): Promise<boolean> {
+    const row = await this.db.one(
+      `SELECT id FROM documents WHERE id <> ? AND storage_key = ?
+       UNION ALL SELECT id FROM document_pages WHERE document_id <> ? AND storage_key = ? LIMIT 1`,
+      [documentId, key, documentId, key],
+    );
+    return row !== null;
+  }
+
   /** Documents past the organisation's retention window (SEC-001). */
   async findExpiredForPurge(organisationId: string, retentionDays: number): Promise<DocumentRow[]> {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();

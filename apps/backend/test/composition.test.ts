@@ -242,7 +242,7 @@ it('uses injected organisation repositories with tenant scope and role checks', 
       remove: jest.fn(),
     },
     audit: { list: jest.fn(), record: jest.fn() },
-    jobs: { countByStatus: jest.fn(), enqueue: jest.fn() },
+    jobs: { countByStatus: jest.fn(), enqueueRetentionIfAbsent: jest.fn() },
     dashboard: {
       documentsByStatus: jest.fn(),
       documentsByType: jest.fn(),
@@ -346,6 +346,15 @@ it('uses injected review repositories for tenant-scoped queue and approval', asy
     },
     audit: { record: jest.fn() },
     organisations: { findLearningOptIn: jest.fn() },
+    transaction: (run) =>
+      run({
+        documents: { ...repositories.documents, lockForReprocess: jest.fn() },
+        extractions: repositories.extractions,
+        reviews: repositories.reviews,
+        changes: repositories.changes,
+        jobs: { hasActiveExtraction: jest.fn() },
+        audit: repositories.audit,
+      }),
   };
   const service = new ReviewService(repositories, new InMemoryRealtimeHub(), logger);
   expect(await service.queue(actor, 10)).toEqual({ items: [], total: 0 });
@@ -472,6 +481,7 @@ it('uses injected document repositories and rejects a document outside the actor
       findById: jest.fn().mockResolvedValue(null),
       findByIdempotencyKey: jest.fn(),
       findExpiredForPurge: jest.fn(),
+      hasOtherStorageReference: jest.fn(),
       list: jest.fn().mockResolvedValue([]),
       softDelete: jest.fn(),
       updateStatus: jest.fn(),
@@ -488,6 +498,7 @@ it('uses injected document repositories and rejects a document outside the actor
           queueForReprocess: jest.fn(),
         },
         pages: { create: jest.fn() },
+        reviews: { supersedeOpenForDocument: jest.fn() },
         jobs: { ...repositories.jobs, hasActiveExtraction: jest.fn() },
         audit: repositories.audit,
       }),
@@ -511,10 +522,9 @@ it('uses injected document repositories and rejects a document outside the actor
 
 it('runs independent maintenance steps with injected repositories and no database', async () => {
   const repositories: MaintenanceServiceRepositories = {
-    jobs: { enqueue: jest.fn() },
+    jobs: { enqueueRetentionIfAbsent: jest.fn() },
     maintenance: {
       organisationsWithRetention: jest.fn().mockResolvedValue([]),
-      findPendingPurge: jest.fn(),
       expiredExports: jest.fn().mockResolvedValue([]),
       markExportExpired: jest.fn(),
       expirePairingSessions: jest.fn().mockResolvedValue(2),
@@ -539,7 +549,7 @@ it('runs independent maintenance steps with injected repositories and no databas
     resetTokensDeleted: 4,
   });
   expect(repositories.maintenance.expirePairingSessions).toHaveBeenCalledWith(time.toISOString());
-  expect(repositories.jobs.enqueue).not.toHaveBeenCalled();
+  expect(repositories.jobs.enqueueRetentionIfAbsent).not.toHaveBeenCalled();
 });
 
 it('uses injected privacy repositories and refuses erasure for a missing user', async () => {

@@ -268,8 +268,15 @@ Additional gaps:
 
 - MFA enrollment, TOTP and one-use recovery codes exist. Loss of all factors lacks a verified
   administrative recovery path; MFA is not a substitute for account recovery controls.
-- Maintenance runs in-process. Multiple schedulers are not proven safe, including purge enqueue
-  coordination; use one supported instance (DEC-031).
+- Maintenance runs in-process. Manual and scheduled purge requests now coalesce under an
+  organisation lock, and new claims for existing same-organisation purge jobs serialize, but this
+  does not make multiple schedulers generally safe or fence old binaries; use one supported instance
+  (DEC-031). Retention is not a complete erasure mechanism:
+  it currently skips already soft-deleted documents and separate page files, retains metadata and
+  derived records, and cannot atomically coordinate database and storage. A failed or shared primary
+  file leaves the job retryable until attempts are exhausted; monitor dead jobs and investigate.
+  Historical leaked files need authorized reconciliation, not an assumption that a successful job
+  proves deletion. See R01 ARC-024.
 - Playwright exercises browser journeys in CI; native mobile and packaged desktop end-to-end
   tests are not established.
 - Worker crash recovery lacks ownership fencing; connector execution is not process-isolated.

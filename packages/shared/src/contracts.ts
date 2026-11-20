@@ -4,6 +4,7 @@ import {
   DOCUMENT_TYPES,
   DUPLICATE_POLICIES,
   LIMITS,
+  REVIEW_STATUSES,
   ROLES,
   UDM_VERSION,
 } from './constants';
@@ -611,7 +612,7 @@ export type ReviewQueueResponse = z.infer<typeof ReviewQueueResponseSchema>;
 
 export const ReviewSessionSchema = z.object({
   reviewId: z.string(),
-  status: z.enum(['in_progress', 'approved', 'rejected']),
+  status: z.enum(REVIEW_STATUSES),
   document: z.lazy(() => DocumentSchema),
   documentType: z.enum(DOCUMENT_TYPES),
   documentTypeConfidence: z.number(),

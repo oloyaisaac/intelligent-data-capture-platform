@@ -8,16 +8,6 @@ export class MaintenanceRepository {
     return this.db.query<{ id: string }>('SELECT id FROM organisations WHERE retention_days > 0');
   }
 
-  findPendingPurge(organisationId: string): Promise<{ id: string } | null> {
-    return this.db.one<{ id: string }>(
-      `SELECT id FROM jobs
-        WHERE organisation_id = ? AND type = 'retention_purge'
-          AND status IN ('queued', 'running')
-        LIMIT 1`,
-      [organisationId],
-    );
-  }
-
   expiredExports(now: string): Promise<Array<{ id: string; storage_key: string | null }>> {
     return this.db.query<{ id: string; storage_key: string | null }>(
       `SELECT id, storage_key FROM exports

@@ -41,7 +41,7 @@ export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 export const JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'dead'] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
-export const REVIEW_STATUSES = ['in_progress', 'approved', 'rejected'] as const;
+export const REVIEW_STATUSES = ['in_progress', 'approved', 'rejected', 'superseded'] as const;
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
 
 export const DOCUMENT_TYPES = [

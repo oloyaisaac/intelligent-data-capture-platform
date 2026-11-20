@@ -17,6 +17,28 @@ owner has accepted these findings or provided a dated exception.
 | ARC-021 | HIGH     | `apps/backend/src/services/worker.ts` (`stop`, `drain`), `apps/backend/src/index.ts` (shutdown)                                                       | **Partially remediated:** a normal SIGTERM previously exited and closed the database while an extraction was running; concurrent calls to one worker's drain could also overlap. Shutdown now waits for startup and active work and coalesces drains. Active maintenance sweeps are also awaited. No shutdown deadline or forced-kill safety is established.                   | `worker-lifecycle.test.ts` and `worker-shutdown-process.test.ts` fail on the prior worker and pass locally with this change; test uses synthetic OCR and SQLite. Design and test bounded shutdown, crashes, ownership and fencing; validate maintenance across replicas.                                                                                 | Unassigned; backend reliability                   |
 | ARC-022 | HIGH     | `apps/backend/src/ai/providers/cloud.ts` (`ocr`), `apps/backend/src/config.ts`, `DEPLOYMENT.md` §10                                                   | **Not remediated:** despite the configuration name, the cloud cost setting is not a hard spend cap. The request is made before a rough token estimate is compared; it only logs a warning, absent usage becomes zero, and there is no cumulative budget or reservation. The prior implementation comment and deployment guide incorrectly claimed enforcement.                 | `ai.test.ts` demonstrates that an over-threshold response is returned and only warned after the request. Comments and operator guidance now describe the limitation; implement provider-aware pricing and pre-request budget controls, and verify billed usage before claiming enforcement.                                                              | Unassigned; AI/product and operations             |
 
+### ARC-024 — HIGH: incomplete retention deletion and unsafe file failure handling
+
+`apps/backend/src/services/document-service.ts` (`purgeExpired`) formerly swallowed primary-file
+deletion failures, soft-deleted the row, counted it as purged and let the job succeed. The row then
+fell outside `findExpiredForPurge`, so the file had no normal retention retry path. A regression in
+`retention-purge-safety.test.ts` failed before the change. The job now fails with a generic message
+and leaves that document eligible for retry; known references from other document/page rows also
+fail closed. Successful documents are counted separately. This is a **partial mitigation**, not
+complete deletion: existing soft-deleted documents are excluded from the scan, distinct page files,
+metadata and derived records remain, and file/DB changes are not atomic. A file can disappear while
+its row remains active if deletion succeeds but a later DB write fails, and the reference check can
+race new or out-of-band writers. Failed retries eventually become dead jobs; operator monitoring,
+reconciliation and a durable deletion protocol are needed. Backup, log and external copies remain
+out of scope. Owner: unassigned; retention/privacy and backend reliability owners.
+
+Manual and scheduled purge requests formerly could enqueue distinct jobs simultaneously. The
+supported enqueue paths now coalesce under an organisation lock; claiming separate existing purge
+jobs also rechecks for a running purge under the same lock. The focused tests demonstrate neither
+exactly-once effects nor multi-replica maintenance safety. Old binaries, out-of-band jobs, already
+running overlaps and operator-directed recovery can bypass the mitigation. See
+`worker-recovery-design.md` and keep ARC-013, ARC-021 and ARC-024 open.
+
 ### ARC-013 update — partial job-row guard
 
 A claim's `attempts` value now guards job success and failure updates, including the failure
@@ -53,11 +75,24 @@ extraction before changing the candidate to running. Focused synthetic SQLite te
 workers, two separate processes, and unrelated job progress; a PostgreSQL barrier test is included
 for CI. This is a partial concurrency guard, not a lease or a database constraint: existing running
 duplicates, missing documents, old binaries, out-of-band writers and manual requeue of live jobs are
-not fenced. External OCR may still repeat on retries. Review approval/rejection/corrections remain
-nontransactional relative to reprocessing and can act on stale extractions. In the synthetic
-`review-reprocess-risk.test.ts` characterization, rejecting an old review during new OCR changes the
-document to failed; the job then reports success without publishing its new result. This test records
-a defect, not an acceptable contract; see `worker-recovery-design.md`. P6 remains open.
+not fenced. External OCR may still repeat on retries. At that revision, review decisions were
+nontransactional relative to reprocessing and could act on stale extractions. A synthetic
+`review-reprocess-risk.test.ts` characterization showed that rejecting an old review during new OCR
+changed the document to failed while the job reported success without publishing its result. See the
+following update for the partial mitigation; P6 remains open.
+
+### ARC-013 update — review/reprocess transaction boundary
+
+The old characterization was replaced with a regression that expects a 409 for the stale rejection
+and publication of the new OCR result. Review open, correction, approval, rejection and bulk items
+now use the document lock and transaction-scoped repositories; reprocessing preserves but
+supersedes open reviews. Tests cover failed reprocessing, simultaneous decisions and rollback. A
+PostgreSQL lock-wait test is included for CI. Approved-snapshot reads now require the current
+approved document and latest extraction, with no active extraction job; tests exercise stale
+connector preview and direct snapshot lookup. These are point-in-time guards only: external
+sends/exports can race with subsequent reprocessing. Old binaries, event delivery, broader
+crash/erasure cases and independent review remain open. `worker-recovery-design.md` describes the
+supported semantics and limitations.
 
 ### ARC-017 update — connector write success values
 

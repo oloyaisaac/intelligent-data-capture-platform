@@ -80,12 +80,44 @@ worker test confirms one synthetic OCR and extraction, eventual duplicate-job co
 first publishes, and progress for an unrelated job. A PostgreSQL row-lock/barrier regression is
 included for CI; neither test establishes production safety or exactly-once provider calls.
 
-Review actions remain a separate unresolved race: approval, rejection and corrections currently use
-multiple independent writes without the reprocess document lock and can refer to an old extraction
-while reprocessing is queued or running. `review-reprocess-risk.test.ts` is a characterization of a
-defect, not an acceptance test: it opens an old review, starts reprocessing and pauses synthetic OCR,
-then rejects the old review. The API currently accepts the rejection, sets the document to failed,
-and the resumed job is marked succeeded without publishing the new extraction. The serialization
-above does not make review actions atomic or prevent stale decisions from changing document state.
-A complete fix needs agreed version and review lifecycle semantics, transactional locking and race
-tests on both databases; do not treat P6 as passed.
+## Review and reprocessing: partial mitigation
+
+The previously reproduced case opened an old review, paused a new OCR call, then rejected the old
+review; the rejection changed the document to failed and the resumed job reported success without
+publishing its result. The implementation now acquires the document lock for open, patch, approve,
+reject and each bulk item. It checks the lifecycle state, active extraction jobs and latest extraction
+under that lock; review writes and their audit are transactional. Reprocessing supersedes open
+reviews in its transaction, so they stay invalid even if reprocessing fails before publishing a new
+result. Review history is retained; `superseded` is a new review status. New reviews require a
+completed, reviewable extraction; old review IDs return conflict. See `API.md` for changed behavior.
+
+`review-reprocess-risk.test.ts` checks the original paused synthetic OCR case, queued/stale review
+operations, failed reprocess, concurrent decisions and audit/write rollback. `postgres.test.ts`
+contains a document-lock wait barrier exercising the stale decision check. These focused tests do not
+prove rolling-upgrade safety, all review/erasure races, crash recovery, external sends/exports, or
+event delivery. Approved-snapshot lookup now fails closed unless the document is currently approved,
+not deleted, has no active extraction job, and the approved review refers to its latest extraction;
+this prevents a duplicate preview from simply using an older approval after reprocessing. The check
+is a point-in-time read: sends, previews and exports can still race with later reprocessing after that
+read, and external effects cannot be rolled back. Those boundaries require separate review. Old
+binaries and out-of-band writers do not use this lock protocol. P6 remains open pending design, broader evidence,
+owner decisions and independent review.
+
+## Retention scheduling and file failures: partial mitigation
+
+Supported manual and maintenance scheduling now serialize on the organisation row and coalesce
+queued or running retention jobs. Claims of distinct existing purge jobs also lock that row and
+recheck for a running purge; waiting jobs do not consume attempts. A duplicate job can still run
+later, and this does not fence pre-existing overlapping claims, manually recovered live work, older
+binaries or external writers. Enqueueing no longer guarantees an additional pass if one is already
+running: manual requests receive that job ID. SQLite service tests, a two-process SQLite enqueue
+test, and PostgreSQL row-lock barrier regressions cover these narrow scenarios, not production
+process crashes or side-effect idempotency. The SQLite process test exercises scheduling, not file
+deletion or worker crashes.
+
+The retention worker no longer treats a primary-file deletion failure or a known other-document/page
+reference as success. It continues to other candidates, records only completed soft-deletes, and
+fails the job for retry without logging the storage error. The remaining flaws are documented in
+ARC-024: storage deletion and database writes are separate, sharing checks are not atomic, retries
+can exhaust, old soft-deleted documents are excluded, and separate page files and retained database
+rows are not purged. A queued/retried job or successful audit is not evidence of full erasure.

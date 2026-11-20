@@ -1,4 +1,10 @@
-import type { DocumentStatus, DocumentType, DuplicatePolicy, Role } from '@idcp/shared';
+import type {
+  DocumentStatus,
+  DocumentType,
+  DuplicatePolicy,
+  ReviewStatus,
+  Role,
+} from '@idcp/shared';
 
 export interface OrganisationRow {
   id: string;
@@ -147,7 +153,7 @@ export interface ReviewRow {
   document_id: string;
   extraction_id: string;
   reviewer_id: string;
-  status: 'in_progress' | 'approved' | 'rejected';
+  status: ReviewStatus;
   approved_udm: string | null;
   notes: string | null;
   completed_at: string | null;

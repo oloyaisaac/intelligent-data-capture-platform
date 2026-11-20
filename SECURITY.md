@@ -132,7 +132,11 @@ compatibility changes and limitations.
 ### 6.5 Personal data
 
 - Inventorise fields marked 🔒 in `DATABASE.md` as personal data.
-- Retention is configurable per organisation (`SEC-001`) and deletion is real (objects + rows), verified by `TC-11`.
+- Retention is configurable per organisation, but complete deletion is **not established**. The
+  current retention job soft-deletes document metadata and attempts the primary file only; it skips
+  already soft-deleted documents and does not remove separate page files, extraction/review data,
+  backups or logs. Storage and database updates are not atomic. Do not represent `TC-11` as proof of
+  complete deletion. See R01 finding ARC-024 and the operational limitations in `DEPLOYMENT.md`.
 - No customer data is used to train models without explicit, revocable opt-in.
 - Data-subject requests are served by the product, not by hand: `GET /me/export` returns everything held
   about the caller as a JSON attachment, and `POST /me/erase` anonymises the account, revokes its
