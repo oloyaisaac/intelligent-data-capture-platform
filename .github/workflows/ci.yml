@@ -178,6 +178,7 @@ jobs:
           # Disposable CI stack only: stop the API before exercising the packaged offline tool.
           docker compose --env-file "$env_file" stop api
           docker compose --env-file "$env_file" run --rm --no-deps api node dist/export-inventory.js --list --confirm-offline
+          docker compose --env-file "$env_file" run --rm --no-deps api node dist/worker-recovery.js --list --confirm-offline
 
   secrets:
     name: No committed secrets

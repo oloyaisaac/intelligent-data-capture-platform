@@ -203,15 +203,19 @@ export class JobsRepository {
     return Number(row?.count ?? 0);
   }
 
-  /** Limited metadata for an offline operator; never include payload or error text. */
-  listRunningForRecovery(): Promise<
+  /** Keyset page for an offline operator; never include payload or error text. */
+  listRunningForRecovery(
+    after: string | null,
+  ): Promise<
     Array<
       Pick<JobRow, 'id' | 'organisation_id' | 'document_id' | 'type' | 'attempts' | 'started_at'>
     >
   > {
     return this.db.query(
       `SELECT id, organisation_id, document_id, type, attempts, started_at
-       FROM jobs WHERE status = 'running' ORDER BY created_at, id LIMIT 1000`,
+       FROM jobs WHERE status = 'running' ${after === null ? '' : 'AND id > ?'}
+       ORDER BY id LIMIT 1001`,
+      after === null ? [] : [after],
     );
   }
 

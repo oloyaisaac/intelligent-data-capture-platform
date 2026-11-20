@@ -66,7 +66,10 @@ Operator-directed CLI requeues now require asserted operator and incident refere
 record a system audit with the guarded update. Failure injection and concurrent recovery tests cover
 rollback and one audit for one update; the references are not authenticated identities, and callers
 that use the lower-level repository directly or old binaries bypass the CLI. This does not establish
-that a process is dead or that external effects will not repeat.
+that a process is dead or that external effects will not repeat. The offline inventory is now
+keyset-paginated beyond 1,000 running jobs, with read-only SQLite access and a PostgreSQL read-only
+transaction for each list invocation. Pagination is not a snapshot across invocations and the
+confirmation cannot stop writers. Synthetic tests do not prove production operator controls.
 
 A named technical owner must choose and review the design, and evidence must demonstrate the stated
 semantics. None of the above constitutes an owner-approved exception or independent reviewer sign-off.

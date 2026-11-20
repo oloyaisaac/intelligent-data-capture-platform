@@ -5,11 +5,19 @@ import { WorkerRecoveryRepository } from '../repositories/worker-recovery-repo';
 import type { Database } from './database';
 import { PostgresDatabase } from './postgres';
 import { SqliteDatabase } from './sqlite';
+import { ReadOnlySqliteDatabase } from './read-only-sqlite';
 
 /** This command cannot verify that all workers are stopped or external effects are safe to retry. */
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const listing = args.length === 2 && args[0] === '--list' && args[1] === '--confirm-offline';
+  const listingAfter =
+    args.length === 4 &&
+    args[0] === '--list' &&
+    args[1] === '--after' &&
+    !!args[2] &&
+    args[2].length <= 256 &&
+    args[3] === '--confirm-offline';
   const recovering =
     args.length === 10 &&
     args[0] === '--requeue' &&
@@ -23,7 +31,7 @@ async function main(): Promise<void> {
     /^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,79}$/.test(args[7] ?? '') &&
     args[8] === '--confirm-offline' &&
     args[9] === '--confirm-effects-reviewed';
-  if (!listing && !recovering) {
+  if (!listing && !listingAfter && !recovering) {
     throw new Error('Invalid arguments');
   }
   const config = loadConfig();
@@ -34,16 +42,34 @@ async function main(): Promise<void> {
     if (config.SQLITE_PATH === ':memory:' || !existsSync(config.SQLITE_PATH)) {
       throw new Error('Expected an existing persistent SQLite database');
     }
-    db = new SqliteDatabase({ path: config.SQLITE_PATH });
+    db =
+      listing || listingAfter
+        ? new ReadOnlySqliteDatabase(config.SQLITE_PATH)
+        : new SqliteDatabase({ path: config.SQLITE_PATH });
   }
   try {
-    const jobs = new JobsRepository(db);
-    if (listing) {
-      const count = await jobs.countRunning();
-      const jobsToReview = await jobs.listRunningForRecovery();
-      console.log(
-        JSON.stringify({ count, jobs: jobsToReview, truncated: count > jobsToReview.length }),
-      );
+    if (listing || listingAfter) {
+      const list = async (connection: Database) => {
+        const jobs = new JobsRepository(connection);
+        const count = await jobs.countRunning();
+        const rows = await jobs.listRunningForRecovery(listingAfter ? args[2]! : null);
+        const page = rows.slice(0, 1000);
+        const truncated = rows.length > page.length;
+        return {
+          count,
+          jobs: page,
+          truncated,
+          nextAfter: truncated ? page[page.length - 1]!.id : null,
+        };
+      };
+      const result =
+        db.driver === 'postgres'
+          ? await db.transaction(async (tx) => {
+              await tx.execute('SET TRANSACTION READ ONLY');
+              return list(tx);
+            })
+          : await list(db);
+      console.log(JSON.stringify(result));
     } else {
       const changed = await new WorkerRecoveryRepository(db).requeueWithAudit({
         id: args[1]!,
