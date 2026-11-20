@@ -27,8 +27,9 @@ it('lists limited metadata and requeues only an explicitly selected running atte
       payload: { secret: 'synthetic-secret' },
     });
     const other = await jobs.enqueue({ organisationId: org.id, type: 'retention_purge' });
-    expect((await jobs.claimNext())?.id).toBe(target.id);
-    expect((await jobs.claimNext())?.id).toBe(other.id);
+    // Equal creation timestamps are ordered by random job id, not insertion order.
+    const claimed = [(await jobs.claimNext())?.id, (await jobs.claimNext())?.id];
+    expect(new Set(claimed)).toEqual(new Set([target.id, other.id]));
 
     const denied = cli('--requeue', target.id, '--attempt', '1', '--confirm-offline');
     expect(denied.status).toBe(1);
