@@ -399,6 +399,7 @@ export function buildServices(options: BuildServicesOptions): Services {
       jobs: new JobsRepository(db),
       maintenance: new MaintenanceRepository(db),
       erasureFiles: new ErasureFilesRepository(db),
+      transaction: (run) => db.transaction((tx) => run(new MaintenanceRepository(tx))),
     },
     config,
     storage,

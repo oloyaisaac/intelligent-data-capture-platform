@@ -84,11 +84,10 @@ describe('maintenance scheduler', () => {
     const scheduler = new MaintenanceService(
       {
         jobs: { enqueueRetentionIfAbsent: jest.fn() },
+        transaction: jest.fn(),
         maintenance: {
           organisationsWithRetention: query,
           expiredExports: jest.fn().mockResolvedValue([]),
-          hasOtherStorageReference: jest.fn(),
-          markExportExpired: jest.fn(),
           expirePairingSessions: jest.fn().mockResolvedValue(0),
           deleteExpiredSessions: jest.fn().mockResolvedValue(0),
           deleteSpentResetTokens: jest.fn().mockResolvedValue(0),
@@ -213,58 +212,15 @@ describe('maintenance scheduler', () => {
     expect(await harness.storage.exists(key)).toBe(false);
   });
 
-  it('does not clear a replacement key from a stale sweep', async () => {
-    const account = await registerAccount(harness, { email: 'replaced-export@example.com' });
-    const key = `org/${account.organisationId}/exports/old.csv`;
-    const replacement = `org/${account.organisationId}/exports/new.csv`;
-    await harness.storage.put(key, Buffer.from('old'));
-    await harness.storage.put(replacement, Buffer.from('new'));
-    const expiredAt = '2000-01-01T00:00:00.000Z';
-    await harness.db.execute(
-      `INSERT INTO exports (id, organisation_id, requested_by, format, filter, storage_key, status, expires_at, created_at)
-       VALUES (?, ?, ?, 'csv', '{}', ?, 'ready', ?, ?)`,
-      [
-        'replaced-export',
-        account.organisationId,
-        account.userId,
-        key,
-        '2000-01-01T00:00:00.000Z',
-        '2000-01-01T00:00:00.000Z',
-      ],
-    );
-    const original = harness.storage.delete.bind(harness.storage);
-    const deletion = jest
-      .spyOn(harness.storage, 'delete')
-      .mockImplementationOnce(async (selectedKey) => {
-        await harness.db.execute('UPDATE exports SET storage_key = ? WHERE id = ?', [
-          replacement,
-          'replaced-export',
-        ]);
-        await original(selectedKey);
-      });
-    try {
-      expect((await maintenance().runOnce()).exportsExpired).toBe(0);
-      expect(
-        await harness.db.one('SELECT status, storage_key, expires_at FROM exports WHERE id = ?', [
-          'replaced-export',
-        ]),
-      ).toEqual({ status: 'ready', storage_key: replacement, expires_at: expiredAt });
-      expect(await harness.storage.exists(replacement)).toBe(true);
-    } finally {
-      deletion.mockRestore();
-    }
-  });
-
-  it('keeps changed metadata but cannot undo deletion when the same export key is extended mid-sweep', async () => {
-    const account = await registerAccount(harness, { email: 'extended-export@example.com' });
-    const key = `org/${account.organisationId}/exports/extended.csv`;
-    const future = '2999-01-01T00:00:00.000Z';
+  it('serializes an expiry update behind file deletion and the expired transition', async () => {
+    const account = await registerAccount(harness, { email: 'serialized-export@example.com' });
+    const key = `org/${account.organisationId}/exports/serialized.csv`;
     await harness.storage.put(key, Buffer.from('private'));
     await harness.db.execute(
       `INSERT INTO exports (id, organisation_id, requested_by, format, filter, storage_key, status, expires_at, created_at)
        VALUES (?, ?, ?, 'csv', '{}', ?, 'ready', ?, ?)`,
       [
-        'extended-export',
+        'serialized-export',
         account.organisationId,
         account.userId,
         key,
@@ -272,26 +228,49 @@ describe('maintenance scheduler', () => {
         '2000-01-01T00:00:00.000Z',
       ],
     );
+    let release!: () => void;
+    let started!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
     const original = harness.storage.delete.bind(harness.storage);
     const deletion = jest
       .spyOn(harness.storage, 'delete')
       .mockImplementationOnce(async (selectedKey) => {
-        await harness.db.execute('UPDATE exports SET expires_at = ? WHERE id = ?', [
-          future,
-          'extended-export',
-        ]);
+        started();
+        await barrier;
         await original(selectedKey);
       });
+    let sweep: ReturnType<MaintenanceService['runOnce']> | undefined;
+    let competingSweep: ReturnType<MaintenanceService['runOnce']> | undefined;
+    let extension: Promise<unknown> | undefined;
     try {
-      expect((await maintenance().runOnce()).exportsExpired).toBe(0);
-      expect(
-        await harness.db.one('SELECT status, storage_key, expires_at FROM exports WHERE id = ?', [
-          'extended-export',
-        ]),
-      ).toEqual({ status: 'ready', storage_key: key, expires_at: future });
-      // Characterizes the remaining storage/DB race; the metadata guard cannot restore the file.
+      sweep = maintenance().runOnce();
+      await entered;
+      competingSweep = maintenance().runOnce();
+      extension = harness.db.one(
+        "UPDATE exports SET expires_at = ? WHERE id = ? AND status = 'ready' RETURNING id",
+        ['2999-01-01T00:00:00.000Z', 'serialized-export'],
+      );
+      release();
+      expect((await sweep).exportsExpired).toBe(1);
+      expect((await competingSweep).exportsExpired).toBe(0);
+      expect(deletion).toHaveBeenCalledTimes(1);
+      expect(await extension).toBeNull();
       expect(await harness.storage.exists(key)).toBe(false);
+      expect(
+        await harness.db.one('SELECT status, storage_key FROM exports WHERE id = ?', [
+          'serialized-export',
+        ]),
+      ).toEqual({ status: 'expired', storage_key: null });
     } finally {
+      release();
+      if (sweep) await sweep.catch(() => undefined);
+      if (competingSweep) await competingSweep.catch(() => undefined);
+      if (extension) await extension.catch(() => undefined);
       deletion.mockRestore();
     }
   });
