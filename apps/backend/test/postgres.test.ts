@@ -27,17 +27,37 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     await harness?.close();
   });
 
-  it('lets only one blocked claimant update a single queued job', async () => {
+  it('skips a locked job and claims it once after the lock is released', async () => {
     const jobs = new JobsRepository(harness.db);
     const job = await jobs.enqueue({ organisationId: randomUUID(), type: 'test-concurrent-claim' });
+    await harness.db.transaction(async (tx) => {
+      await tx.one('SELECT id FROM jobs WHERE id = ? FOR UPDATE', [job.id]);
+      expect(await Promise.all([jobs.claimNext(), jobs.claimNext()])).toEqual([null, null]);
+    });
+    const results = await Promise.all([jobs.claimNext(), jobs.claimNext()]);
+    expect(results.filter((row) => row !== null)).toHaveLength(1);
+    expect(results.find((row) => row !== null)?.id).toBe(job.id);
+    expect((await jobs.findById(job.id))?.attempts).toBe(1);
+  }, 30_000);
+
+  it('serializes distinct extraction claims on the same document', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account);
+    const documentId = upload.json<{ id: string }>().id;
+    const jobs = new JobsRepository(harness.db);
+    const first = (await jobs.listForDocument(documentId))[0]!;
+    const second = await jobs.enqueue({
+      organisationId: account.organisationId,
+      type: 'extract_document',
+      documentId,
+    });
     const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
     let claims: Promise<Awaited<ReturnType<JobsRepository['claimNext']>>[]> | undefined;
     try {
-      // Hold the target row while both updates select the same queued row and block on its lock.
       await harness.db.transaction(async (tx) => {
-        await tx.one('SELECT id FROM jobs WHERE id = ? FOR UPDATE', [job.id]);
+        await tx.one('SELECT id FROM documents WHERE id = ? FOR UPDATE', [documentId]);
         const locker = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
-        if (!locker) throw new Error('Could not identify the row-locking session');
+        if (!locker) throw new Error('Could not identify document-locking session');
         claims = Promise.all([jobs.claimNext(), jobs.claimNext()]);
         void claims.catch(() => undefined);
         const deadline = Date.now() + 10_000;
@@ -53,20 +73,25 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
              SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
                JOIN blocked ON blocked.pid = activity.pid
              WHERE activity.pid <> $1 AND activity.wait_event_type = 'Lock'
-               AND activity.query LIKE 'UPDATE jobs SET status = %'`,
+               AND activity.query LIKE 'SELECT id FROM documents WHERE organisation_id = %'`,
             [locker.pid],
           );
           blocked = result.rows[0]?.count ?? 0;
           if (blocked < 2) await new Promise((resolve) => setTimeout(resolve, 25));
         }
-        expect(blocked).toBeGreaterThanOrEqual(2);
+        expect(blocked).toBe(2);
       });
       const results = await claims!;
       expect(results.filter((row) => row !== null)).toHaveLength(1);
-      expect(results.find((row) => row !== null)?.id).toBe(job.id);
-      const stored = await jobs.findById(job.id);
-      expect(stored?.status).toBe('running');
-      expect(Number(stored?.attempts)).toBe(1);
+      const rows = [await jobs.findById(first.id), await jobs.findById(second.id)];
+      expect(rows.filter((row) => row?.status === 'running')).toHaveLength(1);
+      expect(rows.filter((row) => row?.status === 'queued' && row.attempts === 0)).toHaveLength(1);
+      // Leave no active extraction to interfere with later tests sharing this schema.
+      const running = rows.find((row) => row?.status === 'running')!;
+      await jobs.markSucceeded(running.id, running.attempts);
+      await harness.db.execute('DELETE FROM jobs WHERE id = ?', [
+        second.id === running.id ? first.id : second.id,
+      ]);
     } finally {
       await observer.end();
       if (claims) await claims.catch(() => undefined);

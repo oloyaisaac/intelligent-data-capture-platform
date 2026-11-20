@@ -15,9 +15,16 @@ extraction, field and final document status together. Guarded final failure and 
 commit together. Reprocess requests now lock the document, reject active extraction jobs, and
 reserve the document, enqueue the job and audit atomically. A synthetic recovery regression that previously produced two
 extractions now commits one, but still performs two OCR calls. OCR, billing, notifications and
-retention purge are outside this publication transaction. Existing or externally inserted distinct
-jobs for a document, concurrent review/reprocess interactions, ambiguous commit acknowledgement,
-process crashes and overlapping deployments require further analysis and testing. The supported
+retention purge are outside this publication transaction. The current claim code also serializes
+new claims for distinct extraction jobs on the same existing document: it locks the candidate job
+then the document and rechecks for a running extraction. SQLite uses its immediate write transaction;
+PostgreSQL uses row locks and skips locked candidates. A blocked duplicate remains queued without
+consuming an attempt, and unrelated runnable jobs can proceed. This assumes all workers use the
+new protocol, the document exists, and the database is using its normal read-committed isolation;
+it cannot repair already overlapping running jobs, stop an old worker, or enforce behavior of
+out-of-band writers. Contending candidates may cause a poll to return no work until the next poll.
+Concurrent review/reprocess interactions, ambiguous commit acknowledgement, process crashes and
+overlapping deployments require further analysis and testing. The supported
 single-worker topology reduces overlap but does not prove idempotence. A jobless document stranded
 in `queued` or `processing` can now be explicitly reprocessed: the document lock serializes
 concurrent requests, and the active-job check prevents re-enqueueing if work already exists. This
@@ -67,3 +74,18 @@ recovery removed, the second worker no longer reclaims the claim; after the firs
 observes one extraction and one attempt. This focused safety regression does not establish safe
 manual recovery, multi-worker operation, PostgreSQL behavior, real-provider billing, or general
 crash safety. Running an old binary or requeueing a live job manually still bypasses the mitigation.
+The same two-process test now also queues a distinct extraction for the document while the first OCR
+is paused and confirms the second process leaves it queued with zero attempts. A separate in-process
+worker test confirms one synthetic OCR and extraction, eventual duplicate-job completion after the
+first publishes, and progress for an unrelated job. A PostgreSQL row-lock/barrier regression is
+included for CI; neither test establishes production safety or exactly-once provider calls.
+
+Review actions remain a separate unresolved race: approval, rejection and corrections currently use
+multiple independent writes without the reprocess document lock and can refer to an old extraction
+while reprocessing is queued or running. `review-reprocess-risk.test.ts` is a characterization of a
+defect, not an acceptance test: it opens an old review, starts reprocessing and pauses synthetic OCR,
+then rejects the old review. The API currently accepts the rejection, sets the document to failed,
+and the resumed job is marked succeeded without publishing the new extraction. The serialization
+above does not make review actions atomic or prevent stale decisions from changing document state.
+A complete fix needs agreed version and review lifecycle semantics, transactional locking and race
+tests on both databases; do not treat P6 as passed.

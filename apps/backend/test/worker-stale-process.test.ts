@@ -92,7 +92,12 @@ it('a second worker does not reclaim a live artificially aged SQLite claim at st
     first.send?.('start');
     await wait(0, 'ocr-entered');
     expect((await jobs.findById(job.id))?.status).toBe('running');
-    // Avoid a 30-second wall-clock wait; the live OCR is still paused in the first process.
+    const duplicate = await jobs.enqueue({
+      organisationId: org.id,
+      type: 'extract_document',
+      documentId: document!.id,
+    });
+    // Artificially age the claim; the live OCR is still paused in the first process.
     await db.execute('UPDATE jobs SET started_at = ? WHERE id = ?', [
       new Date(Date.now() - 60_000).toISOString(),
       job.id,
@@ -104,6 +109,8 @@ it('a second worker does not reclaim a live artificially aged SQLite claim at st
     expect(events[1]).not.toContain('ocr-entered');
     expect((await jobs.findById(job.id))?.attempts).toBe(1);
     expect((await jobs.findById(job.id))?.status).toBe('running');
+    expect((await jobs.findById(duplicate.id))?.status).toBe('queued');
+    expect((await jobs.findById(duplicate.id))?.attempts).toBe(0);
     first.send?.('resume');
     await wait(0, 'finished');
     expect(events[0]).toContain('ocr-entered');
