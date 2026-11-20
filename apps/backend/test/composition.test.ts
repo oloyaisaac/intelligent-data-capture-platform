@@ -487,7 +487,6 @@ it('uses injected document repositories and rejects a document outside the actor
       findById: jest.fn().mockResolvedValue(null),
       findByIdempotencyKey: jest.fn(),
       findExpiredForPurge: jest.fn(),
-      hasOtherStorageReference: jest.fn(),
       list: jest.fn().mockResolvedValue([]),
       softDelete: jest.fn(),
       updateStatus: jest.fn(),
@@ -497,11 +496,13 @@ it('uses injected document repositories and rejects a document outside the actor
     audit: { record: jest.fn() },
     transaction: (run) =>
       run({
+        organisations: { lockRetentionPolicy: jest.fn() },
         documents: {
           createIfAbsent: jest.fn(),
           findByIdempotencyKey: jest.fn(),
           lockForReprocess: jest.fn(),
           queueForReprocess: jest.fn(),
+          hasOtherStorageReference: jest.fn(),
           softDelete: jest.fn(),
         },
         pages: { create: jest.fn() },

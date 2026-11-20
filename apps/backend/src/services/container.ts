@@ -225,6 +225,7 @@ export function buildServices(options: BuildServicesOptions): Services {
       transaction: (run) =>
         db.transaction((tx) =>
           run({
+            organisations: new OrganisationsRepository(tx),
             documents: new DocumentsRepository(tx),
             pages: new DocumentPagesRepository(tx),
             reviews: new ReviewsRepository(tx),

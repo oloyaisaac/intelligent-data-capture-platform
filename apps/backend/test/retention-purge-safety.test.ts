@@ -115,7 +115,7 @@ describe('retention file failure handling', () => {
         id,
       ]);
     }
-    expect(await harness.services.documents.purgeExpired(account.organisationId, 1)).toBe(2);
+    expect(await harness.services.documents.purgeExpired(account.organisationId, 90)).toBe(2);
     const audits = await harness.db.query<{ target_id: string; metadata: string }>(
       'SELECT target_id, metadata FROM audit_logs WHERE organisation_id = ? AND action = ?',
       [account.organisationId, 'retention.purged'],

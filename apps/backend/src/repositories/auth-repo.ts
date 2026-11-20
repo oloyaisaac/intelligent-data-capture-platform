@@ -49,6 +49,12 @@ export class OrganisationsRepository {
     return this.db.one<OrganisationRow>('SELECT * FROM organisations WHERE id = ?', [id]);
   }
 
+  /** Call inside a transaction before a retention deletion. */
+  lockRetentionPolicy(id: string): Promise<{ retention_days: number } | null> {
+    const lock = this.db.driver === 'postgres' ? ' FOR UPDATE' : '';
+    return this.db.one(`SELECT retention_days FROM organisations WHERE id = ?${lock}`, [id]);
+  }
+
   findBySlug(slug: string): Promise<OrganisationRow | null> {
     return this.db.one<OrganisationRow>('SELECT * FROM organisations WHERE slug = ?', [slug]);
   }
