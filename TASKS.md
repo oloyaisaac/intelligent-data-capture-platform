@@ -97,7 +97,7 @@ duplicate-preview failures now use safe messages; connector-supplied text and co
 the provided logger are discarded. Secret-bearing regressions failed before these corrections and
 pass afterward. This sacrifices detailed connector diagnostics and does not sanitize old records,
 successful connector outputs or logs written outside the provided logger. It covers ordinary T-05
-errors, not P8: in-process code can still terminate or compromise the host. An incomplete R01 findings
+errors, not P8: injected in-process code or a same-privilege connector child can still terminate or compromise the host. An incomplete R01 findings
 register, with no assigned named owners or exceptions, is in `docs/reviewers/evidence/R01/findings.md`.
 
 ### Additional open security and runtime gaps
@@ -208,7 +208,7 @@ and HubSpot currently requires its token there even if `credentials` is supplied
 characterization test reproduces the exposure; it is not a fix. Review existing records, backups and
 credential rotation, and design a connector-specific secret contract and migration before production
 use. Successful connector write results now discard untrusted summary text and validate counts, but
-schema/preview output, historical records and in-process connector isolation remain open.
+schema/preview output, historical records and connector security isolation remain open.
 
 ARC-023 partial remediation now encrypts all newly created or replaced connector settings, returns
 empty config objects, validates merged settings and provides an offline legacy migration. Local
@@ -240,3 +240,8 @@ The offline connector-config check previously could return clean for an envelope
 with an offline source key unavailable at runtime. It now reports source-key rows, requires them to
 be migrated, and verifies the result using the target key alone. This covers connector data only;
 MFA and historical backups still need the separate key-rotation procedure.
+
+Default first-party connector operations now use bounded one-shot child processes, including validation.
+A real API test survives a synthetic child exit, but an adversarial same-privilege child can signal and
+kill the API host; injected registries can still run in-process. This is not a sandbox and P8 remains
+unmet. See `docs/connector-process.md` for limitations, fixed limits and compatibility changes.
