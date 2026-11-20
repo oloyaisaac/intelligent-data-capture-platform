@@ -14,8 +14,8 @@ import type { Logger } from '../logger';
 import type { DocumentsRepository, ExtractionsRepository } from '../repositories/document-repo';
 import type { OrganisationsRepository } from '../repositories/auth-repo';
 import type { ReviewChangesRepository, ReviewsRepository } from '../repositories/review-repo';
-import type { AuditRepository } from '../repositories/system-repo';
-import type { DocumentRow } from '../repositories/types';
+import type { AuditRepository, JobsRepository } from '../repositories/system-repo';
+import type { DocumentRow, ExtractionRow, ReviewRow } from '../repositories/types';
 import { toDocumentSummary } from './document-service';
 import type { AuthenticatedActor } from './auth-service';
 import type { RealtimeHub } from '../realtime/hub';
@@ -25,6 +25,18 @@ export interface ReviewQueueItem {
   extractionId: string | null;
   confidence: number | null;
   blockingFields: Array<{ path: string; reason: string; confidence: number }>;
+}
+
+export interface ReviewTransactionRepositories {
+  documents: Pick<
+    DocumentsRepository,
+    'lockForReprocess' | 'updateAnyDocumentType' | 'updateStatus'
+  >;
+  extractions: Pick<ExtractionsRepository, 'findLatestForDocument' | 'findById' | 'create'>;
+  reviews: Pick<ReviewsRepository, 'findById' | 'openOrResume' | 'setExtraction' | 'complete'>;
+  jobs: Pick<JobsRepository, 'hasActiveExtraction'>;
+  changes: Pick<ReviewChangesRepository, 'create' | 'listForReview'>;
+  audit: Pick<AuditRepository, 'record'>;
 }
 
 export interface ReviewServiceRepositories {
@@ -44,15 +56,16 @@ export interface ReviewServiceRepositories {
   >;
   audit: Pick<AuditRepository, 'record'>;
   organisations: Pick<OrganisationsRepository, 'findLearningOptIn'>;
+  transaction<T>(run: (repositories: ReviewTransactionRepositories) => Promise<T>): Promise<T>;
 }
 
 export class ReviewService {
   private readonly documents: ReviewServiceRepositories['documents'];
   private readonly extractions: ReviewServiceRepositories['extractions'];
-  private readonly reviews: ReviewServiceRepositories['reviews'];
   private readonly changes: ReviewServiceRepositories['changes'];
   private readonly audit: ReviewServiceRepositories['audit'];
   private readonly organisations: ReviewServiceRepositories['organisations'];
+  private readonly transaction: ReviewServiceRepositories['transaction'];
 
   constructor(
     repositories: ReviewServiceRepositories,
@@ -61,10 +74,10 @@ export class ReviewService {
   ) {
     this.documents = repositories.documents;
     this.extractions = repositories.extractions;
-    this.reviews = repositories.reviews;
     this.changes = repositories.changes;
     this.audit = repositories.audit;
     this.organisations = repositories.organisations;
+    this.transaction = repositories.transaction;
   }
 
   /** REV-001: the queue puts the least confident records first — that is where attention pays off. */
@@ -90,26 +103,30 @@ export class ReviewService {
   }
 
   async open(actor: AuthenticatedActor, documentId: string) {
-    const document = await this.requireDocument(actor, documentId);
-    const extraction = await this.extractions.findLatestForDocument(documentId);
-    if (!extraction) throw new AppError('CONFLICT', 'This document has not been processed yet.');
-    const review = await this.reviews.openOrResume({
-      organisationId: actor.organisationId,
-      documentId,
-      extractionId: extraction.id,
-      reviewerId: actor.userId,
+    return this.transaction(async (repositories) => {
+      const { document, extraction } = await this.lockReviewableDocument(
+        repositories,
+        actor,
+        documentId,
+      );
+      const review = await repositories.reviews.openOrResume({
+        organisationId: actor.organisationId,
+        documentId,
+        extractionId: extraction.id,
+        reviewerId: actor.userId,
+      });
+      const udm = parseUdm(JSON.parse(extraction.udm) as unknown);
+      return {
+        reviewId: review.id,
+        status: review.status,
+        document: toDocumentSummary(document),
+        documentType: udm.documentType,
+        documentTypeConfidence: udm.documentTypeConfidence,
+        udm,
+        blocking: blockingFields(udm),
+        changes: await repositories.changes.listForReview(review.id),
+      };
     });
-    const udm = parseUdm(JSON.parse(extraction.udm) as unknown);
-    return {
-      reviewId: review.id,
-      status: review.status,
-      document: toDocumentSummary(document),
-      documentType: udm.documentType,
-      documentTypeConfidence: udm.documentTypeConfidence,
-      udm,
-      blocking: blockingFields(udm),
-      changes: await this.changes.listForReview(review.id),
-    };
   }
 
   /**
@@ -122,153 +139,143 @@ export class ReviewService {
     changes: Array<{ fieldPath: string; value: string | number | boolean | null }>,
     options: { documentType?: DocumentType } = {},
   ) {
-    const review = await this.reviews.findById(actor.organisationId, reviewId);
-    if (!review) throw new AppError('NOT_FOUND', 'Review not found.');
-    if (review.status !== 'in_progress') {
-      throw new AppError('CONFLICT', 'This review is already closed.');
-    }
+    return this.withCurrentReview(actor, reviewId, async (repositories, review, extraction) => {
+      const udm = parseUdm(JSON.parse(extraction.udm) as unknown);
+      const { udm: corrected, applied } = applyCorrections(udm, changes);
 
-    const extraction = await this.extractions.findById(actor.organisationId, review.extraction_id);
-    if (!extraction) throw new AppError('NOT_FOUND', 'Extraction not found.');
+      // Confirming (or correcting) the classification is itself a human decision, so it becomes
+      // full-confidence and clears the related blocker.
+      let updated = corrected;
+      if (options.documentType) {
+        const previousType = corrected.documentType;
+        updated = {
+          ...corrected,
+          documentType: options.documentType,
+          documentTypeConfidence: 1,
+        };
+        await repositories.changes.create({
+          reviewId: review.id,
+          fieldPath: 'documentType',
+          originalValue: previousType,
+          correctedValue: options.documentType,
+          originalConfidence: corrected.documentTypeConfidence,
+          changedBy: actor.userId,
+          documentType: options.documentType,
+        });
+        await repositories.documents.updateAnyDocumentType(
+          review.document_id,
+          options.documentType,
+        );
+        await repositories.audit.record({
+          organisationId: actor.organisationId,
+          actorType: actor.actorType,
+          actorId: actor.userId,
+          action: 'document.field_corrected',
+          targetType: 'document',
+          targetId: review.document_id,
+          metadata: { fieldPath: 'documentType', from: previousType, to: options.documentType },
+        });
+      }
 
-    const udm = parseUdm(JSON.parse(extraction.udm) as unknown);
-    const { udm: corrected, applied } = applyCorrections(udm, changes);
+      for (const change of applied) {
+        await repositories.changes.create({
+          reviewId: review.id,
+          fieldPath: change.fieldPath,
+          originalValue: change.before?.value ?? null,
+          correctedValue: change.after.value,
+          originalConfidence: change.before?.confidence ?? null,
+          changedBy: actor.userId,
+          documentType: updated.documentType,
+        });
+        await repositories.audit.record({
+          organisationId: actor.organisationId,
+          actorType: actor.actorType,
+          actorId: actor.userId,
+          action: 'document.field_corrected',
+          targetType: 'document',
+          targetId: review.document_id,
+          metadata: { fieldPath: change.fieldPath },
+        });
+      }
 
-    // Confirming (or correcting) the classification is itself a human decision, so it becomes
-    // full-confidence and clears the related blocker.
-    let updated = corrected;
-    if (options.documentType) {
-      const previousType = corrected.documentType;
-      updated = {
-        ...corrected,
-        documentType: options.documentType,
-        documentTypeConfidence: 1,
-      };
-      await this.changes.create({
-        reviewId: review.id,
-        fieldPath: 'documentType',
-        originalValue: previousType,
-        correctedValue: options.documentType,
-        originalConfidence: corrected.documentTypeConfidence,
-        changedBy: actor.userId,
-        documentType: options.documentType,
-      });
-      await this.documents.updateAnyDocumentType(review.document_id, options.documentType);
-      await this.audit.record({
+      // Persist the corrected record as a new extraction attempt so history is never rewritten.
+      const saved = await repositories.extractions.create({
+        documentId: review.document_id,
         organisationId: actor.organisationId,
-        actorType: actor.actorType,
-        actorId: actor.userId,
-        action: 'document.field_corrected',
-        targetType: 'document',
-        targetId: review.document_id,
-        metadata: { fieldPath: 'documentType', from: previousType, to: options.documentType },
+        udm: { ...updated, needsReview: blockingFields(updated).length > 0 },
+        udmVersion: extraction.udm_version,
+        provider: extraction.provider,
+        confidence: extraction.confidence,
+        needsReview: blockingFields(updated).length > 0,
       });
-    }
 
-    for (const change of applied) {
-      await this.changes.create({
+      // Re-point the open review at the new attempt.
+      await repositories.reviews.setExtraction(review.id, saved.id, nowIso());
+
+      return {
         reviewId: review.id,
-        fieldPath: change.fieldPath,
-        originalValue: change.before?.value ?? null,
-        correctedValue: change.after.value,
-        originalConfidence: change.before?.confidence ?? null,
-        changedBy: actor.userId,
+        extractionId: saved.id,
+        blocking: blockingFields(updated),
+        applied: applied.length + (options.documentType ? 1 : 0),
         documentType: updated.documentType,
-      });
-      await this.audit.record({
-        organisationId: actor.organisationId,
-        actorType: actor.actorType,
-        actorId: actor.userId,
-        action: 'document.field_corrected',
-        targetType: 'document',
-        targetId: review.document_id,
-        metadata: { fieldPath: change.fieldPath },
-      });
-    }
-
-    // Persist the corrected record as a new extraction attempt so history is never rewritten.
-    const saved = await this.extractions.create({
-      documentId: review.document_id,
-      organisationId: actor.organisationId,
-      udm: { ...updated, needsReview: blockingFields(updated).length > 0 },
-      udmVersion: extraction.udm_version,
-      provider: extraction.provider,
-      confidence: extraction.confidence,
-      needsReview: blockingFields(updated).length > 0,
+      };
     });
-
-    // Re-point the open review at the new attempt.
-    await this.reviews.setExtraction(review.id, saved.id, nowIso());
-
-    return {
-      reviewId: review.id,
-      extractionId: saved.id,
-      blocking: blockingFields(updated),
-      applied: applied.length + (options.documentType ? 1 : 0),
-      documentType: updated.documentType,
-    };
   }
 
   async approve(actor: AuthenticatedActor, reviewId: string, notes?: string) {
-    const review = await this.reviews.findById(actor.organisationId, reviewId);
-    if (!review) throw new AppError('NOT_FOUND', 'Review not found.');
-    if (review.status !== 'in_progress')
-      throw new AppError('CONFLICT', 'This review is already closed.');
-
-    const extraction = await this.extractions.findById(actor.organisationId, review.extraction_id);
-    if (!extraction) throw new AppError('NOT_FOUND', 'Extraction not found.');
-
-    const udm = parseUdm(JSON.parse(extraction.udm) as unknown);
-    const check = canApprove(udm);
-    if (!check.ok) {
-      throw new AppError(
-        'UNPROCESSABLE',
-        'Some fields still need your attention before this record can be approved.',
-        check.blocking,
-      );
-    }
-
-    const approved: Udm = { ...udm, needsReview: false };
-    await this.reviews.complete(review.id, {
-      status: 'approved',
-      approvedUdm: approved,
-      notes: notes ?? null,
-    });
-    await this.documents.updateStatus(review.document_id, 'approved');
-    await this.audit.record({
-      organisationId: actor.organisationId,
-      actorType: actor.actorType,
-      actorId: actor.userId,
-      action: 'document.approved',
-      targetType: 'document',
-      targetId: review.document_id,
-    });
+    const result = await this.withCurrentReview(
+      actor,
+      reviewId,
+      async (repositories, review, extraction) => {
+        const udm = parseUdm(JSON.parse(extraction.udm) as unknown);
+        const check = canApprove(udm);
+        if (!check.ok) {
+          throw new AppError(
+            'UNPROCESSABLE',
+            'Some fields still need your attention before this record can be approved.',
+            check.blocking,
+          );
+        }
+        const approved: Udm = { ...udm, needsReview: false };
+        await repositories.reviews.complete(review.id, {
+          status: 'approved',
+          approvedUdm: approved,
+          notes: notes ?? null,
+        });
+        await repositories.documents.updateStatus(review.document_id, 'approved');
+        await repositories.audit.record({
+          organisationId: actor.organisationId,
+          actorType: actor.actorType,
+          actorId: actor.userId,
+          action: 'document.approved',
+          targetType: 'document',
+          targetId: review.document_id,
+        });
+        return { reviewId: review.id, documentId: review.document_id, status: 'approved' as const };
+      },
+    );
     this.hub.toOrganisation(actor.organisationId, 'document:approved', {
-      documentId: review.document_id,
+      documentId: result.documentId,
       reviewedBy: actor.userId,
     });
-
-    return { reviewId: review.id, documentId: review.document_id, status: 'approved' };
+    return result;
   }
 
   async reject(actor: AuthenticatedActor, reviewId: string, reason: string) {
-    const review = await this.reviews.findById(actor.organisationId, reviewId);
-    if (!review) throw new AppError('NOT_FOUND', 'Review not found.');
-    if (review.status !== 'in_progress')
-      throw new AppError('CONFLICT', 'This review is already closed.');
-
-    await this.reviews.complete(review.id, { status: 'rejected', notes: reason });
-    await this.documents.updateStatus(review.document_id, 'failed');
-    await this.audit.record({
-      organisationId: actor.organisationId,
-      actorType: actor.actorType,
-      actorId: actor.userId,
-      action: 'document.rejected',
-      targetType: 'document',
-      targetId: review.document_id,
-      metadata: { reason },
+    return this.withCurrentReview(actor, reviewId, async (repositories, review) => {
+      await repositories.reviews.complete(review.id, { status: 'rejected', notes: reason });
+      await repositories.documents.updateStatus(review.document_id, 'failed');
+      await repositories.audit.record({
+        organisationId: actor.organisationId,
+        actorType: actor.actorType,
+        actorId: actor.userId,
+        action: 'document.rejected',
+        targetType: 'document',
+        targetId: review.document_id,
+        metadata: { reason },
+      });
+      return { reviewId: review.id, status: 'rejected' as const };
     });
-    return { reviewId: review.id, status: 'rejected' };
   }
 
   /**
@@ -280,47 +287,50 @@ export class ReviewService {
     const skipped: Array<{ documentId: string; blocking: unknown }> = [];
 
     for (const documentId of documentIds) {
-      const document = await this.documents.findById(actor.organisationId, documentId);
-      if (!document || document.deleted_at) {
-        skipped.push({ documentId, blocking: [{ path: '*', reason: 'not_found', confidence: 0 }] });
-        continue;
-      }
-      const extraction = await this.extractions.findLatestForDocument(documentId);
-      if (!extraction) {
+      try {
+        const result = await this.transaction(async (repositories) => {
+          const { extraction } = await this.lockReviewableDocument(repositories, actor, documentId);
+          const udm = parseUdm(JSON.parse(extraction.udm) as unknown);
+          const check = canApprove(udm);
+          if (!check.ok) return { blocking: check.blocking };
+          const review = await repositories.reviews.openOrResume({
+            organisationId: actor.organisationId,
+            documentId,
+            extractionId: extraction.id,
+            reviewerId: actor.userId,
+          });
+          await repositories.reviews.complete(review.id, {
+            status: 'approved',
+            approvedUdm: { ...udm, needsReview: false },
+          });
+          await repositories.documents.updateStatus(documentId, 'approved');
+          await repositories.audit.record({
+            organisationId: actor.organisationId,
+            actorType: actor.actorType,
+            actorId: actor.userId,
+            action: 'document.approved',
+            targetType: 'document',
+            targetId: documentId,
+            metadata: { bulk: true },
+          });
+          return { blocking: null };
+        });
+        if (result.blocking) skipped.push({ documentId, blocking: result.blocking });
+        else approved.push(documentId);
+      } catch (error) {
+        if (!(error instanceof AppError) || !['NOT_FOUND', 'CONFLICT'].includes(error.code))
+          throw error;
         skipped.push({
           documentId,
-          blocking: [{ path: '*', reason: 'not_processed', confidence: 0 }],
+          blocking: [
+            {
+              path: '*',
+              reason: error.code === 'NOT_FOUND' ? 'not_found' : 'not_reviewable',
+              confidence: 0,
+            },
+          ],
         });
-        continue;
       }
-      const udm = parseUdm(JSON.parse(extraction.udm) as unknown);
-      const check = canApprove(udm);
-      if (!check.ok) {
-        skipped.push({ documentId, blocking: check.blocking });
-        continue;
-      }
-
-      const review = await this.reviews.openOrResume({
-        organisationId: actor.organisationId,
-        documentId,
-        extractionId: extraction.id,
-        reviewerId: actor.userId,
-      });
-      await this.reviews.complete(review.id, {
-        status: 'approved',
-        approvedUdm: { ...udm, needsReview: false },
-      });
-      await this.documents.updateStatus(documentId, 'approved');
-      await this.audit.record({
-        organisationId: actor.organisationId,
-        actorType: actor.actorType,
-        actorId: actor.userId,
-        action: 'document.approved',
-        targetType: 'document',
-        targetId: documentId,
-        metadata: { bulk: true },
-      });
-      approved.push(documentId);
     }
 
     this.logger.info('bulk approve completed', {
@@ -400,9 +410,52 @@ export class ReviewService {
     };
   }
 
-  private async requireDocument(actor: AuthenticatedActor, id: string): Promise<DocumentRow> {
-    const document = await this.documents.findById(actor.organisationId, id);
+  /** Called inside a transaction; the shared document lock serializes with reprocess and OCR publication. */
+  private async lockReviewableDocument(
+    repositories: ReviewTransactionRepositories,
+    actor: AuthenticatedActor,
+    documentId: string,
+  ): Promise<{ document: DocumentRow; extraction: ExtractionRow }> {
+    const document = await repositories.documents.lockForReprocess(
+      actor.organisationId,
+      documentId,
+    );
     if (!document || document.deleted_at) throw new AppError('NOT_FOUND', 'Document not found.');
-    return document;
+    if (
+      !['extracted', 'needs_review'].includes(document.status) ||
+      (await repositories.jobs.hasActiveExtraction(actor.organisationId, documentId))
+    ) {
+      throw new AppError('CONFLICT', 'This document is not available for review.');
+    }
+    const extraction = await repositories.extractions.findLatestForDocument(documentId);
+    if (!extraction) throw new AppError('CONFLICT', 'This document has not been processed yet.');
+    return { document, extraction };
+  }
+
+  private async withCurrentReview<T>(
+    actor: AuthenticatedActor,
+    reviewId: string,
+    run: (
+      repositories: ReviewTransactionRepositories,
+      review: ReviewRow,
+      extraction: ExtractionRow,
+    ) => Promise<T>,
+  ): Promise<T> {
+    return this.transaction(async (repositories) => {
+      // Read the document id without locking the review, then acquire locks in document-first order.
+      // Re-read the review under that lock so a concurrent review or reprocess cannot make it stale.
+      const initial = await repositories.reviews.findById(actor.organisationId, reviewId);
+      if (!initial) throw new AppError('NOT_FOUND', 'Review not found.');
+      const { extraction } = await this.lockReviewableDocument(
+        repositories,
+        actor,
+        initial.document_id,
+      );
+      const review = await repositories.reviews.findById(actor.organisationId, reviewId);
+      if (!review) throw new AppError('NOT_FOUND', 'Review not found.');
+      if (review.status !== 'in_progress' || review.extraction_id !== extraction.id)
+        throw new AppError('CONFLICT', 'This review is closed or no longer current.');
+      return run(repositories, review, extraction);
+    });
   }
 }

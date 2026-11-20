@@ -80,12 +80,22 @@ worker test confirms one synthetic OCR and extraction, eventual duplicate-job co
 first publishes, and progress for an unrelated job. A PostgreSQL row-lock/barrier regression is
 included for CI; neither test establishes production safety or exactly-once provider calls.
 
-Review actions remain a separate unresolved race: approval, rejection and corrections currently use
-multiple independent writes without the reprocess document lock and can refer to an old extraction
-while reprocessing is queued or running. `review-reprocess-risk.test.ts` is a characterization of a
-defect, not an acceptance test: it opens an old review, starts reprocessing and pauses synthetic OCR,
-then rejects the old review. The API currently accepts the rejection, sets the document to failed,
-and the resumed job is marked succeeded without publishing the new extraction. The serialization
-above does not make review actions atomic or prevent stale decisions from changing document state.
-A complete fix needs agreed version and review lifecycle semantics, transactional locking and race
-tests on both databases; do not treat P6 as passed.
+## Review and reprocessing: partial mitigation
+
+The previously reproduced case opened an old review, paused a new OCR call, then rejected the old
+review; the rejection changed the document to failed and the resumed job reported success without
+publishing its result. The implementation now acquires the document lock for open, patch, approve,
+reject and each bulk item. It checks the lifecycle state, active extraction jobs and latest extraction
+under that lock; review writes and their audit are transactional. Reprocessing supersedes open
+reviews in its transaction, so they stay invalid even if reprocessing fails before publishing a new
+result. Review history is retained; `superseded` is a new review status. New reviews require a
+completed, reviewable extraction; old review IDs return conflict. See `API.md` for changed behavior.
+
+`review-reprocess-risk.test.ts` checks the original paused synthetic OCR case, queued/stale review
+operations, failed reprocess, concurrent decisions and audit/write rollback. `postgres.test.ts`
+contains a document-lock wait barrier exercising the stale decision check. These focused tests do not
+prove rolling-upgrade safety, all review/erasure races, crash recovery, external sends/exports, or
+event delivery. Connector duplicate previews can still read an older approved snapshot, and sends or
+exports can race with later reprocessing; these boundaries require separate review. Old binaries and
+out-of-band writers do not use this lock protocol. P6 remains open pending design, broader evidence,
+owner decisions and independent review.

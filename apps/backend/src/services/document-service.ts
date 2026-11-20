@@ -17,6 +17,7 @@ import type {
   ExtractionsRepository,
 } from '../repositories/document-repo';
 import type { JobsRepository, AuditRepository } from '../repositories/system-repo';
+import type { ReviewsRepository } from '../repositories/review-repo';
 import type { DocumentRow } from '../repositories/types';
 import { buildStorageKey, extensionForMimeType, sniffMimeType, type Storage } from '../storage';
 import type { AuthenticatedActor } from './auth-service';
@@ -50,6 +51,7 @@ export interface DocumentTransactionRepositories {
     'createIfAbsent' | 'findByIdempotencyKey' | 'lockForReprocess' | 'queueForReprocess'
   >;
   pages: Pick<DocumentPagesRepository, 'create'>;
+  reviews: Pick<ReviewsRepository, 'supersedeOpenForDocument'>;
   jobs: Pick<JobsRepository, 'enqueue' | 'latestExtractionForDocument' | 'hasActiveExtraction'>;
   audit: Pick<AuditRepository, 'record'>;
 }
@@ -319,6 +321,9 @@ export class DocumentService {
       if (await repositories.jobs.hasActiveExtraction(actor.organisationId, id)) {
         throw conflict('This document already has an extraction queued or in progress.');
       }
+      // Preserve old review history but prevent decisions against a superseded extraction even
+      // if the new extraction later fails and the old extraction remains the latest row.
+      await repositories.reviews.supersedeOpenForDocument(actor.organisationId, id);
       await repositories.documents.queueForReprocess(actor.organisationId, id);
       const job = await repositories.jobs.enqueue({
         organisationId: actor.organisationId,

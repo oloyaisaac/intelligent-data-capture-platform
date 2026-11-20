@@ -53,11 +53,21 @@ extraction before changing the candidate to running. Focused synthetic SQLite te
 workers, two separate processes, and unrelated job progress; a PostgreSQL barrier test is included
 for CI. This is a partial concurrency guard, not a lease or a database constraint: existing running
 duplicates, missing documents, old binaries, out-of-band writers and manual requeue of live jobs are
-not fenced. External OCR may still repeat on retries. Review approval/rejection/corrections remain
-nontransactional relative to reprocessing and can act on stale extractions. In the synthetic
-`review-reprocess-risk.test.ts` characterization, rejecting an old review during new OCR changes the
-document to failed; the job then reports success without publishing its new result. This test records
-a defect, not an acceptable contract; see `worker-recovery-design.md`. P6 remains open.
+not fenced. External OCR may still repeat on retries. At that revision, review decisions were
+nontransactional relative to reprocessing and could act on stale extractions. A synthetic
+`review-reprocess-risk.test.ts` characterization showed that rejecting an old review during new OCR
+changed the document to failed while the job reported success without publishing its result. See the
+following update for the partial mitigation; P6 remains open.
+
+### ARC-013 update — review/reprocess transaction boundary
+
+The old characterization was replaced with a regression that expects a 409 for the stale rejection
+and publication of the new OCR result. Review open, correction, approval, rejection and bulk items
+now use the document lock and transaction-scoped repositories; reprocessing preserves but
+supersedes open reviews. Tests cover failed reprocessing, simultaneous decisions and rollback. A
+PostgreSQL lock-wait test is included for CI. This is partial mitigation only: historical approvals,
+external sends/exports, old binaries, event delivery, broader crash/erasure cases and independent
+review remain open. `worker-recovery-design.md` describes the supported semantics and limitations.
 
 ### ARC-017 update — connector write success values
 

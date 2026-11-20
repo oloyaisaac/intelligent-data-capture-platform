@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { JobsRepository } from '../src/repositories/system-repo';
 import {
   createHarness,
+  openReview,
   registerAccount,
   uploadDocument,
   type ApiResponse,
@@ -95,6 +96,57 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     } finally {
       await observer.end();
       if (claims) await claims.catch(() => undefined);
+    }
+  }, 30_000);
+
+  it('rechecks review eligibility after waiting on a document locked by reprocessing', async () => {
+    const account = await registerAccount(harness);
+    const upload = await uploadDocument(harness, account);
+    const documentId = upload.json<{ id: string }>().id;
+    await harness.services.worker.drain();
+    const review = await openReview(harness, account, documentId);
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let rejection: Promise<ApiResponse> | undefined;
+    try {
+      await harness.db.transaction(async (tx) => {
+        await tx.one('SELECT id FROM documents WHERE id = ? FOR UPDATE', [documentId]);
+        const locker = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        if (!locker) throw new Error('Could not identify document-locking session');
+        rejection = harness.api.json('POST', `/api/v1/review/${review.reviewId}/reject`, {
+          token: account.accessToken,
+          body: { reason: 'stale decision' },
+        });
+        void rejection.catch(() => undefined);
+        const deadline = Date.now() + 10_000;
+        let blocked = 0;
+        while (Date.now() < deadline && blocked < 1) {
+          const result = await observer.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+             WHERE $1::int = ANY(pg_blocking_pids(activity.pid))
+               AND activity.wait_event_type = 'Lock'
+               AND activity.query LIKE 'SELECT * FROM documents WHERE organisation_id = %'`,
+            [locker.pid],
+          );
+          blocked = result.rows[0]?.count ?? 0;
+          if (!blocked) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(1);
+        // Emulate the durable changes of reprocess while holding the same document lock.
+        await tx.execute("UPDATE reviews SET status = 'superseded' WHERE id = ?", [
+          review.reviewId,
+        ]);
+        await tx.execute("UPDATE documents SET status = 'queued' WHERE id = ?", [documentId]);
+      });
+      expect((await rejection!).statusCode).toBe(409);
+      expect(
+        await harness.db.one('SELECT status FROM documents WHERE id = ?', [documentId]),
+      ).toEqual({ status: 'queued' });
+      expect(
+        await harness.db.one('SELECT status FROM reviews WHERE id = ?', [review.reviewId]),
+      ).toEqual({ status: 'superseded' });
+    } finally {
+      await observer.end();
+      if (rejection) await rejection.catch(() => undefined);
     }
   }, 30_000);
 

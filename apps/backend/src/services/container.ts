@@ -227,6 +227,7 @@ export function buildServices(options: BuildServicesOptions): Services {
           run({
             documents: new DocumentsRepository(tx),
             pages: new DocumentPagesRepository(tx),
+            reviews: new ReviewsRepository(tx),
             jobs: new JobsRepository(tx),
             audit: new AuditRepository(tx),
           }),
@@ -260,6 +261,17 @@ export function buildServices(options: BuildServicesOptions): Services {
       changes: new ReviewChangesRepository(db),
       audit: new AuditRepository(db),
       organisations: new OrganisationsRepository(db),
+      transaction: (run) =>
+        db.transaction((tx) =>
+          run({
+            documents: new DocumentsRepository(tx),
+            extractions: new ExtractionsRepository(tx),
+            reviews: new ReviewsRepository(tx),
+            jobs: new JobsRepository(tx),
+            changes: new ReviewChangesRepository(tx),
+            audit: new AuditRepository(tx),
+          }),
+        ),
     },
     hub,
     logger,

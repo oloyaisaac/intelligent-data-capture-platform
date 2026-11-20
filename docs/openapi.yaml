@@ -988,7 +988,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
         '200': { description: Review session with the UDM and blocking fields }
-        '409': { description: The document has not been processed yet }
+        '409': { description: Document is not available for review or has active extraction work }
   /documents/{id}/duplicates:
     get:
       tags: [Connectors]
@@ -1056,7 +1056,8 @@ paths:
                 documentType: { type: string }
       responses:
         '200': { description: Applied changes plus the remaining blocking fields }
-        '409': { description: The review is already closed }
+        '409':
+          { description: The review is closed or stale, or the document is unavailable for review }
   /review/{id}/approve:
     post:
       tags: [Review]
@@ -1066,6 +1067,8 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
         '200': { description: Approved }
+        '409':
+          { description: The review is closed or stale, or the document is unavailable for review }
         '422': { description: Unresolved fields, returned in `details` }
   /review/{id}/reject:
     post:
@@ -1085,6 +1088,8 @@ paths:
                 reason: { type: string, maxLength: 2000 }
       responses:
         '200': { description: Rejected }
+        '409':
+          { description: The review is closed or stale, or the document is unavailable for review }
   /workflows:
     get:
       tags: [Workflows]

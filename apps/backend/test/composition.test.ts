@@ -346,6 +346,15 @@ it('uses injected review repositories for tenant-scoped queue and approval', asy
     },
     audit: { record: jest.fn() },
     organisations: { findLearningOptIn: jest.fn() },
+    transaction: (run) =>
+      run({
+        documents: { ...repositories.documents, lockForReprocess: jest.fn() },
+        extractions: repositories.extractions,
+        reviews: repositories.reviews,
+        changes: repositories.changes,
+        jobs: { hasActiveExtraction: jest.fn() },
+        audit: repositories.audit,
+      }),
   };
   const service = new ReviewService(repositories, new InMemoryRealtimeHub(), logger);
   expect(await service.queue(actor, 10)).toEqual({ items: [], total: 0 });
@@ -488,6 +497,7 @@ it('uses injected document repositories and rejects a document outside the actor
           queueForReprocess: jest.fn(),
         },
         pages: { create: jest.fn() },
+        reviews: { supersedeOpenForDocument: jest.fn() },
         jobs: { ...repositories.jobs, hasActiveExtraction: jest.fn() },
         audit: repositories.audit,
       }),

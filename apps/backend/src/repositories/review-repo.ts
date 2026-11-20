@@ -63,6 +63,16 @@ export class ReviewsRepository {
     ]);
   }
 
+  /** Call while holding the document lock in the reprocess transaction. */
+  async supersedeOpenForDocument(organisationId: string, documentId: string): Promise<void> {
+    const now = nowIso();
+    await this.db.execute(
+      `UPDATE reviews SET status = 'superseded', completed_at = ?, updated_at = ?
+       WHERE organisation_id = ? AND document_id = ? AND status = 'in_progress'`,
+      [now, now, organisationId, documentId],
+    );
+  }
+
   findOpenForDocument(documentId: string): Promise<ReviewRow | null> {
     return this.db.one<ReviewRow>(
       "SELECT * FROM reviews WHERE document_id = ? AND status = 'in_progress' ORDER BY created_at DESC LIMIT 1",

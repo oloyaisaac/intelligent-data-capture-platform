@@ -275,7 +275,16 @@ request and never blocks the other files.
 { "changes": [{ "fieldPath": "invoice.number", "value": "INV-1043" }] }
 ```
 
-Every change is stored in `review_changes` with the actor and the previous value.
+Every change is stored in `review_changes` with the actor and the previous value. Reprocessing
+supersedes all open reviews of the document without deleting their history. Open, correction,
+approval and rejection return 409 when the document is queued, processing, failed, approved or
+otherwise unavailable for review, when extraction work is active, or when a review is closed or no
+longer refers to the latest extraction. Once reprocessing succeeds, open a new review for its result.
+Bulk approval skips unavailable records as well as those with unresolved fields. Reprocessing and
+review writes are serialized in the database; external sends and exports have separate race boundaries.
+This protection requires every API and worker to use the new locking protocol. Stop older processes
+before deploying; rolling overlap with older binaries or direct database writers is not protected.
+A rollback to older code can reopen the race. Review history can now contain status `superseded`.
 
 ---
 
