@@ -11,6 +11,7 @@ export interface Storage {
   readonly driver: 'filesystem' | 'memory';
   put(key: string, data: Buffer, contentType?: string): Promise<void>;
   get(key: string): Promise<Buffer>;
+  /** Idempotent: deleting an already-missing key must succeed, to support cleanup retries. */
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;
 }

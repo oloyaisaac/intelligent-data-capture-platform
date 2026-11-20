@@ -381,19 +381,28 @@ export class DocumentService {
           continue;
         }
         await this.storage.delete(document.storage_key);
-        if (await this.documents.softDelete(organisationId, document.id)) purged += 1;
+        // The storage deletion cannot participate in this transaction. If the audit fails, leave
+        // the metadata eligible for a retry, relying on idempotent storage deletion for missing files.
+        const recorded = await this.transaction(async (repositories) => {
+          const deleted = await repositories.documents.softDelete(organisationId, document.id);
+          if (!deleted) return false;
+          await repositories.audit.record({
+            organisationId,
+            actorType: 'system',
+            action: 'retention.purged',
+            targetType: 'document',
+            targetId: document.id,
+            metadata: { count: 1, retentionDays, purgedAt: nowIso() },
+          });
+          return true;
+        });
+        if (recorded) purged += 1;
       } catch {
-        // Storage errors may contain paths or secrets. Do not mark this row deleted or log details.
+        // Storage and database errors may contain paths or secrets. Keep failures retryable.
         incomplete = true;
       }
     }
     if (purged > 0) {
-      await this.audit.record({
-        organisationId,
-        actorType: 'system',
-        action: 'retention.purged',
-        metadata: { count: purged, retentionDays, purgedAt: nowIso() },
-      });
       this.logger.info('retention documents soft-deleted', { organisationId, count: purged });
     }
     if (incomplete)

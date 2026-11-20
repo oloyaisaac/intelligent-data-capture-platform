@@ -185,11 +185,16 @@ export class WorkflowService {
       });
       plans.push(plan);
 
+      // Validate the whole plan before executing anything. In particular, never report placeholder
+      // delivery as success or delete a document before discovering a later unsupported action.
+      const unavailable = plan.matched ? unsupportedActionFailure(plan.actions) : null;
       const status = !plan.matched
         ? 'skipped'
         : plan.needsApproval
           ? 'awaiting_approval'
-          : 'completed';
+          : unavailable
+            ? 'failed'
+            : 'completed';
 
       const run = await this.runs.create({
         organisationId: actor.organisationId,
@@ -201,6 +206,7 @@ export class WorkflowService {
         explanation: plan.explanation,
         actions: plan.actions,
         outputs: [],
+        failure: status === 'failed' ? unavailable : null,
       });
 
       // A matched plan that needs nobody's approval runs now; its real outputs go in the log. A
@@ -210,7 +216,7 @@ export class WorkflowService {
         const outputs: string[] = [];
         try {
           for (const action of plan.actions) {
-            outputs.push(await this.execute(run, action.type, action.config));
+            outputs.push(await this.execute(run, action.type));
           }
           await this.runs.recordOutputs(actor.organisationId, run.id, outputs);
           run.outputs = JSON.stringify(outputs);
@@ -252,10 +258,15 @@ export class WorkflowService {
     }
 
     const actions = JSON.parse(run.actions) as WorkflowPlan['actions'];
+    const unavailable = unsupportedActionFailure(actions);
+    if (unavailable) {
+      await this.runs.markFailed(actor.organisationId, run.id, unavailable);
+      throw new AppError('CONFLICT', unavailable);
+    }
     const outputs: string[] = [];
     try {
       for (const action of actions) {
-        outputs.push(await this.execute(run, action.type, action.config));
+        outputs.push(await this.execute(run, action.type));
       }
     } catch (error) {
       const failure = error instanceof Error ? error.message : 'The action failed.';
@@ -282,32 +293,35 @@ export class WorkflowService {
   /**
    * Executes one action.
    *
-   * `notify` only records an output; it is not wired to the optional SMTP mailer. The connector and
-   * export branches also record placeholder text rather than actually dispatching those operations.
-   * Their output strings must not be treated as evidence of delivery or queueing.
+   * Only deletion is currently implemented. Other actions fail closed before execution until
+   * delivery implementations and their retry/approval semantics are available.
    */
   private async execute(
     run: WorkflowRunRow,
     type: WorkflowPlan['actions'][number]['type'],
-    config: Record<string, unknown>,
   ): Promise<string> {
     switch (type) {
-      case 'notify': {
-        const message = typeof config.message === 'string' ? config.message : 'Workflow completed.';
-        return `notified: ${message}`;
-      }
+      case 'notify':
       case 'send_to_connector':
-        return `send queued for connector ${String(config.connectorId ?? 'unspecified')} (document ${run.document_id ?? 'none'})`;
       case 'create_export':
-        return `export queued in ${String(config.format ?? 'xlsx')} for document ${run.document_id ?? 'none'}`;
+        throw new Error('This workflow action is not available; no actions were executed.');
       case 'delete_document':
-        if (!run.document_id) return 'delete skipped: the run has no document';
-        await this.documents.softDelete(run.organisation_id, run.document_id);
+        if (!run.document_id) throw new Error('The workflow run has no document to delete.');
+        if (!(await this.documents.softDelete(run.organisation_id, run.document_id))) {
+          throw new Error('The workflow document was not available for deletion.');
+        }
         return `deleted document ${run.document_id}`;
       default:
         throw new Error(`Unknown action "${String(type)}".`);
     }
   }
+}
+
+/** Fail the whole plan before any action if a delivery action has no implementation. */
+function unsupportedActionFailure(actions: WorkflowPlan['actions']): string | null {
+  return actions.some((action) => action.type !== 'delete_document')
+    ? 'This workflow includes an unavailable action; no actions were executed.'
+    : null;
 }
 
 /** UDM → flat `path: value` map, which is what conditions are written against. */

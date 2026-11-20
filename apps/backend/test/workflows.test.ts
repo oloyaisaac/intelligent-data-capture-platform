@@ -184,15 +184,16 @@ describe('workflow automation (AGENT-001)', () => {
       expect(body.plans.some((plan) => plan.matched)).toBe(true);
       expect(body.runs.every((run) => run.matched)).toBe(true);
 
-      // A non-destructive action completes immediately; the log says what it did.
+      // Notify has no delivery implementation and must not claim success.
       const runs = await harness.api.json('GET', '/api/v1/workflows/runs', {
         token: account.accessToken,
       });
       const run = runs.json<{
-        items: Array<{ status: string; outputs: string[]; explanation: string }>;
+        items: Array<{ status: string; outputs: string[]; failure: string }>;
       }>().items[0]!;
-      expect(run.status).toBe('completed');
-      expect(run.outputs.join(' ')).toMatch(/notified: Invoice approved/);
+      expect(run.status).toBe('failed');
+      expect(run.outputs).toEqual([]);
+      expect(run.failure).toMatch(/unavailable action/);
     });
 
     it('holds a destructive action until a person approves that run', async () => {
@@ -216,17 +217,95 @@ describe('workflow automation (AGENT-001)', () => {
       const approved = await harness.api.json('POST', `/api/v1/workflows/runs/${run.id}/approve`, {
         token: account.accessToken,
       });
-      expect(approved.statusCode).toBe(200);
-      const completed = approved.json<{ status: string; outputs: string[]; approvedBy: string }>();
-      expect(completed.status).toBe('completed');
-      expect(completed.approvedBy).toBe(account.userId);
-      expect(completed.outputs.join(' ')).toMatch(/send queued for connector conn-9/);
+      expect(approved.statusCode).toBe(409);
+      const row = await harness.db.one<{
+        status: string;
+        outputs: string;
+        approved_by: string | null;
+        failure: string;
+      }>('SELECT status, outputs, approved_by, failure FROM workflow_runs WHERE id = ?', [run.id]);
+      expect(row?.status).toBe('failed');
+      expect(JSON.parse(row!.outputs)).toEqual([]);
+      expect(row?.approved_by).toBeNull();
+      expect(row?.failure).toMatch(/unavailable action/);
 
       // Approving twice is a conflict, not a second write.
       const twice = await harness.api.json('POST', `/api/v1/workflows/runs/${run.id}/approve`, {
         token: account.accessToken,
       });
       expect(twice.statusCode).toBe(409);
+    });
+
+    it.each(['notify', 'send_to_connector', 'create_export'])(
+      'fails closed on %s before executing any action in a mixed plan',
+      async (type) => {
+        for (const policy of ['always_ask', 'auto_approve']) {
+          const account = await registerAccount(harness);
+          const created = await createWorkflow(account, {
+            name: 'Do not partially execute',
+            approvalPolicy: policy,
+            actions: [
+              { type: 'delete_document', config: {} },
+              { type, config: { message: 'sensitive-config-value' } },
+            ],
+          });
+          expect(created.statusCode).toBe(201);
+          const documentId = await approvedInvoice(account);
+          const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
+            token: account.accessToken,
+            body: { trigger: 'document.approved', documentId },
+          });
+          const run = evaluation.json<{
+            runs: Array<{ id: string; status: string; failure: string | null }>;
+          }>().runs[0]!;
+          if (policy === 'always_ask') {
+            expect(run.status).toBe('awaiting_approval');
+            const response = await harness.api.json(
+              'POST',
+              `/api/v1/workflows/runs/${run.id}/approve`,
+              {
+                token: account.accessToken,
+              },
+            );
+            expect(response.statusCode).toBe(409);
+            expect(response.body).not.toContain('sensitive-config-value');
+          } else {
+            expect(run.status).toBe('failed');
+            expect(run.failure).toMatch(/unavailable action/);
+          }
+          expect(
+            await harness.db.one('SELECT deleted_at FROM documents WHERE id = ?', [documentId]),
+          ).toEqual({ deleted_at: null });
+          const row = await harness.db.one<{ status: string; outputs: string; failure: string }>(
+            'SELECT status, outputs, failure FROM workflow_runs WHERE id = ?',
+            [run.id],
+          );
+          expect(row?.status).toBe('failed');
+          expect(JSON.parse(row!.outputs)).toEqual([]);
+          expect(row?.failure).not.toContain('sensitive-config-value');
+        }
+      },
+      30_000,
+    );
+
+    it('does not report a successful deletion for a run without a document', async () => {
+      const account = await registerAccount(harness);
+      const created = await createWorkflow(account, {
+        trigger: 'batch.completed',
+        approvalPolicy: 'auto_approve',
+        actions: [{ type: 'delete_document', config: {} }],
+      });
+      expect(created.statusCode).toBe(201);
+      const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
+        token: account.accessToken,
+        body: { trigger: 'batch.completed' },
+      });
+      const run = evaluation.json<{
+        runs: Array<{ status: string; outputs: string[]; failure: string }>;
+      }>().runs[0]!;
+      expect(run.status).toBe('failed');
+      expect(run.outputs).toEqual([]);
+      expect(run.failure).toMatch(/no document/);
     });
 
     it('logs the workflows that did not match, with the reason', async () => {

@@ -12,10 +12,36 @@ owner has accepted these findings or provided a dated exception.
 | ARC-016 | HIGH     | `apps/backend/src/services/connector-service.ts` (`sendDocument` catch)                                                                               | **Partially remediated:** new send failures no longer store, log or return the connector exception. Existing connector-run records may still contain older raw messages and have not been remediated.                                                                                                                                                                          | `connector-throw.test.ts` fails against the old handler and passes with the new handler for secret-bearing Error, AppError and non-Error failures, including create/read/update. Assess existing data and safe remediation before closing.                                                                                                               | Unassigned; backend security                      |
 | ARC-017 | HIGH     | `apps/backend/src/services/connector-service.ts` (`create`, `update`, `test`, `describeSchema`, `previewDuplicates`, `context`)                       | **Partially remediated:** validation, health, schema and preview failures use safe messages and the supplied connector logger discards untrusted text/context. Existing records, successful outputs and direct process logging are not sanitized; in-process isolation is absent.                                                                                              | `connector-boundary.test.ts` and `connector-throw.test.ts` reproduce and verify secret-bearing failures. Assess existing data, other outputs and direct logging before closing.                                                                                                                                                                          | Unassigned; backend security                      |
 | ARC-018 | HIGH     | `apps/backend/src/services/document-service.ts` (`upload`), `apps/backend/test/architecture-flow.test.ts`                                             | **Partially remediated:** an idempotent upload retry previously queued an additional extraction for the existing document. Document metadata and its initial job were not committed together. The new transaction and retry path avoid this for covered sequential and concurrent requests, but file storage is outside the transaction and worker recovery is still unfenced. | Replay failed with two OCR calls before the change and passes locally afterward; `documents.test.ts` covers forced contention, enqueue failure, legacy missing job and lost commit acknowledgement. PostgreSQL CI and orphan reconciliation need verification.                                                                                           | Unassigned; backend architecture                  |
-| ARC-019 | HIGH     | `apps/backend/src/services/workflow-service.ts` (`execute`), `apps/backend/test/workflows.test.ts` (approval test)                                    | Workflow connector-send and export actions return strings saying they were queued but do not enqueue or perform those operations; the run can be marked completed. Notify similarly records text without delivery. This contradicts the historical DEC-026 description and can mislead operators about external effects.                                                       | `workflows.test.ts` asserts the placeholder output; inspect the `execute` branches and absence of calls to connector, export or mail services. Route feature correction and regression evidence to R02; document the present limitation until fixed.                                                                                                     | Unassigned; R02 workflow/product owner            |
+| ARC-019 | HIGH     | `apps/backend/src/services/workflow-service.ts` (`evaluate`, `approveRun`, `execute`), `apps/backend/test/workflows.test.ts`                          | **Partially remediated:** connector-send, export and notification formerly reported success without dispatch. New plans fail closed before any action; existing false-success history remains and actual delivery is still unimplemented.                                                                                                                                      | `workflows.test.ts` covers each unsupported action in automatic and approval-required mixed plans. Assess historical runs, implement real dispatch and independently verify effects and retry semantics with the R02/product owner.                                                                                                                      | Unassigned; R02 workflow/product owner            |
 | ARC-020 | MEDIUM   | `AGENT_STATE.md` (historical snapshot), `DECISIONS.md` DEC-028, `apps/mobile/src/screens/PairingScreen.tsx`, `apps/desktop/src/pages/ExportsPage.tsx` | Handover and localization claims drifted: the old snapshot predates container, backup, SMTP and batch changes, while literal English strings contradict the claim that every visible string uses the catalogue.                                                                                                                                                                | Compare source examples and current CI with the historical document. A dated warning and DEC-028 note were added; full cross-document and localization review remains open.                                                                                                                                                                              | Unassigned; documentation and localization owners |
 | ARC-021 | HIGH     | `apps/backend/src/services/worker.ts` (`stop`, `drain`), `apps/backend/src/index.ts` (shutdown)                                                       | **Partially remediated:** a normal SIGTERM previously exited and closed the database while an extraction was running; concurrent calls to one worker's drain could also overlap. Shutdown now waits for startup and active work and coalesces drains. Active maintenance sweeps are also awaited. No shutdown deadline or forced-kill safety is established.                   | `worker-lifecycle.test.ts` and `worker-shutdown-process.test.ts` fail on the prior worker and pass locally with this change; test uses synthetic OCR and SQLite. Design and test bounded shutdown, crashes, ownership and fencing; validate maintenance across replicas.                                                                                 | Unassigned; backend reliability                   |
 | ARC-022 | HIGH     | `apps/backend/src/ai/providers/cloud.ts` (`ocr`), `apps/backend/src/config.ts`, `DEPLOYMENT.md` §10                                                   | **Not remediated:** despite the configuration name, the cloud cost setting is not a hard spend cap. The request is made before a rough token estimate is compared; it only logs a warning, absent usage becomes zero, and there is no cumulative budget or reservation. The prior implementation comment and deployment guide incorrectly claimed enforcement.                 | `ai.test.ts` demonstrates that an over-threshold response is returned and only warned after the request. Comments and operator guidance now describe the limitation; implement provider-aware pricing and pre-request budget controls, and verify billed usage before claiming enforcement.                                                              | Unassigned; AI/product and operations             |
+
+### ARC-027 — HIGH: workflow deletion execution is not atomic or fenced
+
+The still-supported `delete_document` workflow action calls the repository directly; it does not
+share the transactional document-delete/audit path. Approval reads `awaiting_approval`, performs
+actions and only later writes completion and an approval audit, without a conditional claim or
+transaction. Concurrent approvals can therefore both enter execution, and a crash or write failure
+can leave effects without the corresponding completion/audit. The delete branch now fails when the
+conditional soft-delete changes no row, but automatically run plans are still initially stored as
+`completed` before their actions execute. A deterministic barrier in
+`workflow-approval-race.test.ts` reproduces two approvals entering execution: one succeeds and
+records an approval audit, then the other changes the completed run to failed. This synthetic test is
+not evidence of a production incident. Design and test a transactionally guarded workflow state
+machine, per-action results, deletion/audit consistency, concurrency and recovery before claiming
+workflow execution is safe. Owner: unassigned; R02 workflow/product and backend reliability owners.
+
+### ARC-019 update — unavailable workflow actions fail closed
+
+New evaluations and approvals preflight the entire action list. If it contains `notify`,
+`send_to_connector`, `create_export` or an unknown action, no action in that run is executed. A
+self-approved or non-approval plan is recorded as failed at creation; an approval-required run is
+marked failed and its approval endpoint returns 409. This intentionally disables the former fake
+outputs, not a real delivery implementation. The tests exercise all three unavailable actions with
+both approval policies and a preceding delete, checking no deletion occurs. Existing historically
+completed rows and old running binaries remain unchanged. The actual connectors, export and
+notification work and their safe retry semantics are not implemented. ARC-019 remains open.
 
 ### ARC-026 — HIGH: export creation can strand files or disclose exception details
 
@@ -87,6 +113,19 @@ its audit; the rollback regression now preserves the document, and concurrent de
 one success and one not-found. This improves database consistency only: the endpoint does not remove
 file bytes or derived records, and retention still skips already soft-deleted documents. Workflow
 deletes and retention file/DB operations have different boundaries. ARC-024 remains open.
+
+### ARC-024 update — transactional retention metadata and audit
+
+A forced retention-audit failure used to leave a soft-deleted row with no purge audit, preventing
+normal retry. After removing a primary file, retention now conditionally soft-deletes that document
+and records its `retention.purged` audit in the same database transaction. Audit records are now
+per document (`target_type=document`, `target_id` set, and `count=1`), not one aggregate per sweep.
+`retention-purge-safety.test.ts` exercises audit failure, retry after an already-missing file,
+per-document counts and a synthetic lost commit acknowledgement. Retrying relies on the storage
+adapter's idempotent delete contract. A failed transaction can still leave bytes absent while metadata
+is active; the cross-table reference check and external delete remain unfenced, a concurrent user
+soft-delete can skip the retention audit, and historical inconsistencies are not repaired. This is
+not a deletion guarantee or a complete retention solution; ARC-024 remains open.
 
 ### ARC-024 update — broader reference checks and stale export metadata
 
