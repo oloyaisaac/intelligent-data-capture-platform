@@ -18,6 +18,7 @@ import type {
 } from '../repositories/document-repo';
 import type { JobsRepository, AuditRepository } from '../repositories/system-repo';
 import type { ReviewsRepository } from '../repositories/review-repo';
+import type { OrganisationsRepository } from '../repositories/auth-repo';
 import type { DocumentRow } from '../repositories/types';
 import { buildStorageKey, extensionForMimeType, sniffMimeType, type Storage } from '../storage';
 import type { AuthenticatedActor } from './auth-service';
@@ -46,12 +47,14 @@ export interface UploadInput {
 }
 
 export interface DocumentTransactionRepositories {
+  organisations: Pick<OrganisationsRepository, 'lockRetentionPolicy'>;
   documents: Pick<
     DocumentsRepository,
     | 'createIfAbsent'
     | 'findByIdempotencyKey'
     | 'lockForReprocess'
     | 'queueForReprocess'
+    | 'hasOtherStorageReference'
     | 'softDelete'
   >;
   pages: Pick<DocumentPagesRepository, 'create'>;
@@ -66,7 +69,6 @@ export interface DocumentServiceRepositories {
     | 'findById'
     | 'findByIdempotencyKey'
     | 'findExpiredForPurge'
-    | 'hasOtherStorageReference'
     | 'list'
     | 'softDelete'
     | 'updateStatus'
@@ -364,8 +366,8 @@ export class DocumentService {
   }
 
   /**
-   * Attempt to delete each expired document's primary file, then soft-delete its metadata.
-   * A failed or shared file remains eligible for retry; this is not an atomic storage/DB purge.
+   * Lock and recheck each expired document before removing its primary file, then soft-delete its
+   * metadata and audit in the same database transaction. Storage remains outside DB atomicity.
    */
   async purgeExpired(organisationId: string, retentionDays: number): Promise<number> {
     if (retentionDays <= 0) return 0;
@@ -374,29 +376,48 @@ export class DocumentService {
     let incomplete = false;
     for (const document of expired) {
       try {
-        // Check known references across tenants; storage keys must not be reused. The check and
-        // external delete are not atomic, so out-of-band writers remain an unsupported race.
-        if (await this.documents.hasOtherStorageReference(document.id, document.storage_key)) {
-          incomplete = true;
-          continue;
-        }
-        await this.storage.delete(document.storage_key);
-        // The storage deletion cannot participate in this transaction. If the audit fails, leave
-        // the metadata eligible for a retry, relying on idempotent storage deletion for missing files.
-        const recorded = await this.transaction(async (repositories) => {
-          const deleted = await repositories.documents.softDelete(organisationId, document.id);
-          if (!deleted) return false;
+        const outcome = await this.transaction(async (repositories) => {
+          // Recheck the policy under an organisation lock before locking the document. This
+          // serializes policy changes until the file and metadata operation finishes.
+          const policy = await repositories.organisations.lockRetentionPolicy(organisationId);
+          if (!policy || policy.retention_days !== retentionDays) return 'pending' as const;
+          // Recheck the selected snapshot under the document lock before deleting any bytes.
+          // Reprocessing and current-version extraction publication use the same document lock.
+          const current = await repositories.documents.lockForReprocess(
+            organisationId,
+            document.id,
+          );
+          if (!current || current.deleted_at !== null) return 'skipped' as const;
+          if (
+            current.status === 'deleted' ||
+            current.storage_key !== document.storage_key ||
+            current.created_at !== document.created_at ||
+            current.status !== document.status ||
+            (await repositories.jobs.hasActiveExtraction(organisationId, document.id))
+          )
+            return 'pending' as const;
+          // This reference check is still point-in-time, not a lock on other rows or object writes.
+          if (
+            await repositories.documents.hasOtherStorageReference(current.id, current.storage_key)
+          )
+            return 'pending' as const;
+          await this.storage.delete(current.storage_key);
+          // The storage deletion cannot participate in this transaction. A rollback can leave
+          // active metadata without bytes; missing-file deletion must be idempotent for retry.
+          const deleted = await repositories.documents.softDelete(organisationId, current.id);
+          if (!deleted) throw new Error('Document changed during retention purge');
           await repositories.audit.record({
             organisationId,
             actorType: 'system',
             action: 'retention.purged',
             targetType: 'document',
-            targetId: document.id,
+            targetId: current.id,
             metadata: { count: 1, retentionDays, purgedAt: nowIso() },
           });
-          return true;
+          return 'purged' as const;
         });
-        if (recorded) purged += 1;
+        if (outcome === 'purged') purged += 1;
+        if (outcome === 'pending') incomplete = true;
       } catch {
         // Storage and database errors may contain paths or secrets. Keep failures retryable.
         incomplete = true;

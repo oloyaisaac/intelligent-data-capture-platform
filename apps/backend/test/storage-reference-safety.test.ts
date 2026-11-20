@@ -103,6 +103,7 @@ describe.each(['retention', 'erasure', 'expired export'] as const)(
           if (operation === 'retention') {
             const upload = await harness.api.upload(owner.accessToken);
             documentId = upload.json<{ id: string }>().id;
+            await harness.services.worker.drain();
             const row = await harness.db.one<{ storage_key: string }>(
               'SELECT storage_key FROM documents WHERE id = ?',
               [documentId],
@@ -138,7 +139,7 @@ describe.each(['retention', 'erasure', 'expired export'] as const)(
           const removeReference = await addReference(harness, other, kind, key);
           const attempt = async (): Promise<number> => {
             if (operation === 'retention')
-              return harness.services.documents.purgeExpired(owner.organisationId, 1);
+              return harness.services.documents.purgeExpired(owner.organisationId, 90);
             if (operation === 'erasure')
               return processErasureFiles(
                 new ErasureFilesRepository(harness.db),

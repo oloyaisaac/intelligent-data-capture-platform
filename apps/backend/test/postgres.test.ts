@@ -655,6 +655,126 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     }
   }, 30_000);
 
+  it('rechecks a retention candidate after waiting for a PostgreSQL document lock', async () => {
+    const isolated = await createHarness();
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let purge: Promise<number> | undefined;
+    try {
+      const account = await registerAccount(isolated);
+      const upload = await isolated.api.upload(account.accessToken);
+      const documentId = upload.json<{ id: string }>().id;
+      await isolated.services.worker.drain();
+      await isolated.db.execute('UPDATE documents SET created_at = ? WHERE id = ?', [
+        '2000-01-01T00:00:00.000Z',
+        documentId,
+      ]);
+      const document = await isolated.db.one<{ storage_key: string }>(
+        'SELECT storage_key FROM documents WHERE id = ?',
+        [documentId],
+      );
+      await isolated.db.transaction(async (tx) => {
+        await tx.one('SELECT id FROM documents WHERE id = ? FOR UPDATE', [documentId]);
+        const locker = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        if (!locker) throw new Error('Could not identify locking session');
+        purge = isolated.services.documents.purgeExpired(account.organisationId, 90);
+        void purge.catch(() => undefined);
+        const deadline = Date.now() + 10_000;
+        let blocked = 0;
+        while (Date.now() < deadline && blocked < 1) {
+          const result = await observer.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+             WHERE $1::int = ANY(pg_blocking_pids(activity.pid)) AND activity.wait_event_type = 'Lock'
+               AND activity.query LIKE 'SELECT * FROM documents WHERE organisation_id = %'`,
+            [locker.pid],
+          );
+          blocked = result.rows[0]?.count ?? 0;
+          if (blocked < 1) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(1);
+        await new JobsRepository(tx).enqueue({
+          organisationId: account.organisationId,
+          documentId,
+          type: 'extract_document',
+        });
+      });
+      await expect(purge!).rejects.toThrow('Retention purge incomplete');
+      expect(await isolated.storage.exists(document!.storage_key)).toBe(true);
+      expect(
+        await isolated.db.one('SELECT deleted_at FROM documents WHERE id = ?', [documentId]),
+      ).toEqual({ deleted_at: null });
+      expect(
+        await isolated.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+          'retention.purged',
+          documentId,
+        ]),
+      ).toHaveLength(0);
+    } finally {
+      if (purge) await purge.catch(() => undefined);
+      await observer.end();
+      await isolated.close();
+    }
+  }, 30_000);
+
+  it('rechecks retention policy after waiting for the PostgreSQL organisation lock', async () => {
+    const isolated = await createHarness();
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let purge: Promise<number> | undefined;
+    try {
+      const account = await registerAccount(isolated);
+      const upload = await isolated.api.upload(account.accessToken);
+      const documentId = upload.json<{ id: string }>().id;
+      await isolated.services.worker.drain();
+      await isolated.db.execute('UPDATE documents SET created_at = ? WHERE id = ?', [
+        '2000-01-01T00:00:00.000Z',
+        documentId,
+      ]);
+      const document = await isolated.db.one<{ storage_key: string }>(
+        'SELECT storage_key FROM documents WHERE id = ?',
+        [documentId],
+      );
+      await isolated.db.transaction(async (tx) => {
+        await tx.one('SELECT id FROM organisations WHERE id = ? FOR UPDATE', [
+          account.organisationId,
+        ]);
+        const locker = await tx.one<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        if (!locker) throw new Error('Could not identify locking session');
+        purge = isolated.services.documents.purgeExpired(account.organisationId, 90);
+        void purge.catch(() => undefined);
+        const deadline = Date.now() + 10_000;
+        let blocked = 0;
+        while (Date.now() < deadline && blocked < 1) {
+          const result = await observer.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+             WHERE $1::int = ANY(pg_blocking_pids(activity.pid)) AND activity.wait_event_type = 'Lock'
+               AND activity.query LIKE 'SELECT retention_days FROM organisations WHERE id = %'`,
+            [locker.pid],
+          );
+          blocked = result.rows[0]?.count ?? 0;
+          if (blocked < 1) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(1);
+        await tx.execute('UPDATE organisations SET retention_days = 0 WHERE id = ?', [
+          account.organisationId,
+        ]);
+      });
+      await expect(purge!).rejects.toThrow('Retention purge incomplete');
+      expect(await isolated.storage.exists(document!.storage_key)).toBe(true);
+      expect(
+        await isolated.db.one('SELECT deleted_at FROM documents WHERE id = ?', [documentId]),
+      ).toEqual({ deleted_at: null });
+      expect(
+        await isolated.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+          'retention.purged',
+          documentId,
+        ]),
+      ).toHaveLength(0);
+    } finally {
+      if (purge) await purge.catch(() => undefined);
+      await observer.end();
+      await isolated.close();
+    }
+  }, 30_000);
+
   it('preserves question marks in a document extraction JSON parameter', async () => {
     const account = await registerAccount(harness);
     const upload = await uploadDocument(harness, account);

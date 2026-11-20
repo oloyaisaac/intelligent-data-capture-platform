@@ -136,6 +136,24 @@ is active; the cross-table reference check and external delete remain unfenced, 
 soft-delete can skip the retention audit, and historical inconsistencies are not repaired. This is
 not a deletion guarantee or a complete retention solution; ARC-024 remains open.
 
+### ARC-024 update — retention candidate, policy and active-job locks
+
+Retention now locks the organisation policy and the selected document before deleting a primary
+file, rechecks the policy and document snapshot, and defers candidates with a queued or running
+extraction. It holds these locks through storage deletion and the transactionally recorded document
+delete and audit. Current-version policy updates and reprocess requests therefore serialize with
+the purge. A changed policy or active extraction makes the sweep incomplete, and worker retries are
+finite; operators still need to investigate exhausted or permanently running jobs. A user deletion
+that wins the lock first is still skipped by retention, so its file is not purged by this path.
+
+SQLite holds a database-wide write lock; PostgreSQL holds organisation and document row locks while
+storage is accessed. Slow or stalled storage can block writes, policy changes and shutdown. The
+locks do not protect other references or file writes, fence old/out-of-band writers, prove an OCR
+process is stopped, or prevent unrelated updates from writing stale policy values later. Storage and
+the database are not atomic: a failure or crash after deletion can still leave live metadata without
+bytes. Historical soft-deletes, page files, derived data, storage aliases and reference races remain
+unresolved, and neither retention nor worker exactly-once guarantees are established.
+
 ### ARC-024 update — broader reference checks and stale export metadata
 
 A synthetic cross-tenant regression (`storage-reference-safety.test.ts`) showed that retention and
