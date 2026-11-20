@@ -275,6 +275,10 @@ Additional gaps:
   it currently skips already soft-deleted documents and separate page files, retains metadata and
   derived records, and cannot atomically coordinate database and storage. A failed or shared primary
   file leaves the job retryable until attempts are exhausted; monitor dead jobs and investigate.
+  After a primary file is removed, the conditional metadata soft-delete and a per-document
+  `retention.purged` audit commit together. A database/audit failure can leave the file missing while
+  the metadata remains active; retries depend on idempotent storage deletion. Audit consumers must
+  sum the per-document `count=1` records rather than expect one aggregate record per sweep.
   Known references in documents, pages, exports and template samples across tenants block retention,
   erasure-file and expired-export deletion; investigate aliases rather than removing references
   blindly. These checks are not atomic with file deletion, keys are not protected against reuse, and

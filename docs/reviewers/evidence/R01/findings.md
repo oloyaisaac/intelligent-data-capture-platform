@@ -88,6 +88,19 @@ one success and one not-found. This improves database consistency only: the endp
 file bytes or derived records, and retention still skips already soft-deleted documents. Workflow
 deletes and retention file/DB operations have different boundaries. ARC-024 remains open.
 
+### ARC-024 update — transactional retention metadata and audit
+
+A forced retention-audit failure used to leave a soft-deleted row with no purge audit, preventing
+normal retry. After removing a primary file, retention now conditionally soft-deletes that document
+and records its `retention.purged` audit in the same database transaction. Audit records are now
+per document (`target_type=document`, `target_id` set, and `count=1`), not one aggregate per sweep.
+`retention-purge-safety.test.ts` exercises audit failure, retry after an already-missing file,
+per-document counts and a synthetic lost commit acknowledgement. Retrying relies on the storage
+adapter's idempotent delete contract. A failed transaction can still leave bytes absent while metadata
+is active; the cross-table reference check and external delete remain unfenced, a concurrent user
+soft-delete can skip the retention audit, and historical inconsistencies are not repaired. This is
+not a deletion guarantee or a complete retention solution; ARC-024 remains open.
+
 ### ARC-024 update — broader reference checks and stale export metadata
 
 A synthetic cross-tenant regression (`storage-reference-safety.test.ts`) showed that retention and
