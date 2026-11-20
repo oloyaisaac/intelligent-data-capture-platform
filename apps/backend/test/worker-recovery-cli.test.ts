@@ -33,6 +33,20 @@ it('lists limited metadata and requeues only an explicitly selected running atte
 
     const denied = cli('--requeue', target.id, '--attempt', '1', '--confirm-offline');
     expect(denied.status).toBe(1);
+    expect(
+      cli(
+        '--requeue',
+        target.id,
+        '--attempt',
+        '1',
+        '--operator',
+        'bad reference',
+        '--incident',
+        'INC-42',
+        '--confirm-offline',
+        '--confirm-effects-reviewed',
+      ).status,
+    ).toBe(1);
     expect((await jobs.findById(target.id))?.status).toBe('running');
     const list = cli('--list', '--confirm-offline');
     expect(list.status).toBe(0);
@@ -51,6 +65,10 @@ it('lists limited metadata and requeues only an explicitly selected running atte
         target.id,
         '--attempt',
         '2',
+        '--operator',
+        'operator-1',
+        '--incident',
+        'INC-42',
         '--confirm-offline',
         '--confirm-effects-reviewed',
       ).status,
@@ -61,6 +79,10 @@ it('lists limited metadata and requeues only an explicitly selected running atte
       target.id,
       '--attempt',
       '1',
+      '--operator',
+      'operator-1',
+      '--incident',
+      'INC-42',
       '--confirm-offline',
       '--confirm-effects-reviewed',
     );
@@ -68,12 +90,33 @@ it('lists limited metadata and requeues only an explicitly selected running atte
     expect(JSON.parse(recovered.stdout)).toEqual({ requeued: true });
     expect((await jobs.findById(target.id))?.status).toBe('queued');
     expect((await jobs.findById(other.id))?.status).toBe('running');
+    const audits = await db.query<{
+      actor_type: string;
+      actor_id: string | null;
+      target_id: string;
+      metadata: string;
+    }>('SELECT actor_type, actor_id, target_id, metadata FROM audit_logs WHERE action = ?', [
+      'worker.job_requeued_offline',
+    ]);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ actor_type: 'system', actor_id: null, target_id: target.id });
+    expect(JSON.parse(audits[0]!.metadata)).toEqual({
+      jobType: 'retention_purge',
+      attempt: 1,
+      operatorReference: 'operator-1',
+      incidentReference: 'INC-42',
+    });
+    expect(audits[0]!.metadata).not.toContain('synthetic-secret');
     expect(
       cli(
         '--requeue',
         target.id,
         '--attempt',
         '1',
+        '--operator',
+        'operator-1',
+        '--incident',
+        'INC-42',
         '--confirm-offline',
         '--confirm-effects-reviewed',
       ).status,

@@ -62,6 +62,12 @@ persistence or all possible crash boundaries.
    reclaim, concurrent review, retry and duplicate external delivery. Assert actual durable effects,
    not just job status; run on real PostgreSQL CI and inspect limitations of any fake provider.
 
+Operator-directed CLI requeues now require asserted operator and incident references and atomically
+record a system audit with the guarded update. Failure injection and concurrent recovery tests cover
+rollback and one audit for one update; the references are not authenticated identities, and callers
+that use the lower-level repository directly or old binaries bypass the CLI. This does not establish
+that a process is dead or that external effects will not repeat.
+
 A named technical owner must choose and review the design, and evidence must demonstrate the stated
 semantics. None of the above constitutes an owner-approved exception or independent reviewer sign-off.
 

@@ -3,7 +3,9 @@
 R01 is **not complete or passed**. This note identifies work still requiring implementation,
 operational evidence and independent review. It is not a substitute for the checklist in
 `docs/reviewers/R01-software-architect.md`; unlisted checklist items must also be answered. No owner,
-exception, production execution, reviewer or approval is implied by this note.
+exception, production execution, reviewer or approval is implied by this note. For an item-by-item
+inventory of all twelve passing conditions, currently recorded findings and required runtime evidence,
+see `completion-status.md`.
 
 ## P6 — recovery and duplicate work
 

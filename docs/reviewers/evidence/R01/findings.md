@@ -79,6 +79,15 @@ exactly-once effects nor multi-replica maintenance safety. Old binaries, out-of-
 running overlaps and operator-directed recovery can bypass the mitigation. See
 `worker-recovery-design.md` and keep ARC-013, ARC-021 and ARC-024 open.
 
+### ARC-024 update — atomic user soft-delete and audit
+
+The user-facing document delete now performs a conditional, tenant-scoped soft-delete and its audit
+in one database transaction. A forced audit failure previously left the document deleted without
+its audit; the rollback regression now preserves the document, and concurrent delete requests yield
+one success and one not-found. This improves database consistency only: the endpoint does not remove
+file bytes or derived records, and retention still skips already soft-deleted documents. Workflow
+deletes and retention file/DB operations have different boundaries. ARC-024 remains open.
+
 ### ARC-024 update — broader reference checks and stale export metadata
 
 A synthetic cross-tenant regression (`storage-reference-safety.test.ts`) showed that retention and
@@ -222,6 +231,16 @@ schema endpoint now validates the declared field types and strips extra schema/f
 not data-at-rest cleanup or an isolation boundary: historical rows, prior responses, logs, backups,
 destination-supplied schema strings, duplicate-preview values and direct in-process access remain
 potential exposure paths. Independent security review and P8 remain open.
+
+### ARC-014 update — best-effort descendant cleanup on POSIX
+
+The transport now starts POSIX connector children in separate process groups and attempts to kill
+that group on failure or timeout while its leader is still running. A regression with one synthetic
+same-group descendant observed a delayed write before the change and no write after timeout with the
+change. On Windows only the immediate process is signalled. This is not a sandbox or complete process
+containment: descendants can escape the group, the leader may exit first, signals can fail, and a
+remote operation may already have happened. The same-UID host-kill reproduction still applies. P8
+remains unmet, with the enforced boundary and independent security review still required.
 
 ### ARC-014 update — fatal connector process reproduction
 

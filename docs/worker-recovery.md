@@ -34,7 +34,7 @@ From the backend workspace, using the same configuration as the application:
 
 ```sh
 npm run db:worker-recovery -- --list --confirm-offline
-npm run db:worker-recovery -- --requeue JOB_ID --attempt N --confirm-offline --confirm-effects-reviewed
+npm run db:worker-recovery -- --requeue JOB_ID --attempt N --operator OPERATOR_REF --incident INCIDENT_REF --confirm-offline --confirm-effects-reviewed
 ```
 
 For the built container or backend build, use `node dist/worker-recovery.js` with the same arguments.
@@ -42,12 +42,18 @@ The list returns at most 1,000 running claims and a total count and `truncated` 
 and error text. Investigate each selected job's owner, current status, attempt, document, logs and
 possible external effects using authorized operational tools. Confirm the old process cannot resume;
 reconcile the provider, billing and destination state as appropriate. Obtain an explicit owner decision
-for each retry. Replace `JOB_ID` and `N` with that job's actual ID and current attempt. Both
-confirmation flags are required; they are operator assertions, not proof.
+for each retry. Replace `JOB_ID` and `N` with that job's actual ID and current attempt. Supply
+`OPERATOR_REF` and `INCIDENT_REF` as non-secret, approved operator and incident references (1–80
+ASCII letters, digits or `_.:@/-`; no spaces). Arguments may be visible in shell history and process
+lists. Both confirmation flags and both references are required. They are operator assertions, not
+authentication, authorization, proof that a process is stopped or approval of a retry.
 
 The update requeues only the named job if it is still `running` with that exact attempt. It leaves
-other jobs untouched and preserves the attempt count; the next claim increments it. Exit status 2
-means no matching running attempt was updated; re-inspect rather than blindly retrying. Exit status 1
+other jobs untouched and preserves the attempt count; the next claim increments it. A successful
+update commits an audit record in the same database transaction with the asserted operator and
+incident references, job type and attempt. The audit uses actor type `system`: references are not
+verified identities. An audit write failure rolls back the requeue. Exit status 2 means no matching
+running attempt was updated; re-inspect rather than blindly retrying. Exit status 1
 means a command/configuration/database failure. A successful update can still be followed by an
 ambiguous response or later processing failure, so re-inspect before repeating any action.
 

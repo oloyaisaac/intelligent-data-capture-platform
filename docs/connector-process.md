@@ -23,15 +23,18 @@ schema responses over the limits now fail. Code that explicitly injects a regist
 **This is not a security sandbox or a guarantee that connectors cannot crash the host.** The child
 uses the same operating-system identity and privileges as the API, can access its filesystem and
 network, and can signal its parent. The heap limit does not bound native memory, CPU, child-created
-processes or host-wide resources. SIGKILL on timeout does not prove that descendants or external
-operations stopped. A malicious or compromised connector can bypass the supplied logger or exploit
-other privileges. `connector-process-security.test.ts` demonstrates a same-privilege child killing
+processes or host-wide resources. On POSIX, the child is placed in a separate process group; a
+failure or timeout while its leader is still running attempts to SIGKILL that group, falling back to
+the leader. Windows still signals only the immediate child. This is best-effort: descendants can
+leave the group, the leader can exit first, signalling can fail, and remote effects cannot be undone.
+It does not prove descendants or external operations stopped. A malicious or compromised connector
+can bypass the supplied logger or exploit other privileges. `connector-process-security.test.ts` demonstrates a same-privilege child killing
 a disposable API host. Do not run untrusted connector code under this boundary; use separately
 enforced isolation and egress controls after they are designed and validated. SQL and filesystem
 connectors have additional risks described in `connector-network-security.md`.
 
 Focused tests cover real subprocess crashes, malformed and oversized output, timeouts, concurrency,
-environment filtering, an API health request with a synthetic fatal child, and a CSV connector using
-synthetic local data. They do not demonstrate vendor connectivity, complete resource isolation,
+environment filtering, a POSIX same-group descendant on timeout, an API health request with a
+synthetic fatal child, and a CSV connector using synthetic local data. They do not demonstrate vendor connectivity, complete resource isolation,
 exactly-once effects, or all operating systems. The existing test that injects a connector directly
 into the host still demonstrates that an explicitly in-process registry can terminate it.

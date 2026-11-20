@@ -48,7 +48,11 @@ export interface UploadInput {
 export interface DocumentTransactionRepositories {
   documents: Pick<
     DocumentsRepository,
-    'createIfAbsent' | 'findByIdempotencyKey' | 'lockForReprocess' | 'queueForReprocess'
+    | 'createIfAbsent'
+    | 'findByIdempotencyKey'
+    | 'lockForReprocess'
+    | 'queueForReprocess'
+    | 'softDelete'
   >;
   pages: Pick<DocumentPagesRepository, 'create'>;
   reviews: Pick<ReviewsRepository, 'supersedeOpenForDocument'>;
@@ -345,15 +349,17 @@ export class DocumentService {
 
   /** Soft delete hides the record. Existing soft-deleted files are not purged by retention. */
   async delete(actor: AuthenticatedActor, id: string): Promise<void> {
-    const ok = await this.documents.softDelete(actor.organisationId, id);
-    if (!ok) throw new AppError('NOT_FOUND', 'Document not found.');
-    await this.audit.record({
-      organisationId: actor.organisationId,
-      actorType: actor.actorType,
-      actorId: actor.userId,
-      action: 'document.deleted',
-      targetType: 'document',
-      targetId: id,
+    await this.transaction(async (repositories) => {
+      const ok = await repositories.documents.softDelete(actor.organisationId, id);
+      if (!ok) throw new AppError('NOT_FOUND', 'Document not found.');
+      await repositories.audit.record({
+        organisationId: actor.organisationId,
+        actorType: actor.actorType,
+        actorId: actor.userId,
+        action: 'document.deleted',
+        targetType: 'document',
+        targetId: id,
+      });
     });
   }
 

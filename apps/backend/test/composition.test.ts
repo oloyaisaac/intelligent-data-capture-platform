@@ -503,6 +503,7 @@ it('uses injected document repositories and rejects a document outside the actor
           findByIdempotencyKey: jest.fn(),
           lockForReprocess: jest.fn(),
           queueForReprocess: jest.fn(),
+          softDelete: jest.fn(),
         },
         pages: { create: jest.fn() },
         reviews: { supersedeOpenForDocument: jest.fn() },
