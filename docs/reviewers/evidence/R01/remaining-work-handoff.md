@@ -10,9 +10,12 @@ see `completion-status.md`.
 ## P6 — recovery and duplicate work
 
 Age-only automatic startup recovery has been removed. The deliberately offline, per-attempt command
-in `docs/worker-recovery.md` is an availability trade-off, not an ownership lease or a guarantee
-against duplicated OCR, billing, file deletion or other side effects. Older versions can still
-reclaim live jobs. The technical owner must decide an ownership, fencing, retry and deployment
+in `docs/worker-recovery.md` supports audited requeue or reviewed abandonment without retry. The
+unaudited repository requeue helper was removed. These remain availability and operational trade-offs,
+not an ownership lease or a guarantee against duplicated OCR, billing, file deletion or other side
+effects. Older versions can still reclaim live jobs, and abandonment cannot stop an active worker.
+Current-version retention workers lock and recheck the claim during each destructive transaction,
+but already-started deletion, storage/database ambiguity and old workers remain unresolved. The technical owner must decide an ownership, fencing, retry and deployment
 protocol, including what guarantees are possible for external providers. Test both supported
 databases with real separate processes at claim, failure, recovery, concurrent work, stale resume,
 publication and external-effect boundaries. Cover conflicting distinct jobs, purge and review as

@@ -59,7 +59,10 @@ export interface DocumentTransactionRepositories {
   >;
   pages: Pick<DocumentPagesRepository, 'create'>;
   reviews: Pick<ReviewsRepository, 'supersedeOpenForDocument'>;
-  jobs: Pick<JobsRepository, 'enqueue' | 'latestExtractionForDocument' | 'hasActiveExtraction'>;
+  jobs: Pick<
+    JobsRepository,
+    'enqueue' | 'latestExtractionForDocument' | 'hasActiveExtraction' | 'lockRunningRetention'
+  >;
   audit: Pick<AuditRepository, 'record'>;
 }
 
@@ -376,7 +379,11 @@ export class DocumentService {
    * Lock and recheck each expired document before removing its primary file, then soft-delete its
    * metadata and audit in the same database transaction. Storage remains outside DB atomicity.
    */
-  async purgeExpired(organisationId: string, retentionDays: number): Promise<number> {
+  async purgeExpired(
+    organisationId: string,
+    retentionDays: number,
+    claim?: { id: string; attempt: number },
+  ): Promise<number> {
     if (retentionDays <= 0) return 0;
     const expired = await this.documents.findExpiredForPurge(organisationId, retentionDays);
     let purged = 0;
@@ -384,6 +391,13 @@ export class DocumentService {
     for (const document of expired) {
       try {
         const outcome = await this.transaction(async (repositories) => {
+          // A worker must hold its exact claim through the destructive action. The offline
+          // recovery transaction takes the same job lock, before organisation and document locks.
+          if (
+            claim &&
+            !(await repositories.jobs.lockRunningRetention(organisationId, claim.id, claim.attempt))
+          )
+            return 'obsolete' as const;
           // Recheck the policy under an organisation lock before locking the document. This
           // serializes policy changes until the file and metadata operation finishes.
           const policy = await repositories.organisations.lockRetentionPolicy(organisationId);
@@ -424,6 +438,10 @@ export class DocumentService {
           return 'purged' as const;
         });
         if (outcome === 'purged') purged += 1;
+        if (outcome === 'obsolete') {
+          incomplete = true;
+          break;
+        }
         if (outcome === 'pending') incomplete = true;
       } catch {
         // Storage and database errors may contain paths or secrets. Keep failures retryable.

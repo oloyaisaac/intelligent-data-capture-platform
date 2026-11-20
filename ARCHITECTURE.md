@@ -81,10 +81,12 @@ exactly-once effects or multi-worker safety. Extraction start and publication ch
 claim attempt; page OCR, extraction and field rows, final document status and job success commit in
 one database transaction. Failed extraction status is guarded in its failure transaction. The API
 rejects new reprocess requests while another extraction is queued or running. These guards do not
-prevent duplicate OCR calls or costs, guarantee delivery of events, protect retention purge, or
-establish safe handling of pre-existing overlapping jobs. Startup no longer automatically requeues
-running claims based on age: a crashed job remains running until an operator reviews and requeues it
-with all workers offline. See `docs/worker-recovery.md`; retries can still repeat external effects,
+prevent duplicate OCR calls or costs, guarantee delivery of events, or establish safe handling of
+pre-existing overlapping jobs. A current-version retention worker locks and rechecks its exact claim
+for each destructive document transaction; that does not undo already-started deletion or protect
+against older binaries, other writers, or storage/database commit ambiguity. Startup no longer automatically requeues
+running claims based on age: a crashed job remains running until an operator reviews and requeues or
+abandons it with all workers offline. See `docs/worker-recovery.md`; retries can still repeat external effects,
 and old binaries must not be started. Only one worker process is supported. On normal shutdown the
 worker waits for its startup check and a currently claimed job to finish before the database closes;
 overlapping drain calls on that worker share one loop. This wait has no global
@@ -194,8 +196,8 @@ Avoid imports between applications. Platform-specific implementation remains in 
 - `InMemoryRealtimeHub` stores local subscribers and device callbacks, with no global subscriber
   bound or cross-process event delivery. An event emitted in one process does not reach subscribers
   connected to another. SSE connection cleanup is local; monitoring and connection limits are needed.
-- Worker recovery has no lease/heartbeat and may requeue an active job from another process.
-  Maintenance timers also run in each enabled process. Neither duplicate side effects nor shared
+- Worker recovery has no lease/heartbeat; an operator who violates the offline requirement may
+  requeue or abandon an active job, without stopping its side effects. Maintenance timers also run in each enabled process. Neither duplicate side effects nor shared
   scheduler behavior has been validated for a multi-process deployment.
 - Moving to multiple replicas requires a supported PostgreSQL/shared-storage topology, shared rate
   limiting and realtime delivery, a leased/owned worker queue and coordinated maintenance; it also

@@ -18,10 +18,9 @@ async function main(): Promise<void> {
     !!args[2] &&
     args[2].length <= 256 &&
     args[3] === '--confirm-offline';
-  const recovering =
-    args.length === 10 &&
-    args[0] === '--requeue' &&
+  const recoveryArguments =
     !!args[1] &&
+    args[1].length <= 256 &&
     args[2] === '--attempt' &&
     /^[1-9]\d*$/.test(args[3] ?? '') &&
     Number.isSafeInteger(Number(args[3])) &&
@@ -31,7 +30,13 @@ async function main(): Promise<void> {
     /^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,79}$/.test(args[7] ?? '') &&
     args[8] === '--confirm-offline' &&
     args[9] === '--confirm-effects-reviewed';
-  if (!listing && !listingAfter && !recovering) {
+  const recovering = recoveryArguments && args.length === 10 && args[0] === '--requeue';
+  const abandoning =
+    recoveryArguments &&
+    args.length === 11 &&
+    args[0] === '--abandon' &&
+    args[10] === '--confirm-no-retry';
+  if (!listing && !listingAfter && !recovering && !abandoning) {
     throw new Error('Invalid arguments');
   }
   const config = loadConfig();
@@ -71,14 +76,22 @@ async function main(): Promise<void> {
           : await list(db);
       console.log(JSON.stringify(result));
     } else {
-      const changed = await new WorkerRecoveryRepository(db).requeueWithAudit({
+      const recovery = new WorkerRecoveryRepository(db);
+      const input = {
         id: args[1]!,
         attempt: Number(args[3]),
         operatorReference: args[5]!,
         incidentReference: args[7]!,
-      });
-      console.log(JSON.stringify({ requeued: changed }));
-      if (!changed) process.exitCode = 2;
+      };
+      if (abandoning) {
+        const result = await recovery.abandonWithAudit(input);
+        console.log(JSON.stringify(result));
+        if (!result.abandoned) process.exitCode = 2;
+      } else {
+        const changed = await recovery.requeueWithAudit(input);
+        console.log(JSON.stringify({ requeued: changed }));
+        if (!changed) process.exitCode = 2;
+      }
     }
   } finally {
     await db.close();

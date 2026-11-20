@@ -1,8 +1,8 @@
 # Interrupted worker jobs: offline recovery
 
 The worker no longer requeues running jobs just because they are old. After a crash they remain
-`running` until an operator reviews and explicitly requeues them. This is an availability change:
-startup alone will not restore those jobs, and monitoring and manual intervention are required.
+`running` until an operator reviews and explicitly requeues or abandons them. This is an availability
+change: startup alone will not restore those jobs, and monitoring and manual intervention are required.
 Normal queued jobs still run. The startup warning counts all running jobs, including work that may
 be legitimately active; age is not evidence that a worker is dead.
 
@@ -21,14 +21,15 @@ operator authorization, or protect against old binaries and out-of-band database
    by this tool cannot replace that control. Keep other writers stopped as appropriate for backup
    and investigation.
 2. Take and verify a suitable backup under the deployment's approved backup procedure; retain
-   incident evidence and follow the organisation's access and change controls. Do not use the
-   recovery tool if the worker state or external effects are unknown and retry is unacceptable.
+   incident evidence and follow the organisation's access and change controls. Do not requeue if
+   external effects are unknown and retry is unacceptable; abandoning also requires the offline
+   controls and an explicit, reviewed decision.
 3. Configure the same database and validated environment as the deployed application. The CLI does
    not apply migrations or start services and requires an existing persistent SQLite database, or a
    configured PostgreSQL database. Avoid printing environment variables or secrets. Output contains
    organisation, document and job identifiers: treat it as sensitive operational data.
 
-## Inspect and requeue
+## Inspect, then requeue or abandon
 
 From the backend workspace, using the same configuration as the application:
 
@@ -36,6 +37,7 @@ From the backend workspace, using the same configuration as the application:
 npm run db:worker-recovery -- --list --confirm-offline
 npm run db:worker-recovery -- --list --after LAST_ID --confirm-offline
 npm run db:worker-recovery -- --requeue JOB_ID --attempt N --operator OPERATOR_REF --incident INCIDENT_REF --confirm-offline --confirm-effects-reviewed
+npm run db:worker-recovery -- --abandon JOB_ID --attempt N --operator OPERATOR_REF --incident INCIDENT_REF --confirm-offline --confirm-effects-reviewed --confirm-no-retry
 ```
 
 For the built container or backend build, use `node dist/worker-recovery.js` with the same arguments.
@@ -63,6 +65,33 @@ verified identities. An audit write failure rolls back the requeue. Exit status 
 running attempt was updated; re-inspect rather than blindly retrying. Exit status 1
 means a command/configuration/database failure. A successful update can still be followed by an
 ambiguous response or later processing failure, so re-inspect before repeating any action.
+
+### Abandon without retrying
+
+When the incident owner decides a retry is unacceptable, `--abandon` can mark exactly the selected
+running attempt `dead` without executing its work. It requires the same offline and effects-review
+assertions plus `--confirm-no-retry`. Only `extract_document` and `retention_purge` are supported;
+unknown job types are unchanged and need separate investigation. The operation does not undo or
+complete any effects and is **not a kill switch**: a paused or old worker, an already-started OCR
+request, and old or out-of-band writers may continue side effects if the offline requirement is
+violated. A current-version retention worker holds its exact job claim lock during each document's
+destructive transaction: abandonment waits for in-flight deletion, and subsequent documents are
+not deleted by that obsolete claim. This does not undo a deletion that already began, fix rollback
+or commit ambiguity, or stop old binaries. Do not use the command until every relevant worker and
+writer is stopped and cannot resume.
+
+For an extraction with a matching, undeleted `queued` or `processing` document and no other
+extraction job history for that document, the document is also marked `failed` in the same database
+transaction. All other document states, missing/foreign documents and any document with another
+extraction job are left unchanged for investigation. Output includes `documentFailed` to distinguish
+these outcomes; it does not prove the document is safe, fully reconciled or externally unaffected.
+The command does not send a realtime document event. The `worker.job_abandoned_offline` system audit,
+job update and any document update commit together with the same unverified operator and incident
+references. Audit failure rolls them all back. Exit 2 means no supported running job with that exact
+attempt was changed; exit 1 means a command, configuration or database error. A lost acknowledgement
+can occur after commit: inspect the job and audit before repeating. The normal requeue command cannot
+requeue a `dead` job; a later fresh reprocess request is new work and still needs its own effect review.
+No existing results, partial retention changes, backups or external records are reconciled.
 
 When reviewed recovery changes are complete, restart only the supported single worker on this
 version, restore normal scheduling under the deployment procedure, and verify the job outcome and

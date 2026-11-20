@@ -156,6 +156,21 @@ export class JobsRepository {
     return row !== null;
   }
 
+  /** Lock the exact tenant-scoped purge claim before any destructive document operation. */
+  async lockRunningRetention(
+    organisationId: string,
+    id: string,
+    attempt: number,
+  ): Promise<boolean> {
+    const lock = this.db.driver === 'postgres' ? ' FOR UPDATE' : '';
+    const row = await this.db.one<{ id: string }>(
+      `SELECT id FROM jobs WHERE id = ? AND organisation_id = ? AND type = 'retention_purge'
+       AND status = 'running' AND attempts = ?${lock}`,
+      [id, organisationId, attempt],
+    );
+    return row !== null;
+  }
+
   /** Guard the job row against completion by a claim that has been recovered or replaced. */
   async markSucceeded(id: string, attempt: number): Promise<boolean> {
     const updated = await this.db.one<{ id: string }>(
@@ -217,19 +232,6 @@ export class JobsRepository {
        ORDER BY id LIMIT 1001`,
       after === null ? [] : [after],
     );
-  }
-
-  /**
-   * Operator-directed recovery only, after all workers are stopped and external effects reviewed.
-   * Neither the attempt guard nor a database transaction proves a previous process is dead.
-   */
-  async requeueInterrupted(id: string, attempt: number): Promise<boolean> {
-    const row = await this.db.one<{ id: string }>(
-      `UPDATE jobs SET status = 'queued', run_after = ?, last_error = ?
-       WHERE id = ? AND status = 'running' AND attempts = ? RETURNING id`,
-      [nowIso(), 'Requeued by operator after offline review.', id, attempt],
-    );
-    return row !== null;
   }
 
   /** Check after locking the document; reprocess enqueues under that same document lock. */

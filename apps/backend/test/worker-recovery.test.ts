@@ -1,5 +1,6 @@
 import { createHarness, registerAccount, type Harness } from './helpers';
 import { JobsRepository } from '../src/repositories/system-repo';
+import { WorkerRecoveryRepository } from '../src/repositories/worker-recovery-repo';
 import { ExtractionsRepository } from '../src/repositories/document-repo';
 import { buildServices } from '../src/services/container';
 
@@ -41,6 +42,14 @@ describe('worker recovery of interrupted jobs', () => {
     return id;
   }
 
+  const requeue = (id: string, attempt: number) =>
+    new WorkerRecoveryRepository(harness.db).requeueWithAudit({
+      id,
+      attempt,
+      operatorReference: 'operator-test',
+      incidentReference: 'INC-test',
+    });
+
   async function statusOf(id: string): Promise<string> {
     const row = await harness.db.one<{ status: string; last_error: string | null }>(
       'SELECT status, last_error FROM jobs WHERE id = ?',
@@ -63,9 +72,8 @@ describe('worker recovery of interrupted jobs', () => {
     await harness.services.worker.stop();
 
     expect(await statusOf(stale)).toBe('running');
-    const repository = new JobsRepository(harness.db);
-    expect(await repository.requeueInterrupted(stale, 2)).toBe(false);
-    expect(await repository.requeueInterrupted(stale, 1)).toBe(true);
+    expect(await requeue(stale, 2)).toBe(false);
+    expect(await requeue(stale, 1)).toBe(true);
     expect(await statusOf(stale)).toBe('queued');
     const recovered = await harness.db.one<{ last_error: string }>(
       'SELECT last_error FROM jobs WHERE id = ?',
@@ -114,7 +122,7 @@ describe('worker recovery of interrupted jobs', () => {
       attempts: 1,
     });
     const repository = new JobsRepository(harness.db);
-    expect(await repository.requeueInterrupted(id, 1)).toBe(true);
+    expect(await requeue(id, 1)).toBe(true);
 
     // A stale worker cannot finish while recovery has left its claim queued.
     expect(await repository.markSucceeded(id, 1)).toBe(false);
@@ -145,7 +153,7 @@ describe('worker recovery of interrupted jobs', () => {
     const original = harness.db.one.bind(harness.db);
     const select = jest.spyOn(harness.db, 'one').mockImplementationOnce(async (sql, params) => {
       const row = await original(sql, params);
-      await repository.requeueInterrupted(id, 1);
+      await requeue(id, 1);
       return row as never;
     });
     try {
@@ -207,7 +215,7 @@ describe('worker recovery of interrupted jobs', () => {
       expect(old.attempts).toBe(1);
       // Model a second process starting after this live claim is considered stale. Its recovery
       // and processing use the real repository and worker, with deterministic fake OCR.
-      expect(await repository.requeueInterrupted(old.id, old.attempts)).toBe(true);
+      expect(await requeue(old.id, old.attempts)).toBe(true);
       const second = await repository.claimNext();
       expect(second?.id).toBe(old.id);
       expect(second?.attempts).toBe(2);
@@ -507,7 +515,7 @@ describe('worker recovery of interrupted jobs', () => {
     try {
       await ready;
       let settled = false;
-      recovered = new JobsRepository(harness.db).requeueInterrupted(id, 1).then((count) => {
+      recovered = requeue(id, 1).then((count) => {
         settled = true;
         return count;
       });
@@ -531,11 +539,7 @@ describe('worker recovery of interrupted jobs', () => {
       status: 'running',
       startedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
     });
-    const repository = new JobsRepository(harness.db);
-    const counts = await Promise.all([
-      repository.requeueInterrupted(stale, 1),
-      repository.requeueInterrupted(stale, 1),
-    ]);
+    const counts = await Promise.all([requeue(stale, 1), requeue(stale, 1)]);
     expect(counts.sort()).toEqual([false, true]);
     expect(await statusOf(stale)).toBe('queued');
   });

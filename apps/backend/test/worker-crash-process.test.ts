@@ -7,6 +7,7 @@ import { applyMigrations } from '../src/db/migrations';
 import { OrganisationsRepository } from '../src/repositories/auth-repo';
 import { DocumentPagesRepository, DocumentsRepository } from '../src/repositories/document-repo';
 import { JobsRepository } from '../src/repositories/system-repo';
+import { WorkerRecoveryRepository } from '../src/repositories/worker-recovery-repo';
 import { buildServices } from '../src/services/container';
 import { MemoryStorage } from '../src/storage';
 import { silentLogger } from '../src/logger';
@@ -122,7 +123,14 @@ it('rolls back publication on SIGKILL and requires explicit recovery before retr
     await services.worker.stop();
     expect((await jobs.findById(job.id))?.status).toBe('running');
     // The killed process is gone; a real operator must also review possible external effects.
-    expect(await jobs.requeueInterrupted(job.id, 1)).toBe(true);
+    expect(
+      await new WorkerRecoveryRepository(db).requeueWithAudit({
+        id: job.id,
+        attempt: 1,
+        operatorReference: 'operator-test',
+        incidentReference: 'INC-test',
+      }),
+    ).toBe(true);
     await services.worker.drain();
     expect((await jobs.findById(job.id))?.status).toBe('succeeded');
     expect(
