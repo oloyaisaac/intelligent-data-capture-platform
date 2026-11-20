@@ -482,7 +482,7 @@ Connect: `wss://api.<domain>` with `auth: { deviceCredential }` or `{ accessToke
 | `connector:run_updated` | `{ runId, status }`                                     |
 | `export:ready`          | `{ exportId, url }`                                     |
 
-Rules: messages are small; never send document content or personal data over sockets — send IDs and re-fetch if needed. Events are additive-only within `v1`.
+Rules: messages are small; never send document content or personal data over sockets — send IDs and re-fetch if needed. Events are additive-only within `v1`. Extraction failure messages are generic worker guidance, not raw OCR, storage or database exceptions; they no longer identify the specific cause.
 
 ---
 

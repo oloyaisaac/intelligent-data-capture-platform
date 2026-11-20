@@ -104,8 +104,9 @@ export class Worker {
       if (!this.running || this.generation !== generation) return;
       try {
         await this.drain();
-      } catch (error) {
-        this.logger.error('worker tick failed', { error: (error as Error).message });
+      } catch {
+        // Repository or adapter exceptions can contain SQL, paths, credentials or document data.
+        this.logger.error('worker tick failed');
       }
       if (this.running && this.generation === generation) {
         this.timer = setTimeout(tick, this.config.WORKER_POLL_INTERVAL_MS);
@@ -131,10 +132,8 @@ export class Worker {
       // its DB operation to finish, and should continue closing resources if the check failed.
       if (starting) await starting.catch(() => undefined);
       if (draining) {
-        await draining.catch((error: unknown) => {
-          this.logger.error('worker drain failed during shutdown', {
-            error: error instanceof Error ? error.message : 'unknown error',
-          });
+        await draining.catch(() => {
+          this.logger.error('worker drain failed during shutdown');
         });
       }
     })();
@@ -189,8 +188,16 @@ export class Worker {
       if (!(await this.jobs.markSucceeded(job.id, job.attempts))) {
         this.logger.warn('job completion ignored for an obsolete claim', { jobId: job.id });
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Job failed.';
+    } catch {
+      // Do not trust exception messages, including provider-specific error classes: adapters,
+      // storage, SQL and payload parsing can embed sensitive data. These strings are safe to
+      // persist, log and publish to the organisation's realtime subscribers.
+      const message =
+        job.type === 'extract_document'
+          ? 'Document extraction failed. Investigate the worker and retry.'
+          : job.type === 'retention_purge'
+            ? 'Retention purge failed. Investigate storage and retry.'
+            : 'Job failed. Investigate the job type.';
       const failure =
         job.type === 'extract_document' && job.document_id
           ? await this.transaction(async (repositories) => {
@@ -212,7 +219,12 @@ export class Worker {
         this.logger.warn('job failure ignored for an obsolete claim', { jobId: job.id });
         return;
       }
-      this.logger.warn('job failed', { jobId: job.id, type: job.type, error: message });
+      this.logger.warn('job failed', {
+        jobId: job.id,
+        type:
+          job.type === 'extract_document' || job.type === 'retention_purge' ? job.type : 'unknown',
+        error: message,
+      });
 
       if (failure.documentFailed) {
         this.hub.toOrganisation(job.organisation_id, 'document:failed', {

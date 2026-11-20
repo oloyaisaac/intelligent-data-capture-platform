@@ -141,7 +141,11 @@ it('runs and handles failed jobs with injected worker repositories and no databa
 
   documentService.purgeExpired.mockRejectedValueOnce(new Error('purge unavailable'));
   await worker.processJob({ ...job, id: 'job-2' });
-  expect(repositories.jobs.markFailed).toHaveBeenCalledWith('job-2', 1, 'purge unavailable');
+  expect(repositories.jobs.markFailed).toHaveBeenCalledWith(
+    'job-2',
+    1,
+    'Retention purge failed. Investigate storage and retry.',
+  );
   expect(repositories.jobs.markSucceeded).not.toHaveBeenCalledWith('job-2', 1);
 });
 

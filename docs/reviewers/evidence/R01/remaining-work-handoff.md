@@ -55,7 +55,9 @@ CLI is another offline composition entry. The reviewer must decide whether the l
 can be met or needs an authorized exception; no such exception is recorded. Review remaining modules,
 dynamic imports, all process-local state and all runtime exercises against the actual checklist,
 complete the canonical evidence and assign named owners to findings. High findings require closure
-or written, dated owner exceptions under P12.
+or written, dated owner exceptions under P12. ARC-025 requires assessment of previously persisted
+worker errors, logs and events, plus broader verification of sensitive-data logging; the new generic
+worker failure messages do not clean historical copies or constrain arbitrary provider logging.
 
 ## Production migration evidence
 

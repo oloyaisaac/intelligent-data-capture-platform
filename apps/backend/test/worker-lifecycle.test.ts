@@ -33,7 +33,7 @@ function job(id: string): JobRow {
   };
 }
 
-function setup() {
+function setup(logs: string[] = []) {
   const jobs = {
     claimNext: jest.fn<Promise<JobRow | null>, []>(),
     countRunning: jest.fn().mockResolvedValue(0),
@@ -53,7 +53,7 @@ function setup() {
     new FakeOcrProvider(),
     new InMemoryRealtimeHub(),
     { purgeExpired: purge },
-    createLogger({ level: 'error', sink: () => undefined }),
+    createLogger({ level: 'debug', sink: (line) => logs.push(line) }),
   );
   return { worker, jobs, purge };
 }
@@ -187,13 +187,18 @@ it('does not fail a document or emit a failure event when the job claim is obsol
     createLogger({ level: 'error', sink: () => undefined }),
   );
   await worker.processJob({ ...job('obsolete'), type: 'extract_document', document_id: 'doc' });
-  expect(jobs.markFailed).toHaveBeenCalledWith('obsolete', 1, 'ocr failed');
+  expect(jobs.markFailed).toHaveBeenCalledWith(
+    'obsolete',
+    1,
+    'Document extraction failed. Investigate the worker and retry.',
+  );
   expect(documents.failProcessing).not.toHaveBeenCalled();
   expect(emit).not.toHaveBeenCalled();
 });
 
-it('waits for a failed drain without preventing shutdown cleanup', async () => {
-  const { worker, jobs } = setup();
+it('waits for a failed drain without preventing shutdown cleanup or logging exception text', async () => {
+  const logs: string[] = [];
+  const { worker, jobs } = setup(logs);
   const claim = deferred<JobRow | null>();
   jobs.claimNext.mockReturnValueOnce(claim.promise);
   const draining = worker.drain();
@@ -203,6 +208,45 @@ it('waits for a failed drain without preventing shutdown cleanup', async () => {
   claim.reject(new Error('claim unavailable'));
   await failed;
   await expect(stopping).resolves.toBeUndefined();
+  expect(logs.join('\n')).toContain('worker drain failed during shutdown');
+  expect(logs.join('\n')).not.toContain('claim unavailable');
+});
+
+it('logs no exception details from failed ticks', async () => {
+  jest.useFakeTimers();
+  const logs: string[] = [];
+  const { worker, jobs } = setup(logs);
+  jobs.claimNext.mockRejectedValue(new Error('SECRET-TICK'));
+  try {
+    await worker.start();
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(logs.join('\n')).toContain('worker tick failed');
+    expect(logs.join('\n')).not.toContain('SECRET-TICK');
+  } finally {
+    await worker.stop();
+    jest.useRealTimers();
+  }
+});
+
+it('persists only safe guidance for retention and unknown job failures', async () => {
+  const logs: string[] = [];
+  const { worker, jobs, purge } = setup(logs);
+  purge.mockRejectedValueOnce(new Error('SECRET-RETENTION'));
+  await worker.processJob(job('retention'));
+  await worker.processJob({ ...job('unknown'), type: 'SECRET-UNKNOWN' });
+  expect(jobs.markFailed).toHaveBeenNthCalledWith(
+    1,
+    'retention',
+    1,
+    'Retention purge failed. Investigate storage and retry.',
+  );
+  expect(jobs.markFailed).toHaveBeenNthCalledWith(
+    2,
+    'unknown',
+    1,
+    'Job failed. Investigate the job type.',
+  );
+  expect(logs.join('\n')).not.toContain('SECRET-');
 });
 
 it('allows startup to be retried after the check fails', async () => {
