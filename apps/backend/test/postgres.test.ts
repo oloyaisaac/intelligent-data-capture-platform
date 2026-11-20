@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { Pool } from 'pg';
 import { JobsRepository } from '../src/repositories/system-repo';
 import {
@@ -329,6 +333,48 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     );
     expect(row).toEqual({ udm: json, literal_question: '?' });
   });
+
+  it('runs the read-only export inventory CLI against PostgreSQL', async () => {
+    const account = await registerAccount(harness);
+    const id = randomUUID();
+    await harness.db.execute(
+      `INSERT INTO exports (id, organisation_id, requested_by, format, filter, status, created_at)
+       VALUES (?, ?, ?, 'csv', '{}', 'failed', ?)`,
+      [id, account.organisationId, account.userId, '2000-01-01T00:00:00.000Z'],
+    );
+    const schema = await harness.db.one<{ schema: string }>('SELECT current_schema() AS schema');
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.set('options', `-c search_path=${schema!.schema}`);
+    const root = await mkdtemp(join(tmpdir(), 'idcp-pg-inventory-'));
+    try {
+      const run = spawnSync(
+        process.execPath,
+        ['--import', 'tsx', 'src/db/export-inventory-cli.ts', '--inspect', id, '--confirm-offline'],
+        {
+          cwd: resolve(__dirname, '..'),
+          env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            DB_DRIVER: 'postgres',
+            DATABASE_URL: url.toString(),
+            STORAGE_PATH: root,
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(run.status).toBe(0);
+      expect(JSON.parse(run.stdout)).toMatchObject({
+        found: true,
+        export: { id, status: 'failed' },
+        observations: [{ source: 'canonicalCandidate', file: 'missing' }],
+      });
+      expect(
+        await harness.db.one('SELECT status, storage_key FROM exports WHERE id = ?', [id]),
+      ).toEqual({ status: 'failed', storage_key: null });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it('applies migrations and executes placeholder queries, transactions, and an API health check', async () => {
     expect(harness.db.driver).toBe('postgres');

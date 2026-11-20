@@ -26,7 +26,9 @@ concurrent references, changed exports and mixed versions. Measure cross-table s
 indexing with a safe deployment strategy. ARC-026 adds an export key reservation before file writes
 and schedules cleanup of caught failures when possible, but interrupted/failed-status queued exports
 still need detection and authorized offline reconciliation. Historical orphans, publication and
-external-effect races are not repaired; age alone cannot establish that a writer is dead.
+external-effect races are not repaired; age alone cannot establish that a writer is dead. The
+read-only `docs/export-inventory.md` tool assists offline investigation only; it does not reconcile,
+delete or prove that a candidate belongs to an export, and cannot find files with no export row.
 
 ## P8 — connector isolation
 

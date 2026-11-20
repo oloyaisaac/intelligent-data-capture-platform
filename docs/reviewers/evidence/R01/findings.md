@@ -35,8 +35,13 @@ is not a PostgreSQL crash or filesystem durability proof. A lost database acknow
 operations still in flight after failure, export publication/audit/event races, mixed old binaries,
 key reuse, untracked old exports and other application logging remain unresolved. Existing orphaned
 files are not identified or removed, and queue monitoring and authorized offline reconciliation
-need an owner-approved procedure. Production-scale cleanup, backup copies and independent security
-review are unverified. Owner: unassigned; backend reliability and privacy/security.
+need an owner-approved procedure. A read-only offline inventory can now page through export rows
+and inspect stored and canonical candidate key metadata, known references and pending erasure work;
+`export-inventory.test.ts` tests SQLite and configured-driver queries, with a PostgreSQL CLI case in
+CI. It does not delete or repair files, prove ownership, enumerate objects without rows, stop writers,
+or establish production evidence. See `docs/export-inventory.md`. Production-scale cleanup, backup
+copies and independent security review remain unverified. Owner: unassigned; backend reliability
+and privacy/security.
 
 ### ARC-025 — HIGH: worker exception details exposed through persistence, logs and events
 
