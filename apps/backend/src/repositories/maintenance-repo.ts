@@ -1,4 +1,5 @@
 import type { Database } from '../db/database';
+import { hasStorageReference } from './storage-references';
 
 /** Database operations used by the housekeeping scheduler. */
 export class MaintenanceRepository {
@@ -8,19 +9,37 @@ export class MaintenanceRepository {
     return this.db.query<{ id: string }>('SELECT id FROM organisations WHERE retention_days > 0');
   }
 
-  expiredExports(now: string): Promise<Array<{ id: string; storage_key: string | null }>> {
-    return this.db.query<{ id: string; storage_key: string | null }>(
-      `SELECT id, storage_key FROM exports
+  expiredExports(
+    now: string,
+  ): Promise<
+    Array<{ id: string; storage_key: string | null; status: string; expires_at: string }>
+  > {
+    return this.db.query(
+      `SELECT id, storage_key, status, expires_at FROM exports
         WHERE expires_at IS NOT NULL AND expires_at <= ? AND status <> 'expired'`,
       [now],
     );
   }
 
-  markExportExpired(id: string): Promise<void> {
-    return this.db.execute(
-      `UPDATE exports SET status = 'expired', storage_key = NULL WHERE id = ?`,
-      [id],
+  hasOtherStorageReference(exportId: string, key: string): Promise<boolean> {
+    return hasStorageReference(this.db, key, { exportId });
+  }
+
+  async markExportExpired(row: {
+    id: string;
+    storage_key: string | null;
+    status: string;
+    expires_at: string;
+  }): Promise<boolean> {
+    const keyCondition = row.storage_key === null ? 'storage_key IS NULL' : 'storage_key = ?';
+    const params = [row.id, row.status, row.expires_at];
+    if (row.storage_key !== null) params.push(row.storage_key);
+    const updated = await this.db.one<{ id: string }>(
+      `UPDATE exports SET status = 'expired', storage_key = NULL
+       WHERE id = ? AND status = ? AND expires_at = ? AND ${keyCondition} RETURNING id`,
+      params,
     );
+    return updated !== null;
   }
 
   async expirePairingSessions(now: string): Promise<number> {

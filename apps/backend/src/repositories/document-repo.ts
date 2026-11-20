@@ -3,6 +3,7 @@ import { newId } from '@idcp/shared/ids';
 import type { Database } from '../db/database';
 import { nowIso, toDbBool } from '../db/database';
 import type { DocumentPageRow, DocumentRow, ExtractionRow } from './types';
+import { hasStorageReference } from './storage-references';
 
 export class DocumentsRepository {
   constructor(private readonly db: Database) {}
@@ -217,14 +218,9 @@ export class DocumentsRepository {
     return true;
   }
 
-  /** Fail closed before retention deletes a key referenced by any other document or its pages. */
-  async hasOtherStorageReference(documentId: string, key: string): Promise<boolean> {
-    const row = await this.db.one(
-      `SELECT id FROM documents WHERE id <> ? AND storage_key = ?
-       UNION ALL SELECT id FROM document_pages WHERE document_id <> ? AND storage_key = ? LIMIT 1`,
-      [documentId, key, documentId, key],
-    );
-    return row !== null;
+  /** Fail closed on known references other than this document and its pages. */
+  hasOtherStorageReference(documentId: string, key: string): Promise<boolean> {
+    return hasStorageReference(this.db, key, { documentId });
   }
 
   /** Documents past the organisation's retention window (SEC-001). */

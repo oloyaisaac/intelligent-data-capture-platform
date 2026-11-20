@@ -53,6 +53,27 @@ exactly-once effects nor multi-replica maintenance safety. Old binaries, out-of-
 running overlaps and operator-directed recovery can bypass the mitigation. See
 `worker-recovery-design.md` and keep ARC-013, ARC-021 and ARC-024 open.
 
+### ARC-024 update — broader reference checks and stale export metadata
+
+A synthetic cross-tenant regression (`storage-reference-safety.test.ts`) showed that retention and
+privacy erasure deleted keys still referenced by exports or template samples, and that expired-export
+cleanup deleted keys referenced by other documents, pages, exports or templates. The three paths now
+check those known database reference types before deleting. All statuses, including soft-deleted
+rows, count as references; only the document being purged and its own pages, or the export being
+expired, are excluded. Known aliases therefore block and require investigation, even when both owners
+are expired. Tests use deliberately aliased database keys; they are not production incident evidence.
+
+Expired-export metadata updates now compare the selected key, status and expiry before clearing the
+key; `maintenance.test.ts` covers a concurrent replacement. This does **not** fence the storage
+operation: a separate test extends an export with the same key during deletion and observes the
+file gone while the changed metadata remains. The reference checks and deletes are not atomic;
+new references, overwritten/reused keys, old binaries, external files and out-of-band writers can
+still race. No storage-key non-reuse constraint exists. Existing files and records are not repaired,
+separate retention page files remain untouched, and a database failure after a file deletion still
+requires reconciliation. These checks add potentially unindexed cross-table lookups per file; assess
+query plans and sweep cost on representative data before production rollout. ARC-024 and P6 remain
+open; the owner must design durable, fenced storage lifecycle and recovery semantics.
+
 ### ARC-013 update — partial job-row guard
 
 A claim's `attempts` value now guards job success and failure updates, including the failure

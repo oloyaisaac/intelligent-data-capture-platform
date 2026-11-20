@@ -33,6 +33,7 @@ export interface MaintenanceServiceRepositories {
     MaintenanceRepository,
     | 'organisationsWithRetention'
     | 'expiredExports'
+    | 'hasOtherStorageReference'
     | 'markExportExpired'
     | 'expirePairingSessions'
     | 'deleteExpiredSessions'
@@ -132,6 +133,13 @@ export class MaintenanceService {
     for (const row of expired) {
       if (row.storage_key) {
         try {
+          // This is a point-in-time check, not atomic with storage deletion. Keys must not be reused.
+          if (await this.maintenance.hasOtherStorageReference(row.id, row.storage_key)) {
+            this.logger.warn('expired export file is referenced; retry pending', {
+              exportId: row.id,
+            });
+            continue;
+          }
           await this.storage.delete(row.storage_key);
         } catch {
           // Keep the key and original status so the next sweep can retry. Do not log storage
@@ -142,8 +150,8 @@ export class MaintenanceService {
           continue;
         }
       }
-      await this.maintenance.markExportExpired(row.id);
-      completed += 1;
+      // A stale sweep must not clear a replacement key or overwrite newer export state.
+      if (await this.maintenance.markExportExpired(row)) completed += 1;
     }
     return completed;
   }

@@ -19,7 +19,11 @@ See `worker-recovery-design.md` and findings ARC-013/ARC-021. A happy-path 20-do
 new narrow SQLite live-claim regression do not by themselves satisfy P6. ARC-024 additionally
 records incomplete retention deletion: primary file failures are now retried instead of silently
 reported as purged, but prior soft-deleted files, separate pages and retained/derived rows require a
-designed and authorized reconciliation and deletion strategy.
+designed and authorized reconciliation and deletion strategy. Known cross-table storage references
+now block retention, erasure-file and expired-export deletion, and stale export metadata updates are
+conditional. Neither change fences file deletion or enforces key non-reuse; test and design for
+concurrent references, changed exports and mixed versions. Measure cross-table scan costs and plan
+indexing with a safe deployment strategy.
 
 ## P8 — connector isolation
 

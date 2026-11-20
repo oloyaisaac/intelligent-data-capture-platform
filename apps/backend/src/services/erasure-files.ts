@@ -23,7 +23,7 @@ export async function processErasureFiles(
   let completed = 0;
   for (const row of rows) {
     try {
-      // Never remove a file still referenced by a retained document, including page files.
+      // Fail closed on known document, page, export or template references across tenants.
       if (await deletions.isReferenced(row.storage_key)) {
         throw new Error('File is referenced by another document');
       }

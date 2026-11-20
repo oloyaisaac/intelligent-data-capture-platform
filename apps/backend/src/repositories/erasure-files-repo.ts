@@ -1,4 +1,5 @@
 import type { Database } from '../db/database';
+import { hasStorageReference } from './storage-references';
 
 export interface ErasureFileRow {
   id: string;
@@ -18,13 +19,8 @@ export class ErasureFilesRepository {
     );
   }
 
-  async isReferenced(key: string): Promise<boolean> {
-    const row = await this.db.one(
-      `SELECT storage_key FROM documents WHERE storage_key = ?
-       UNION ALL SELECT storage_key FROM document_pages WHERE storage_key = ? LIMIT 1`,
-      [key, key],
-    );
-    return row !== null;
+  isReferenced(key: string): Promise<boolean> {
+    return hasStorageReference(this.db, key);
   }
 
   complete(id: string): Promise<void> {

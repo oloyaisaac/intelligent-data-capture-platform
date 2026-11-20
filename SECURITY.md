@@ -136,7 +136,9 @@ compatibility changes and limitations.
   current retention job soft-deletes document metadata and attempts the primary file only; it skips
   already soft-deleted documents and does not remove separate page files, extraction/review data,
   backups or logs. Storage and database updates are not atomic. Do not represent `TC-11` as proof of
-  complete deletion. See R01 finding ARC-024 and the operational limitations in `DEPLOYMENT.md`.
+  complete deletion. Known cross-tenant references from documents, pages, exports and template
+  samples block file deletion for retention, erasure and expired exports, but the check can race
+  new references and storage changes. See R01 finding ARC-024 and `DEPLOYMENT.md`.
 - No customer data is used to train models without explicit, revocable opt-in.
 - Data-subject requests are served by the product, not by hand: `GET /me/export` returns everything held
   about the caller as a JSON attachment, and `POST /me/erase` anonymises the account, revokes its

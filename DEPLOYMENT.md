@@ -275,11 +275,16 @@ Additional gaps:
   it currently skips already soft-deleted documents and separate page files, retains metadata and
   derived records, and cannot atomically coordinate database and storage. A failed or shared primary
   file leaves the job retryable until attempts are exhausted; monitor dead jobs and investigate.
-  Historical leaked files need authorized reconciliation, not an assumption that a successful job
-  proves deletion. See R01 ARC-024.
+  Known references in documents, pages, exports and template samples across tenants block retention,
+  erasure-file and expired-export deletion; investigate aliases rather than removing references
+  blindly. These checks are not atomic with file deletion, keys are not protected against reuse, and
+  an export changed during cleanup can retain metadata for an already-deleted file. The added
+  per-file cross-table lookups may scan tables; assess query plans and sweep duration on production-sized
+  data before rollout. Historical leaked files need authorized reconciliation, not an assumption that
+  a successful job proves deletion. See R01 ARC-024.
 - Playwright exercises browser journeys in CI; native mobile and packaged desktop end-to-end
   tests are not established.
-- Worker crash recovery lacks ownership fencing; connector execution is not process-isolated.
+- Worker crash recovery lacks ownership fencing; connector subprocesses are not security-isolated.
 
 Struck off this list in the October 2026 hardening pass: the access log (structured `onResponse`
 line), the security headers (`nosniff`, `DENY`, `no-referrer`, CSP, permissions policy, COOP/CORP,
