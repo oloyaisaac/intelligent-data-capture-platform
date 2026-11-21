@@ -525,3 +525,128 @@ writer shutdown, root/mount identity or a consistent filesystem/database snapsho
 and per-file reference queries can be expensive. Operators must follow the protected, authorized
 offline procedure in `docs/storage-inventory.md`, evaluate legal holds and backups, and separately
 review any action. No production inventory or cleanup was performed. These findings remain open.
+
+### ARC-029 — HIGH: PostgreSQL connector transaction and schema boundaries
+
+The PostgreSQL destination connector previously sent `BEGIN`, individual statements and `COMMIT`
+or `ROLLBACK` through `Pool.query`. The pool API does not hold one client across those calls, so a
+connection change or loss can invalidate the intended transaction boundary; partial or uncertain
+historical writes are possible, but no production occurrence has been established here. Schema
+description also queried every information-schema table with the same unqualified name, potentially
+mixing metadata from different schemas. Current code checks out one client for each operation and
+restricts schema description to the relation resolved through the connection's search path. Mocked
+transport tests verify transaction statements use the checked-out client; a temporary PostgreSQL
+integration test covers successful and failed multi-record writes, duplicate schema names and the
+first-party subprocess path. This is partial mitigation, not evidence about prior deployments.
+
+The owner must assess historical destination operations and mappings, retry/ambiguous-commit
+handling, rolling deployments and remaining remote-effect risks. Schema inspection and write are
+separate operations and can race. This work does not isolate connector code, constrain database
+network access, prove transactional behavior of MySQL storage engines, guarantee exactly-once remote
+writes or independently validate production destinations. See `docs/postgres-connector-operations.md`.
+Owner: unassigned; backend integration and security. R01 and P8 remain open.
+
+### ARC-029 update — MySQL database selection
+
+The optional MySQL `database` setting previously controlled schema discovery but not data operations,
+which used the connection's default database. If those databases contained same-named tables,
+descriptions and writes/reads could refer to different destinations. Current create, update and
+read statements use the validated, quoted configured database, or retain default-database behavior
+when it is absent. Mocked tests cover both paths and rollback on a single connection. A real MySQL 8
+CI service test is configured to create two disposable schemas, check both destinations and exercise
+InnoDB success and rollback; CI results for this change have not yet been observed.
+
+The fix changes future destination selection. An authorized owner must review existing configurations,
+previous and current destination data, mappings, permissions, mixed-version rollout and any necessary
+repair. No production data was inspected or repaired. Engine-dependent rollback, commit uncertainty,
+external effects and connector isolation remain unresolved. See `docs/mysql-connector-operations.md`.
+
+### ARC-030 — HIGH: QuickBooks query construction and historical assessment
+
+QuickBooks search previously interpolated filter keys directly into SQL-like query text without
+identifier validation; the entity name was checked only when the caller explicitly invoked
+`validateConfig`. Backslash-containing values were also not rejected before apostrophe escaping,
+leaving ambiguous escape sequences. The connector now validates the entity at each operation,
+restricts filter keys to simple or dot-separated identifiers, rejects backslash/control characters
+in filter strings and non-finite numbers, and sends bounded query limits. Schema sampling requests
+one row. Adversarial fake-HTTP tests check constructed requests and rejection before fetch; they do
+not establish actual vendor behavior or that production exploitation occurred. This changes accepted
+inputs and defaults; review compatibility and historical mappings/queries and assess any destination
+effects before rollout. A limited, unpaginated search cannot prove that no matching record exists;
+ambiguous failures and remote side effects remain. No production review or real-vendor integration
+was performed. See `docs/quickbooks-query-safety.md`. Local `npm run verify` passed 120 suites / 893
+tests (30 skipped), and the backend PostgreSQL 16.16 suite passed 109 suites / 620 tests. These do
+not substitute for real-vendor or production evidence. Owner: unassigned; integration and security.
+
+### ARC-031 — HIGH: CRM HTTP response body deadline and memory boundary
+
+The shared HubSpot/QuickBooks transport previously cleared its abort timer after response
+headers and then read the whole body with `response.text()`. A stalled body could therefore outlive
+the configured request timeout and an oversized body could accumulate without a transport-level
+bound. Current code enforces a deadline covering headers and body, rejects response bodies larger
+than 2 MiB, attempts to abort and cancel on failure, and validates configured timeouts. Synthetic
+stream tests and a local real HTTP server exercise oversized and stalled bodies; no external vendor
+has been tested. This changes compatibility for large or slow legitimate responses and invalid
+historical timeout configurations. A write failure does not establish rollback at the remote vendor.
+
+This does not cap all allocations, JSON parsing, decompression, repeated requests or remote effects,
+and initially did not address Odoo, Google Sheets, SQL or file connectors, malicious code, or OS-level isolation.
+Uncooperative injected transports and destination servers need not stop on abort. Assess provider
+payloads and configuration, rolling deployments, logging and historical effects with authorized
+owners. Local full verification and PostgreSQL results are recorded under ARC-030 above. See
+`docs/crm-http-response-limits.md`. Owner: unassigned; integration and security.
+
+### ARC-032 — HIGH: CSV destination errors and destructive writes
+
+The CSV connector treated all read failures as an empty destination, so a duplicate preview could
+report no rows on I/O failure and a later write could attempt to overwrite existing content. It
+only checked the first incoming record's columns and could silently discard later fields. Current
+code treats only an observed absent path as empty, rejects observed nonregular files, propagates
+other read errors, checks columns across the batch and leaves empty batches untouched. These are
+partial safeguards, not safe transactional file writes. The destination is still rewritten in place;
+concurrent writes, interruption, wrong mounts, parser limitations, hardlinks, path races and old or
+external writers can corrupt or lose data. A separately designed durable and coordinated protocol,
+historical destination review and authorized recovery remain. Local `npm run verify` passed 123 suites
+/ 901 tests (30 skipped), and the backend PostgreSQL 16.16 suite passed 110 suites / 624 tests. See
+`docs/connector-write-safety.md`. Owner: unassigned; integration and storage.
+
+### ARC-033 — HIGH: duplicate policy and destination update identity
+
+Non-append policies previously fell through to create when keys or a readable connector were absent;
+missing key values could also produce incomplete/unfiltered lookups. CRM update methods address a
+record by ID but the service could supply a business duplicate key as that ID. The current backend
+fails closed on invalid keys, unavailable lookup and missing mapped values, and rejects ambiguous or
+non-exact returned update matches. CRM update/merge requires the vendor ID first, and Odoo requires
+a positive integer. HubSpot's top-level ID now wins over a property of the same name. These changes
+may block existing mappings; synthetic tests do not demonstrate real-provider compatibility.
+
+Searches remain bounded, provider-dependent and separate from the subsequent write. False negatives,
+multiple destination rows, collations, stale results, races, old binaries and direct SDK calls remain;
+there is no exactly-once or target-identity proof. Authorized owners must assess historical writes,
+mappings and actual destination effects. No production inspection or remediation occurred. Local
+full verification and PostgreSQL results are recorded under ARC-032 above. See
+`docs/connector-write-safety.md`. Owner: unassigned; integration and security.
+
+### ARC-031 update — Odoo and Google Sheets HTTP bodies
+
+Odoo and Google Sheets now use the same bounded response transport as HubSpot/QuickBooks, including
+streaming body size checks and deadlines for individual requests. Stalled and oversized synthetic
+responses are tested at authentication, read and write stages; the shared transport also has a real
+local stalled HTTP server test. No real vendor call was performed. These limits are availability and
+compatibility changes and do not bound all allocations or total operation time, stop hostile code,
+prevent remote side effects, or cover SQL/filesystem connectors. See `docs/crm-http-response-limits.md`.
+
+### ARC-034 — HIGH: Sheets header handling and Odoo response integrity
+
+Sheets create previously treated any header lookup failure as an empty sheet and could write a new
+header over existing data. Appends used `USER_ENTERED`, potentially interpreting document values as
+formulas. The connector now fails closed on failed/malformed header reads, validates the entire batch
+before initializing headers and sends values with `RAW`. Odoo no longer treats null/malformed search
+results as empty, validates record IDs, and requires an explicit successful write response. These
+changes can reject existing inputs and change how strings are interpreted; synthetic tests do not
+establish real-vendor compatibility. The Sheets header read and initialization still race concurrent
+writers; both providers can commit remote effects despite failure or lost acknowledgement, and
+multi-record Odoo writes can partially succeed. Historical data, prior formulas and results have not
+been reviewed or repaired. Local `npm run verify` passed 124 suites / 914 tests (30 skipped), and
+the backend suite on temporary PostgreSQL 16.16 passed 110 suites / 624 tests. See
+`docs/sheets-odoo-connector-safety.md`. Owner: unassigned; integration and security.

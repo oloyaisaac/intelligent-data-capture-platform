@@ -206,6 +206,7 @@ function toRecords(body: unknown): ConnectorRecord[] {
   ).results;
   if (!Array.isArray(results)) return [];
   return results.map((entry) => ({
-    values: { id: entry.id ?? null, ...(entry.properties ?? {}) },
+    // The top-level object ID addresses PATCH; a property named id must not replace it.
+    values: { ...(entry.properties ?? {}), id: entry.id ?? null },
   }));
 }

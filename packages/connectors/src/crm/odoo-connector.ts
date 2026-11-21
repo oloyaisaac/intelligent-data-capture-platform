@@ -17,7 +17,7 @@ import type {
   ConnectorWriteResult,
 } from '../contract';
 import { requireString, validateBaseUrl } from './http';
-import { guardedFetch } from './safe-http';
+import { boundedFetch, checkedTimeout } from './safe-http';
 
 interface OdooConfig {
   baseUrl: string;
@@ -26,6 +26,7 @@ interface OdooConfig {
   apiKey: string;
   model: string;
   idField: string;
+  timeoutMs: number;
 }
 
 interface JsonRpcResponse {
@@ -39,6 +40,10 @@ export class OdooConnector implements Connector {
   readonly capabilities = ['create', 'read', 'update', 'search'] as const;
 
   private config(config: Record<string, unknown>): OdooConfig {
+    const model = typeof config.model === 'string' && config.model ? config.model : 'account.move';
+    if (!/^[a-z][a-z0-9_.]*$/.test(model)) {
+      throw new Error('model must be an Odoo model name, for example account.move or res.partner.');
+    }
     return {
       baseUrl: validateBaseUrl(
         typeof config.baseUrl === 'string' && config.baseUrl
@@ -52,16 +57,14 @@ export class OdooConnector implements Connector {
       ),
       username: requireString(config, 'username', 'Use the integration user, not a person.'),
       apiKey: requireString(config, 'apiKey', 'Create an API key in the user preferences.'),
-      model: typeof config.model === 'string' && config.model ? config.model : 'account.move',
+      model,
       idField: typeof config.idField === 'string' && config.idField ? config.idField : 'id',
+      timeoutMs: checkedTimeout(config.timeoutMs),
     };
   }
 
   validateConfig(config: Record<string, unknown>): void {
-    const resolved = this.config(config);
-    if (!/^[a-z][a-z0-9_.]*$/.test(resolved.model)) {
-      throw new Error('model must be an Odoo model name, for example account.move or res.partner.');
-    }
+    this.config(config);
   }
 
   private async call(
@@ -72,16 +75,21 @@ export class OdooConnector implements Connector {
     args: unknown[],
     kwargs: Record<string, unknown> = {},
   ): Promise<unknown> {
-    const response = await guardedFetch(context, `${config.baseUrl}/jsonrpc`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'call',
-        params: { service, method, args, kwargs },
-        id: Date.now(),
-      }),
-    });
+    const response = await boundedFetch(
+      context,
+      `${config.baseUrl}/jsonrpc`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'call',
+          params: { service, method, args, kwargs },
+          id: Date.now(),
+        }),
+      },
+      config.timeoutMs,
+    );
 
     if (response.status === 401 || response.status === 403) {
       throw new Error(
@@ -94,13 +102,17 @@ export class OdooConnector implements Connector {
       );
     }
 
-    const body = (await response.json()) as JsonRpcResponse;
+    const body = JSON.parse(response.text) as JsonRpcResponse | null;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error('Odoo returned an invalid response.');
+    }
     if (body.error) {
       const detail = body.error.data?.message ?? body.error.message ?? 'unknown error';
       throw new Error(
         `Odoo refused the operation on ${config.model}: ${detail}. Check the model and field names in the mapping profile.`,
       );
     }
+    if (!Object.hasOwn(body, 'result')) throw new Error('Odoo returned an invalid response.');
     return body.result;
   }
 
@@ -110,7 +122,7 @@ export class OdooConnector implements Connector {
       config.username,
       config.apiKey,
     ]);
-    if (typeof uid !== 'number') {
+    if (typeof uid !== 'number' || !Number.isSafeInteger(uid) || uid < 1) {
       throw new Error('Odoo refused the credentials. Check the database name and the API key.');
     }
     return uid;
@@ -161,7 +173,10 @@ export class OdooConnector implements Connector {
   ): Promise<{ ok: boolean; error?: string }> {
     try {
       const resolved = this.config(config);
-      await this.execute(context, resolved, 'search_count', [[]]);
+      const count = await this.execute(context, resolved, 'search_count', [[]]);
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
+        throw new Error('Odoo returned an invalid health response.');
+      }
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'Odoo check failed.' };
@@ -186,7 +201,7 @@ export class OdooConnector implements Connector {
         {},
         uid,
       );
-      if (typeof id !== 'number') {
+      if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) {
         throw new Error(`Odoo did not return an id for a ${resolved.model} record.`);
       }
       created += 1;
@@ -205,10 +220,10 @@ export class OdooConnector implements Connector {
     context: ConnectorContext,
   ): Promise<ConnectorRecord[]> {
     const resolved = this.config(config);
-    const result = (await this.execute(context, resolved, 'search_read', [[]], {
-      limit: Math.min(query.limit ?? 20, 100),
-    })) as Array<Record<string, unknown>>;
-    return (result ?? []).map((entry) => ({ values: entry as ConnectorRecord['values'] }));
+    const result = await this.execute(context, resolved, 'search_read', [[]], {
+      limit: odooLimit(query.limit),
+    });
+    return searchRecords(result);
   }
 
   async search(
@@ -218,10 +233,10 @@ export class OdooConnector implements Connector {
   ): Promise<ConnectorRecord[]> {
     const resolved = this.config(config);
     const domain = Object.entries(query.where ?? {}).map(([field, value]) => [field, '=', value]);
-    const result = (await this.execute(context, resolved, 'search_read', [domain], {
-      limit: Math.min(query.limit ?? 20, 100),
-    })) as Array<Record<string, unknown>>;
-    return (result ?? []).map((entry) => ({ values: entry as ConnectorRecord['values'] }));
+    const result = await this.execute(context, resolved, 'search_read', [domain], {
+      limit: odooLimit(query.limit),
+    });
+    return searchRecords(result);
   }
 
   async update(
@@ -239,15 +254,25 @@ export class OdooConnector implements Connector {
       if (id === null || id === undefined) {
         throw new Error(`Odoo needs "${key}" to update a record. Add it to the mapping profile.`);
       }
+      const numericId =
+        typeof id === 'number'
+          ? id
+          : typeof id === 'string' && /^[1-9]\d*$/.test(id)
+            ? Number(id)
+            : NaN;
+      if (!Number.isSafeInteger(numericId) || numericId < 1) {
+        throw new Error('Odoo record ID must be a positive integer.');
+      }
       uid ??= await this.authenticate(context, resolved);
-      await this.execute(
+      const written = await this.execute(
         context,
         resolved,
         'write',
-        [[Number(id)], stripNulls(record.values)],
+        [[numericId], stripNulls(record.values)],
         {},
         uid,
       );
+      if (written !== true) throw new Error('Odoo did not confirm the update.');
       updated += 1;
     }
     return {
@@ -257,6 +282,23 @@ export class OdooConnector implements Connector {
       summary: `Updated ${updated} ${resolved.model} record(s) in Odoo.`,
     };
   }
+}
+
+function odooLimit(limit: number | undefined): number {
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
+    throw new Error('Odoo query limit must be a positive integer.');
+  }
+  return Math.min(limit ?? 20, 100);
+}
+
+function searchRecords(result: unknown): ConnectorRecord[] {
+  if (
+    !Array.isArray(result) ||
+    result.some((entry: unknown) => !entry || typeof entry !== 'object' || Array.isArray(entry))
+  ) {
+    throw new Error('Odoo returned invalid search results.');
+  }
+  return result.map((entry) => ({ values: entry as ConnectorRecord['values'] }));
 }
 
 function stripNulls(values: ConnectorRecord['values']): Record<string, unknown> {

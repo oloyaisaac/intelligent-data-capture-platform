@@ -422,6 +422,12 @@ files, repair historical runs, or fence older application versions. The response
 | DELETE | `/api-keys/:id`              | Revoke a key                                                                             |
 | GET    | `/events`                    | Server-sent events for the desktop (see §9)                                              |
 
+Non-append sends require a usable duplicate lookup and unique, non-empty keys with mapped values;
+incomplete checks return `409` instead of silently creating. Updates and merges also reject
+ambiguous or non-exact returned matches. HubSpot/Odoo require `id`, and QuickBooks requires `Id`,
+as the first duplicate key for updates; Odoo IDs must be positive safe integers. Checks are bounded
+and separate from writes, so they do not guarantee uniqueness. See `docs/connector-write-safety.md`.
+
 ### 8b. Projects and invitations (TEAM-001)
 
 | Method | Path                         | Purpose                                                            |

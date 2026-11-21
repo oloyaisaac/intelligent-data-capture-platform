@@ -331,12 +331,28 @@ export class ConnectorService {
     let policyFailure: AppError | null = null;
 
     try {
-      // Duplicate check against the destination itself, when the connector can read (DUP-001).
+      // A configured duplicate policy must not silently degrade into an unconditional create.
       let matchedRow: Record<string, string | number | boolean | null> | null = null;
-      if (connector.read && keys.length > 0 && policy !== 'append') {
+      if (!['append', 'skip', 'update', 'merge'].includes(policy)) {
+        policyFailure = new AppError(
+          'CONFLICT',
+          'The mapping has an unsupported duplicate policy.',
+        );
+        throw policyFailure;
+      }
+      if (policy !== 'append') {
+        const problem = duplicateLookupProblem(
+          keys,
+          mapped.values,
+          Boolean(connector.search ?? connector.read),
+        );
+        if (problem) {
+          policyFailure = new AppError('CONFLICT', problem);
+          throw policyFailure;
+        }
         // CRM-style destinations answer a filtered query more cheaply than a page, so prefer their
-        // own search when they expose one (CRM-001).
-        const lookup = connector.search ?? connector.read;
+        // own search when they expose one (CRM-001). The check is not atomic with the later write.
+        const lookup = (connector.search ?? connector.read)!;
         const existing = await lookup.call(
           connector,
           { limit: 500, where: pickWhere(mapped.values, keys) },
@@ -351,6 +367,55 @@ export class ConnectorService {
         );
         if (best) {
           matchedRow = best.record as Record<string, string | number | boolean | null>;
+          if (policy === 'update' || policy === 'merge') {
+            const matching = existing.filter(
+              (item) =>
+                matchDuplicate(mapped.values, item.values, keys, {
+                  threshold: LIMITS.duplicateScoreThreshold,
+                }).isDuplicate,
+            );
+            if (
+              matching.length !== 1 ||
+              keys.some((key) => mapped.values[key] !== matchedRow?.[key])
+            ) {
+              policyFailure = new AppError(
+                'CONFLICT',
+                'The destination match is ambiguous; review it before updating.',
+              );
+              throw policyFailure;
+            }
+            // These APIs address updates by a vendor record ID, not a business duplicate key.
+            // Until a separate verified target-ID protocol exists, refuse arbitrary key updates.
+            const requiredId =
+              connectorRow.type === 'hubspot' || connectorRow.type === 'odoo'
+                ? 'id'
+                : connectorRow.type === 'quickbooks'
+                  ? 'Id'
+                  : null;
+            if (requiredId && keys[0] !== requiredId) {
+              policyFailure = new AppError(
+                'CONFLICT',
+                'This connector requires its destination record ID as the first duplicate key for updates.',
+              );
+              throw policyFailure;
+            }
+            if (connectorRow.type === 'odoo') {
+              const id = mapped.values.id;
+              const numericId =
+                typeof id === 'number'
+                  ? id
+                  : typeof id === 'string' && /^[1-9]\d*$/.test(id)
+                    ? Number(id)
+                    : NaN;
+              if (!Number.isSafeInteger(numericId) || numericId < 1) {
+                policyFailure = new AppError(
+                  'CONFLICT',
+                  'The Odoo destination record ID must be a positive integer.',
+                );
+                throw policyFailure;
+              }
+            }
+          }
           if (policy === 'skip') {
             status = 'skipped_duplicate';
             summary = 'A matching record already exists; skipped.';
@@ -508,13 +573,7 @@ export class ConnectorService {
     const keys = JSON.parse(mappingRow.duplicate_keys) as string[];
     const connector = this.registry.get(connectorRow.type);
 
-    if (!connector.read) {
-      throw new AppError(
-        'CONFLICT',
-        `The ${connectorRow.type} connector cannot read its destination, so duplicates cannot be checked.`,
-      );
-    }
-    if (keys.length === 0) {
+    if (Array.isArray(keys) && keys.length === 0 && mappingRow.duplicate_policy === 'append') {
       return {
         connectorId,
         mappingProfileId,
@@ -529,7 +588,13 @@ export class ConnectorService {
       };
     }
 
-    const lookup = connector.search ?? connector.read;
+    const problem = duplicateLookupProblem(
+      keys,
+      mapped.values,
+      Boolean(connector.search ?? connector.read),
+    );
+    if (problem) throw new AppError('CONFLICT', problem);
+    const lookup = (connector.search ?? connector.read)!;
     let existing: ConnectorRecord[];
     try {
       existing = await lookup.call(
@@ -639,6 +704,38 @@ export function toMappingDto(row: MappingProfileRow) {
     duplicateKeys: JSON.parse(row.duplicate_keys) as string[],
     createdAt: row.created_at,
   };
+}
+
+/** Reject incomplete checks instead of treating unavailable evidence as no duplicate. */
+function duplicateLookupProblem(
+  keys: unknown,
+  values: Record<string, string | number | boolean | null>,
+  canLookup: boolean,
+): string | null {
+  if (
+    !Array.isArray(keys) ||
+    keys.length === 0 ||
+    keys.some((key) => typeof key !== 'string' || !key.trim())
+  ) {
+    return 'The duplicate policy needs at least one valid duplicate key.';
+  }
+  if (new Set(keys).size !== keys.length) return 'Duplicate keys must be unique.';
+  if (!canLookup) return 'The connector cannot check the destination for duplicates.';
+  if (
+    keys.some((key) => {
+      if (!Object.hasOwn(values, key)) return true;
+      const value = values[key];
+      return (
+        value === null ||
+        value === undefined ||
+        (typeof value === 'string' && !value.trim()) ||
+        (typeof value === 'number' && !Number.isFinite(value))
+      );
+    })
+  ) {
+    return 'Every duplicate key needs a mapped, non-empty value before checking the destination.';
+  }
+  return null;
 }
 
 /** Destination fields that participate in the duplicate check. */

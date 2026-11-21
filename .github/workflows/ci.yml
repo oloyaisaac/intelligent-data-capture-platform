@@ -135,6 +135,36 @@ jobs:
           fi
           exit "$status"
 
+  mysql:
+    name: MySQL connector integration (Node 22)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-mysql-disposable-password
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-mysql-disposable-password"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      IDCP_TEST_MYSQL_URL: mysql://root:ci-mysql-disposable-password@127.0.0.1:3306/
+      IDCP_TEST_MYSQL_DISPOSABLE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Exercise real MySQL connector and transactions
+        run: npm test -- --ci --runInBand --selectProjects connectors --runTestsByPath packages/connectors/test/mysql-real.test.ts
+
   container:
     name: Backend container build and Compose smoke test
     runs-on: ubuntu-latest

@@ -6,7 +6,7 @@ import type {
   ConnectorRecord,
   ConnectorWriteResult,
 } from './contract';
-import { guardedFetch } from './crm/safe-http';
+import { boundedFetch, checkedTimeout } from './crm/safe-http';
 
 /**
  * Google Sheets connector (CON-002).
@@ -21,6 +21,8 @@ export interface GoogleSheetsConfig {
   sheetName: string;
   /** OAuth bearer token supplied at runtime; legacy backend config may contain plaintext. */
   accessToken?: string;
+  /** Request deadline in milliseconds, from 1 to 120000. */
+  timeoutMs?: number;
 }
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -35,6 +37,7 @@ export class GoogleSheetsConnector implements Connector {
     if (!parsed.spreadsheetId)
       throw new Error('Google Sheets connector requires a "spreadsheetId".');
     if (!parsed.sheetName) throw new Error('Google Sheets connector requires a "sheetName".');
+    checkedTimeout(parsed.timeoutMs);
     if (!/^[A-Za-z0-9_-]{20,}$/.test(parsed.spreadsheetId)) {
       throw new Error('That "spreadsheetId" does not look like a Google Sheets id.');
     }
@@ -60,16 +63,17 @@ export class GoogleSheetsConnector implements Connector {
   ): Promise<ConnectorDestinationSchema> {
     this.validateConfig(config);
     const parsed = config as unknown as GoogleSheetsConfig;
-    const response = await guardedFetch(
+    const response = await boundedFetch(
       context,
       this.url(parsed, `values/${encodeURIComponent(`${parsed.sheetName}!1:1`)}`),
       { headers: this.headers(parsed) },
+      parsed.timeoutMs,
     );
     if (!response.ok) {
-      throw new Error(await describeSheetsError(response, 'read the header row'));
+      throw new Error(describeSheetsError(response.status, 'read the header row'));
     }
-    const payload = (await response.json()) as { values?: string[][] };
-    const header = payload.values?.[0] ?? [];
+    const [header = []] = parseSheetRows(response.text);
+    validateHeaders(header);
     return {
       container: parsed.sheetName,
       fields: header.map((key) => ({ key, label: key, type: 'string' })),
@@ -96,57 +100,59 @@ export class GoogleSheetsConnector implements Connector {
     this.validateConfig(config);
     const parsed = config as unknown as GoogleSheetsConfig;
 
-    // Discover existing headers so new columns never silently shift old data.
-    let headers: string[] = [];
-    try {
-      const schema = await this.describeSchema(config, context);
-      headers = schema.fields.map((field) => field.key);
-    } catch {
-      headers = [];
+    if (records.length === 0) {
+      return { created: 0, updated: 0, skipped: 0, summary: 'No rows to append.' };
     }
-    if (headers.length === 0) {
-      headers = records.length > 0 ? Object.keys(records[0]!.values) : [];
-      if (headers.length > 0) {
-        const headerResponse = await guardedFetch(
-          context,
-          this.url(
-            parsed,
-            `values/${encodeURIComponent(`${parsed.sheetName}!A1`)}?valueInputOption=RAW`,
-          ),
-          {
-            method: 'PUT',
-            headers: this.headers(parsed),
-            body: JSON.stringify({ values: [headers] }),
-          },
-        );
-        if (!headerResponse.ok) {
-          throw new Error(await describeSheetsError(headerResponse, 'write the header row'));
-        }
-      }
+    if (records.some((record) => Object.keys(record.values).length === 0)) {
+      throw new Error('Google Sheets records must contain at least one field.');
     }
-
+    // A failed header lookup is not proof that the sheet is empty: never overwrite on error.
+    const schema = await this.describeSchema(config, context);
+    let headers = schema.fields.map((field) => field.key);
+    const initializeHeaders = headers.length === 0;
+    if (initializeHeaders) headers = Object.keys(records[0]!.values);
+    validateHeaders(headers);
     const unknown = records
       .flatMap((record) => Object.keys(record.values))
       .filter((key) => !headers.includes(key));
     if (unknown.length > 0) {
       throw new Error(`The sheet is missing these columns: ${[...new Set(unknown)].join(', ')}`);
     }
+    if (initializeHeaders) {
+      const headerResponse = await boundedFetch(
+        context,
+        this.url(
+          parsed,
+          `values/${encodeURIComponent(`${parsed.sheetName}!A1`)}?valueInputOption=RAW`,
+        ),
+        {
+          method: 'PUT',
+          headers: this.headers(parsed),
+          body: JSON.stringify({ values: [headers] }),
+        },
+        parsed.timeoutMs,
+      );
+      if (!headerResponse.ok) {
+        throw new Error(describeSheetsError(headerResponse.status, 'write the header row'));
+      }
+    }
 
     const values = records.map((record) => headers.map((header) => record.values[header] ?? ''));
-    const response = await guardedFetch(
+    const response = await boundedFetch(
       context,
       this.url(
         parsed,
-        `values/${encodeURIComponent(`${parsed.sheetName}!A1`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+        `values/${encodeURIComponent(`${parsed.sheetName}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
       ),
       {
         method: 'POST',
         headers: this.headers(parsed),
         body: JSON.stringify({ values }),
       },
+      parsed.timeoutMs,
     );
     if (!response.ok) {
-      throw new Error(await describeSheetsError(response, 'append rows'));
+      throw new Error(describeSheetsError(response.status, 'append rows'));
     }
     context.logger.info('google sheets connector appended rows', { rows: values.length });
     return {
@@ -164,16 +170,17 @@ export class GoogleSheetsConnector implements Connector {
   ): Promise<ConnectorRecord[]> {
     this.validateConfig(config);
     const parsed = config as unknown as GoogleSheetsConfig;
-    const response = await guardedFetch(
+    const response = await boundedFetch(
       context,
       this.url(parsed, `values/${encodeURIComponent(parsed.sheetName)}`),
       { headers: this.headers(parsed) },
+      parsed.timeoutMs,
     );
     if (!response.ok) {
-      throw new Error(await describeSheetsError(response, 'read the sheet'));
+      throw new Error(describeSheetsError(response.status, 'read the sheet'));
     }
-    const payload = (await response.json()) as { values?: string[][] };
-    const [header = [], ...rows] = payload.values ?? [];
+    const [header = [], ...rows] = parseSheetRows(response.text);
+    validateHeaders(header);
     return rows
       .map((row) => Object.fromEntries(header.map((key, index) => [key, row[index] ?? null])))
       .filter((record) =>
@@ -186,11 +193,48 @@ export class GoogleSheetsConnector implements Connector {
   }
 }
 
-async function describeSheetsError(response: Response, action: string): Promise<string> {
-  if (response.status === 401) return 'Google authorization expired. Reconnect the connector.';
-  if (response.status === 403)
-    return 'Google denied access to that spreadsheet. Check sharing permissions.';
-  if (response.status === 404) return `Could not ${action}: spreadsheet or sheet not found.`;
-  if (response.status === 429) return 'Google Sheets rate limit reached. Try again shortly.';
-  return `Could not ${action} (HTTP ${response.status}).`;
+type SheetCell = string | number | boolean | null;
+
+function parseSheetRows(text: string): SheetCell[][] {
+  const payload: unknown = JSON.parse(text);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Google Sheets returned an invalid response.');
+  }
+  const data = payload as { range?: unknown; values?: unknown };
+  if (data.values === undefined && typeof data.range === 'string' && data.range.length > 0)
+    return [];
+  if (
+    !Array.isArray(data.values) ||
+    data.values.some(
+      (row: unknown) =>
+        !Array.isArray(row) ||
+        row.some(
+          (cell: unknown) =>
+            cell !== null &&
+            typeof cell !== 'string' &&
+            typeof cell !== 'boolean' &&
+            !(typeof cell === 'number' && Number.isFinite(cell)),
+        ),
+    )
+  ) {
+    throw new Error('Google Sheets returned invalid rows.');
+  }
+  return data.values as SheetCell[][];
+}
+
+function validateHeaders(header: SheetCell[]): asserts header is string[] {
+  if (
+    header.some((key) => typeof key !== 'string' || key.trim() === '') ||
+    new Set(header).size !== header.length
+  ) {
+    throw new Error('Google Sheets returned invalid or duplicate headers.');
+  }
+}
+
+function describeSheetsError(status: number, action: string): string {
+  if (status === 401) return 'Google authorization expired. Reconnect the connector.';
+  if (status === 403) return 'Google denied access to that spreadsheet. Check sharing permissions.';
+  if (status === 404) return `Could not ${action}: spreadsheet or sheet not found.`;
+  if (status === 429) return 'Google Sheets rate limit reached. Try again shortly.';
+  return `Could not ${action} (HTTP ${status}).`;
 }

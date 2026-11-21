@@ -1,5 +1,5 @@
 import { toCsv, type CsvCell } from '@idcp/shared';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, lstat } from 'node:fs/promises';
 import { dirname, join, normalize } from 'node:path';
 import type {
   Connector,
@@ -88,13 +88,21 @@ export class CsvFileConnector implements Connector {
   ): Promise<ConnectorWriteResult> {
     this.validateConfig(config);
     const parsed = config as unknown as CsvConnectorConfig;
+    if (records.length === 0) {
+      return { created: 0, updated: 0, skipped: 0, summary: 'No rows to append.' };
+    }
     const file = this.path(config);
     await mkdir(dirname(file), { recursive: true });
 
     const { rows: existingRows, headers } = await this.readRaw(parsed, file);
-    const incomingHeaders = records.length > 0 ? Object.keys(records[0]!.values) : [];
+    const incomingHeaders = Object.keys(records[0]!.values);
+    if (records.some((record) => Object.keys(record.values).length === 0)) {
+      throw new Error('CSV records must contain at least one field.');
+    }
     const finalHeaders = headers.length > 0 ? headers : incomingHeaders;
-    const unknownColumns = incomingHeaders.filter((header) => !finalHeaders.includes(header));
+    const unknownColumns = [
+      ...new Set(records.flatMap((record) => Object.keys(record.values))),
+    ].filter((header) => !finalHeaders.includes(header));
     if (unknownColumns.length > 0) {
       throw new Error(
         `The CSV file already exists with different columns. Missing: ${unknownColumns.join(', ')}`,
@@ -126,6 +134,7 @@ export class CsvFileConnector implements Connector {
     _context: ConnectorContext,
   ): Promise<ConnectorRecord[]> {
     void _context;
+    this.validateConfig(config);
     const parsed = config as unknown as CsvConnectorConfig;
     const { rows, headers } = await this.readRaw(parsed, this.path(config));
     const mapped = rows
@@ -145,13 +154,20 @@ export class CsvFileConnector implements Connector {
     file: string,
   ): Promise<{ headers: string[]; rows: CsvCell[][] }> {
     const { parseCsv } = await import('@idcp/shared');
+    let info;
     try {
-      const content = await readFile(file, 'utf8');
-      const [headerRow, ...rows] = parseCsv(content, config.delimiter ?? ',');
-      return { headers: headerRow ?? [], rows: rows as CsvCell[][] };
-    } catch {
-      return { headers: [], rows: [] };
+      info = await lstat(file);
+    } catch (error) {
+      // Only an absent path is treated as an empty destination; do not mask IO failures.
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return { headers: [], rows: [] };
+      throw error;
     }
+    // This observation is not atomic with reading or writing; external writers still require
+    // operational coordination. In particular, reject dangling or existing symlinks here.
+    if (!info.isFile()) throw new Error('CSV destination must be a regular file.');
+    const content = await readFile(file, 'utf8');
+    const [headerRow, ...rows] = parseCsv(content, config.delimiter ?? ',');
+    return { headers: headerRow ?? [], rows: rows as CsvCell[][] };
   }
 }
 
