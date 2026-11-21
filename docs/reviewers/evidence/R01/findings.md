@@ -89,10 +89,13 @@ secret-bearing OCR error reproduced this for both ordinary errors and `ProviderU
 exception details in tick and shutdown logs. Retry and terminal status behavior is unchanged, but
 diagnostics are less specific. The tests cover injected OCR failures and mocked retention, unknown-job,
 tick and shutdown failures; they do not prove all logging or other application paths safe.
-Historical job rows, logs, delivered events and backups are not cleaned. Other services and custom
-providers may still log sensitive data directly. Operators and security owners must assess prior
-exposure, retention and credential rotation, and independently review the broader boundary before
-closing this finding. Owner: unassigned; backend security and operations.
+An operator-directed offline tool can inventory eligible jobs for one organisation and replace one
+selected `jobs.last_error` with a fixed marker in an audited transaction; see
+`docs/worker-error-remediation.md`. It has not been run in production and cannot clean logs, delivered
+events, backups, payloads or other fields. Other services and custom providers may still log sensitive
+data directly. Operators and security owners must assess prior exposure, retention and credential
+rotation, and independently review the broader boundary before closing this finding. Owner: unassigned;
+backend security and operations.
 
 ### ARC-024 — HIGH: incomplete retention deletion and unsafe file failure handling
 

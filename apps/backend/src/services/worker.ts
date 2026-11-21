@@ -1,6 +1,12 @@
 import { parseUdm, requiresReview } from '@idcp/shared';
 import type { Config } from '../config';
 import type { Logger } from '../logger';
+import {
+  WORKER_OCR_ORG_LIMIT,
+  WORKER_EXTRACTION_FAILED,
+  WORKER_RETENTION_FAILED,
+  WORKER_UNKNOWN_FAILED,
+} from '../domain/worker-errors';
 import type {
   DocumentPagesRepository,
   DocumentsRepository,
@@ -203,12 +209,12 @@ export class Worker {
       // limit error selects fixed messages; its text is never copied to persistence or output.
       const message =
         job.type === 'extract_document' && error instanceof RemoteOcrOrganisationLimitError
-          ? 'Remote OCR organisation invocation limit reached. Contact an administrator.'
+          ? WORKER_OCR_ORG_LIMIT
           : job.type === 'extract_document'
-            ? 'Document extraction failed. Investigate the worker and retry.'
+            ? WORKER_EXTRACTION_FAILED
             : job.type === 'retention_purge'
-              ? 'Retention purge failed. Investigate storage and retry.'
-              : 'Job failed. Investigate the job type.';
+              ? WORKER_RETENTION_FAILED
+              : WORKER_UNKNOWN_FAILED;
       const failure =
         job.type === 'extract_document' && job.document_id
           ? await this.transaction(async (repositories) => {

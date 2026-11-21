@@ -1296,6 +1296,62 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     }
   }, 30_000);
 
+  it('checks and remediates a worker error through the PostgreSQL CLI without revealing it', async () => {
+    const account = await registerAccount(harness);
+    const id = randomUUID();
+    await harness.db.execute(
+      `INSERT INTO jobs (id, organisation_id, type, status, last_error, created_at)
+       VALUES (?, ?, 'extract_document', 'dead', ?, ?)`,
+      [id, account.organisationId, 'SYNTHETIC-PG-WORKER-SECRET', '2026'],
+    );
+    const schema = await harness.db.one<{ schema: string }>('SELECT current_schema() AS schema');
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.set('options', `-c search_path=${schema!.schema}`);
+    const cli = (...args: string[]) =>
+      spawnSync(
+        process.execPath,
+        ['--import', 'tsx', 'src/db/worker-error-remediation-cli.ts', ...args],
+        {
+          cwd: resolve(__dirname, '..'),
+          env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            DB_DRIVER: 'postgres',
+            DATABASE_URL: url.toString(),
+          },
+          encoding: 'utf8',
+        },
+      );
+    const scope = ['--organisation', account.organisationId, '--job', id];
+    const list = cli('--list', '--organisation', account.organisationId, '--confirm-offline');
+    expect(list.status).toBe(0);
+    expect(JSON.parse(list.stdout).jobs).toEqual(expect.arrayContaining([{ jobId: id }]));
+    const check = cli('--check', ...scope, '--confirm-offline');
+    expect(check.status).toBe(0);
+    expect(JSON.parse(check.stdout)).toEqual({ found: true, eligible: true });
+    const apply = cli(
+      '--apply',
+      ...scope,
+      '--operator',
+      'op',
+      '--incident',
+      'INC-42',
+      '--confirm-offline',
+      '--confirm-loss-reviewed',
+    );
+    expect(apply.status).toBe(0);
+    expect(JSON.parse(apply.stdout)).toEqual({ found: true, changed: true });
+    expect([list, check, apply].map((r) => r.stdout + r.stderr).join('')).not.toContain(
+      'SYNTHETIC-PG-WORKER-SECRET',
+    );
+    expect(
+      await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+        'worker.error_remediated_offline',
+        id,
+      ]),
+    ).toHaveLength(1);
+  }, 30_000);
+
   it('checks and remediates connector errors through the PostgreSQL CLI without revealing them', async () => {
     const account = await registerAccount(harness);
     const id = randomUUID();
