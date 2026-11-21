@@ -496,3 +496,25 @@ the cap exhaust normal retries; there is no dedicated alert or verified UI prese
 threshold and capacity, deploy current code and configuration consistently, independently monitor
 usage, enforce provider-side budgets, and verify real billing and production rollout. See
 `DEPLOYMENT.md`. No production action or independent assessment is claimed.
+
+### ARC-018 / ARC-024 / ARC-026 update — scoped filesystem inventory
+
+A new read-only offline filesystem inventory enumerates a selected organisation's current-layout
+`documents`, `exports` or `pages` directory, including files without an export or document row.
+It pages supported names, reports unsupported names and nonregular entries, observes hard-link
+counts, and checks known references across tenants and possible syntactic pending-erasure aliases. A complementary
+reference mode pages through non-null document, page, export and template keys and observes whether
+files are present, missing or unverifiable, including soft-deleted documents. It does not read file
+contents and deliberately requires confirmation before outputting sensitive raw storage keys. Tests
+exercise pagination, unreferenced synthetic files, missing references, cross-tenant syntactic aliases,
+erasure queue entries, hard links, symlinks, invalid paths, scan bounds and the SQLite and PostgreSQL CLI.
+Local full verification passed 111 suites / 840 tests with 25 PostgreSQL-only tests skipped; the
+full backend suite passed against temporary PostgreSQL 16.16 (104 suites / 601 tests).
+
+This is an investigation aid, **not** reconciliation, deletion authority or proof of ownership or
+absence of references. It only covers a chosen directory and supported names; does not descend into
+subdirectories or identify all alias forms, external copies or old layouts; and cannot enforce
+writer shutdown, root/mount identity or a consistent filesystem/database snapshot. Directory scans
+and per-file reference queries can be expensive. Operators must follow the protected, authorized
+offline procedure in `docs/storage-inventory.md`, evaluate legal holds and backups, and separately
+review any action. No production inventory or cleanup was performed. These findings remain open.

@@ -110,3 +110,36 @@ export async function hasStorageReference(
   }
   return false;
 }
+
+/**
+ * Check the pending erasure queue for an exact or syntactic alias. Returns true on an unsafe key
+ * or an exhausted scan budget, so false is only a bounded point-in-time database observation.
+ */
+export async function hasPendingErasureReference(db: Database, key: string): Promise<boolean> {
+  try {
+    assertSafeKey(key);
+  } catch {
+    return true;
+  }
+  if (key.endsWith('/') || posix.normalize(key) !== key) return true;
+  if (await db.one('SELECT id FROM erasure_file_deletions WHERE storage_key = ? LIMIT 1', [key]))
+    return true;
+  const identity = posix.resolve('/', key);
+  let after: string | undefined;
+  let scanned = 0;
+  while (true) {
+    const candidates = await db.query<{ id: string; key: string }>(
+      `SELECT id, storage_key AS key FROM erasure_file_deletions
+       WHERE (storage_key LIKE '%//%' OR storage_key LIKE '%/./%' OR storage_key LIKE './%'
+         OR storage_key LIKE '%/.' OR storage_key LIKE '%/' OR storage_key LIKE '/%'
+         OR storage_key LIKE '%..%') ${after === undefined ? '' : 'AND id > ?'}
+       ORDER BY id LIMIT ?`,
+      after === undefined ? [ALIAS_PAGE_SIZE] : [after, ALIAS_PAGE_SIZE],
+    );
+    if (candidates.some((candidate) => posix.resolve('/', candidate.key) === identity)) return true;
+    if (candidates.length < ALIAS_PAGE_SIZE) return false;
+    scanned += candidates.length;
+    if (scanned >= MAX_ALIASES_PER_SOURCE) return true;
+    after = candidates[candidates.length - 1]!.id;
+  }
+}
