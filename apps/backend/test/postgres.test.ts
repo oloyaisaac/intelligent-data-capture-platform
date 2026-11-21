@@ -10,6 +10,7 @@ import { DocumentsRepository } from '../src/repositories/document-repo';
 import { WorkerRecoveryRepository } from '../src/repositories/worker-recovery-repo';
 import { BatchesRepository } from '../src/repositories/batch-repo';
 import { RemoteOcrBudgetRepository } from '../src/repositories/remote-ocr-budget-repo';
+import { ErasureFilesRepository } from '../src/repositories/erasure-files-repo';
 import { WorkflowRunsRepository } from '../src/repositories/workflow-repo';
 import {
   createHarness,
@@ -36,6 +37,33 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
 
   afterAll(async () => {
     await harness?.close();
+  });
+
+  it('keeps erasure work scoped and bounded on PostgreSQL', async () => {
+    const isolated = await createHarness();
+    try {
+      for (const [id, user] of [
+        ['queue-a', 'user-a'],
+        ['queue-b', 'user-a'],
+        ['queue-c', 'user-b'],
+      ]) {
+        await isolated.db.execute(
+          'INSERT INTO erasure_file_deletions (id, user_id, storage_key, created_at) VALUES (?, ?, ?, ?)',
+          [id, user, `org/tenant/${id}`, '2026-01-01T00:00:00.000Z'],
+        );
+      }
+      const repo = new ErasureFilesRepository(isolated.db);
+      expect(await repo.listPending({ userId: 'user-a', limit: 1 })).toEqual([
+        { id: 'queue-a', storage_key: 'org/tenant/queue-a' },
+      ]);
+      expect(await repo.listPending({ userId: 'user-b' })).toEqual([
+        { id: 'queue-c', storage_key: 'org/tenant/queue-c' },
+      ]);
+      expect(() => repo.listPending({ userId: '' })).toThrow('Invalid erasure user scope.');
+      expect(() => repo.listPending({ limit: -1 })).toThrow('Invalid erasure batch limit.');
+    } finally {
+      await isolated.close();
+    }
   });
 
   it('serializes competing remote OCR reservations on the PostgreSQL document row', async () => {

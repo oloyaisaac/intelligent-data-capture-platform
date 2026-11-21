@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, sep } from 'node:path';
 import { AppError } from '@idcp/shared';
 
@@ -84,7 +84,35 @@ export class FilesystemStorage implements Storage {
   }
 
   async delete(key: string): Promise<void> {
-    await rm(this.resolve(key), { force: true });
+    const path = this.resolve(key);
+    // Do not treat an absent or invalid root as proof that the object was deleted. Check each
+    // component without following symlinks, and refuse hard-linked or non-regular final files.
+    // These checks are advisory: replacement between lstat and rm, root ancestors and mounts
+    // still require a trusted, stable storage tree and a stronger OS-level deletion protocol.
+    const root = await lstat(this.root);
+    if (!root.isDirectory() || root.isSymbolicLink()) {
+      throw new Error('Storage root is not a safe directory.');
+    }
+    const parts = key.split('/').filter((part) => part !== sep && part !== '');
+    let current = this.root;
+    for (let index = 0; index < parts.length; index += 1) {
+      current = join(current, parts[index]!);
+      let entry;
+      try {
+        entry = await lstat(current);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw error;
+      }
+      const final = index === parts.length - 1;
+      if (
+        entry.isSymbolicLink() ||
+        (final ? !entry.isFile() || entry.nlink !== 1 : !entry.isDirectory())
+      ) {
+        throw new Error('Storage path cannot be safely deleted.');
+      }
+    }
+    await rm(path, { force: true });
   }
 
   async exists(key: string): Promise<boolean> {

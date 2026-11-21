@@ -10,8 +10,9 @@ export type ErasureFileQueue = Pick<
 
 /**
  * Retry durable erasure work. Storage.delete must be idempotent: if the process dies after the
- * file is removed but before its queue row is deleted, the same key is attempted again. Multiple
- * maintenance processes may safely attempt the same key; storage keys must never be reused.
+ * file is removed but before its queue row is deleted, the same key is attempted again. Concurrent
+ * processors can attempt the same row; the reference check and storage deletion are not atomic with
+ * other writers. Key reuse, filesystem replacement and external copies remain unresolved risks.
  */
 export async function processErasureFiles(
   deletions: ErasureFileQueue,

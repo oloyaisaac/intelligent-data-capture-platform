@@ -28,8 +28,12 @@ purge audit now commit together; storage deletion remains outside that transacti
 on idempotent delete. Prior soft-deleted files, separate pages and retained/derived rows require a
 designed and authorized reconciliation and deletion strategy. Known cross-table storage references
 now block retention, erasure-file and expired-export deletion, and stale export metadata updates are
-conditional. Neither change fences file deletion or enforces key non-reuse; test and design for
-concurrent references, changed exports and mixed versions. Measure cross-table scan costs and plan
+conditional. Filesystem deletion now rejects an unavailable or symlinked root, observed symlinks,
+non-regular files and multiply linked final files; see `docs/storage-deletion-safety.md` for the
+operational impact and important limitations. These checks are not atomic with unlink, do not verify
+mount identity or root ancestors, and do not fence concurrent references or key reuse. An absent
+component below the root is treated as already deleted. Test and design for concurrent references,
+changed exports and mixed versions. Measure cross-table scan costs and plan
 indexing with a safe deployment strategy. ARC-026 adds an export key reservation before file writes;
 ambiguous reservation, collision and failed writes are now left for investigation rather than
 scheduled for deletion, while failures after confirmed writes may be marked failed for expiry.
