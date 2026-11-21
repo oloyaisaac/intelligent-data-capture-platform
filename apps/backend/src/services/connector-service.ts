@@ -18,6 +18,7 @@ import {
   type MappedField,
 } from '@idcp/connectors';
 import type { Logger } from '../logger';
+import { CONNECTOR_HEALTH_FAILURE, CONNECTOR_RUN_FAILURE } from '../domain/connector-errors';
 import type {
   ConnectorsRepository,
   ConnectorRunsRepository,
@@ -58,10 +59,7 @@ export function toConnectorDto(row: ConnectorRow) {
     config: {},
     lastHealthCheckAt: row.last_health_check_at,
     // Historical errors may contain connector-supplied secrets. Never trust persisted free text.
-    lastError:
-      row.last_error === null
-        ? null
-        : 'Connection check failed. Review the destination and connection settings.',
+    lastError: row.last_error === null ? null : CONNECTOR_HEALTH_FAILURE,
     createdAt: row.created_at,
   };
 }
@@ -407,9 +405,7 @@ export class ConnectorService {
     } catch (error) {
       const safePolicyFailure =
         policyFailure !== null && error === policyFailure ? policyFailure : null;
-      const message =
-        safePolicyFailure?.message ??
-        'Connector request failed. Check the destination for changes and review connection settings before retrying.';
+      const message = safePolicyFailure?.message ?? CONNECTOR_RUN_FAILURE;
       await this.runs.create({
         organisationId: actor.organisationId,
         connectorId,
@@ -584,10 +580,7 @@ export class ConnectorService {
       operation: row.operation,
       status: row.status,
       // Older runs may contain raw connector exceptions, including credentials or record data.
-      error:
-        row.error === null
-          ? null
-          : 'Connector request failed. Check the destination for changes and review connection settings before retrying.',
+      error: row.error === null ? null : CONNECTOR_RUN_FAILURE,
       durationMs: row.duration_ms,
       createdAt: row.created_at,
     }));

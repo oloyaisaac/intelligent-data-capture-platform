@@ -1296,6 +1296,74 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     }
   }, 30_000);
 
+  it('checks and remediates connector errors through the PostgreSQL CLI without revealing them', async () => {
+    const account = await registerAccount(harness);
+    const id = randomUUID();
+    await harness.db.execute(
+      `INSERT INTO connectors (id, organisation_id, type, name, status, last_error, created_at, updated_at)
+       VALUES (?, ?, 'csv', 'fixture', 'error', ?, ?, ?)`,
+      [id, account.organisationId, 'SYNTHETIC-PG-HEALTH-SECRET', '2026', '2026'],
+    );
+    await harness.db.execute(
+      `INSERT INTO connector_runs (id, organisation_id, connector_id, operation, status, error, created_at)
+       VALUES (?, ?, ?, 'create', 'failed', ?, ?)`,
+      [randomUUID(), account.organisationId, id, 'SYNTHETIC-PG-RUN-SECRET', '2026'],
+    );
+    const schema = await harness.db.one<{ schema: string }>('SELECT current_schema() AS schema');
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.set('options', `-c search_path=${schema!.schema}`);
+    const cli = (...args: string[]) =>
+      spawnSync(
+        process.execPath,
+        ['--import', 'tsx', 'src/db/connector-error-remediation-cli.ts', ...args],
+        {
+          cwd: resolve(__dirname, '..'),
+          env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            DB_DRIVER: 'postgres',
+            DATABASE_URL: url.toString(),
+          },
+          encoding: 'utf8',
+        },
+      );
+    const scope = ['--organisation', account.organisationId, '--connector', id];
+    const list = cli('--list', '--organisation', account.organisationId, '--confirm-offline');
+    expect(list.status).toBe(0);
+    expect(JSON.parse(list.stdout).connectors).toEqual(
+      expect.arrayContaining([{ connectorId: id }]),
+    );
+    const check = cli('--check', ...scope, '--confirm-offline');
+    expect(check.status).toBe(0);
+    expect(JSON.parse(check.stdout)).toEqual({ found: true, healthEligible: true, runEligible: 1 });
+    const apply = cli(
+      '--apply',
+      ...scope,
+      '--operator',
+      'op',
+      '--incident',
+      'INC-42',
+      '--confirm-offline',
+      '--confirm-loss-reviewed',
+    );
+    expect(apply.status).toBe(0);
+    expect(JSON.parse(apply.stdout)).toEqual({
+      found: true,
+      healthChanged: true,
+      runsChanged: 1,
+      remaining: false,
+    });
+    expect([list, check, apply].map((r) => r.stdout + r.stderr).join('')).not.toContain(
+      'SYNTHETIC-PG-',
+    );
+    expect(
+      await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+        'connector.errors_remediated_offline',
+        id,
+      ]),
+    ).toHaveLength(1);
+  }, 30_000);
+
   it('checks and remediates a scoped batch through the PostgreSQL CLI without revealing historical text', async () => {
     const account = await registerAccount(harness);
     const batches = new BatchesRepository(harness.db);
