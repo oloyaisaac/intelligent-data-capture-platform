@@ -112,17 +112,28 @@ export async function hasStorageReference(
 }
 
 /**
- * Check the pending erasure queue for an exact or syntactic alias. Returns true on an unsafe key
- * or an exhausted scan budget, so false is only a bounded point-in-time database observation.
+ * Check the pending erasure queue for an exact or syntactic alias. Optionally exclude the current
+ * queue row when checking for competing work. Returns true on an unsafe key or an exhausted scan
+ * budget, so false is only a bounded point-in-time database observation.
  */
-export async function hasPendingErasureReference(db: Database, key: string): Promise<boolean> {
+export async function hasPendingErasureReference(
+  db: Database,
+  key: string,
+  excludingId?: string,
+): Promise<boolean> {
   try {
     assertSafeKey(key);
   } catch {
     return true;
   }
   if (key.endsWith('/') || posix.normalize(key) !== key) return true;
-  if (await db.one('SELECT id FROM erasure_file_deletions WHERE storage_key = ? LIMIT 1', [key]))
+  const exclusion = excludingId === undefined ? '' : ' AND id <> ?';
+  if (
+    await db.one(
+      `SELECT id FROM erasure_file_deletions WHERE storage_key = ?${exclusion} LIMIT 1`,
+      excludingId === undefined ? [key] : [key, excludingId],
+    )
+  )
     return true;
   const identity = posix.resolve('/', key);
   let after: string | undefined;
@@ -132,9 +143,13 @@ export async function hasPendingErasureReference(db: Database, key: string): Pro
       `SELECT id, storage_key AS key FROM erasure_file_deletions
        WHERE (storage_key LIKE '%//%' OR storage_key LIKE '%/./%' OR storage_key LIKE './%'
          OR storage_key LIKE '%/.' OR storage_key LIKE '%/' OR storage_key LIKE '/%'
-         OR storage_key LIKE '%..%') ${after === undefined ? '' : 'AND id > ?'}
+         OR storage_key LIKE '%..%') ${exclusion} ${after === undefined ? '' : 'AND id > ?'}
        ORDER BY id LIMIT ?`,
-      after === undefined ? [ALIAS_PAGE_SIZE] : [after, ALIAS_PAGE_SIZE],
+      [
+        ...(excludingId === undefined ? [] : [excludingId]),
+        ...(after === undefined ? [] : [after]),
+        ALIAS_PAGE_SIZE,
+      ],
     );
     if (candidates.some((candidate) => posix.resolve('/', candidate.key) === identity)) return true;
     if (candidates.length < ALIAS_PAGE_SIZE) return false;

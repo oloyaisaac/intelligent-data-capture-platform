@@ -94,8 +94,7 @@ describe('maintenance scheduler', () => {
         },
         erasureFiles: {
           listPending: jest.fn().mockResolvedValue([]),
-          isReferenced: jest.fn(),
-          complete: jest.fn(),
+          withLockedPending: jest.fn(),
           recordFailedAttempt: jest.fn(),
         },
       },

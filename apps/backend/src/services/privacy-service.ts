@@ -54,7 +54,7 @@ export interface PrivacyServiceRepositories {
   >;
   erasureFiles: Pick<
     ErasureFilesRepository,
-    'listPending' | 'isReferenced' | 'complete' | 'recordFailedAttempt' | 'countForUser'
+    'listPending' | 'withLockedPending' | 'recordFailedAttempt' | 'countForUser'
   >;
   transaction<T>(run: (repositories: PrivacyTransactionRepositories) => Promise<T>): Promise<T>;
 }

@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { writeFileSync } from 'node:fs';
+import { link, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CsvFileConnector } from '../src/csv-connector';
@@ -92,3 +93,154 @@ it('validates read config and still treats an absent destination as empty', asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it.each([
+  { prior: '\uFEFFid,note\r\n1,"=SUM(1,2)"\r\n', added: '2,"a,b"\r\n' },
+  { prior: 'id,note\n1,"line 1\nline 2"', added: '\r\n2,"a,b"\r\n' },
+  { prior: 'id,note\r1,"old ""quoted"" value"\r', added: '2,"a,b"\r\n' },
+])(
+  'preserves the exact existing bytes while appending to a valid CSV',
+  async ({ prior, added }) => {
+    const directory = await mkdtemp(join(tmpdir(), 'idcp-csv-preserve-'));
+    try {
+      const file = join(directory, 'rows.csv');
+      await writeFile(file, prior);
+      const connector = new CsvFileConnector();
+      const config = { directory, filename: 'rows.csv' };
+      await connector.create([{ values: { id: '2', note: 'a,b' } }], config, context);
+      expect(await readFile(file, 'utf8')).toBe(prior + added);
+      const records = await connector.read({}, config, context);
+      expect(records).toHaveLength(2);
+      expect(records[1]).toEqual({ values: { id: '2', note: 'a,b' } });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each([
+  '',
+  '\uFEFF',
+  'id,id\r\n1,2\r\n',
+  'id,\r\n1,2\r\n',
+  'id,note\r\n1\r\n',
+  'id,note\r\n1,2,3\r\n',
+  'id,note\r\n1,"unterminated',
+  'id,note\r\n1,ab"cd\r\n',
+  'id,note\r\n1,"closed"junk\r\n',
+])('does not modify an empty, ambiguous or malformed existing file: %j', async (prior) => {
+  const directory = await mkdtemp(join(tmpdir(), 'idcp-csv-invalid-'));
+  try {
+    const file = join(directory, 'rows.csv');
+    await writeFile(file, prior);
+    const connector = new CsvFileConnector();
+    await expect(
+      connector.create(
+        [{ values: { id: 'new', note: 'data' } }],
+        { directory, filename: 'rows.csv' },
+        context,
+      ),
+    ).rejects.toThrow();
+    expect(await readFile(file, 'utf8')).toBe(prior);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('refuses invalid UTF-8 rather than interpreting a repaired header', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'idcp-csv-invalid-encoding-'));
+  try {
+    const file = join(directory, 'rows.csv');
+    const bytes = Buffer.from([0x69, 0x64, 0x0a, 0xff, 0x0a]);
+    await writeFile(file, bytes);
+    const connector = new CsvFileConnector();
+    await expect(
+      connector.create([{ values: { id: 'new' } }], { directory, filename: 'rows.csv' }, context),
+    ).rejects.toThrow();
+    await expect(
+      connector.read({}, { directory, filename: 'rows.csv' }, context),
+    ).rejects.toThrow();
+    expect(await readFile(file)).toEqual(bytes);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it.each([false, true])(
+  'does not overwrite a destination changed after its read (initially exists: %s)',
+  async (exists) => {
+    const directory = await mkdtemp(join(tmpdir(), 'idcp-csv-stale-'));
+    try {
+      const file = join(directory, 'rows.csv');
+      if (exists) await writeFile(file, 'id\nold\n');
+      const replacement = 'id\nexternal-change\n';
+      const values: Record<string, string> = {};
+      Object.defineProperty(values, 'id', {
+        enumerable: true,
+        get: () => {
+          writeFileSync(file, replacement);
+          return 'new';
+        },
+      });
+      await expect(
+        new CsvFileConnector().create([{ values }], { directory, filename: 'rows.csv' }, context),
+      ).rejects.toThrow();
+      expect(await readFile(file, 'utf8')).toBe(replacement);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+it('refuses unsupported CSV format options instead of guessing', () => {
+  const connector = new CsvFileConnector();
+  for (const config of [
+    { directory: '/tmp', filename: 'out.csv', delimiter: '::' },
+    { directory: '/tmp', filename: 'out.csv', bom: 'true' },
+  ])
+    expect(() => connector.validateConfig(config)).toThrow();
+});
+
+(process.platform === 'win32' ? it.skip : it)(
+  'does not read or append an observed hard-linked CSV destination',
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'idcp-csv-hardlink-'));
+    try {
+      const source = join(directory, 'original');
+      const file = join(directory, 'rows.csv');
+      await writeFile(source, 'id\nprivate\n');
+      await link(source, file);
+      const connector = new CsvFileConnector();
+      const config = { directory, filename: 'rows.csv' };
+      await expect(connector.read({}, config, context)).rejects.toThrow('regular file');
+      await expect(connector.create([{ values: { id: 'new' } }], config, context)).rejects.toThrow(
+        'regular file',
+      );
+      expect(await readFile(source, 'utf8')).toBe('id\nprivate\n');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each([',', ';', '\t', '|'] as const)(
+  'preserves bytes and reads quoted data with delimiter %j',
+  async (delimiter) => {
+    const directory = await mkdtemp(join(tmpdir(), 'idcp-csv-delimiter-'));
+    try {
+      const file = join(directory, 'rows.csv');
+      const prior = `id${delimiter}note\n1${delimiter}"embedded${delimiter}delimiter"\n`;
+      await writeFile(file, prior);
+      const connector = new CsvFileConnector();
+      const config = { directory, filename: 'rows.csv', delimiter };
+      await connector.create([{ values: { id: '2', note: 'new' } }], config, context);
+      expect(await readFile(file, 'utf8')).toBe(`${prior}2${delimiter}new\r\n`);
+      expect(await connector.read({}, config, context)).toEqual([
+        { values: { id: '1', note: `embedded${delimiter}delimiter` } },
+        { values: { id: '2', note: 'new' } },
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);

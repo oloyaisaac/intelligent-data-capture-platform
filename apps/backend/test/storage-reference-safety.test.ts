@@ -183,3 +183,86 @@ describe.each(['retention', 'erasure', 'expired export'] as const)(
     );
   },
 );
+
+describe.each(['retention', 'expired export'] as const)(
+  '%s with a pending erasure for the same file',
+  (operation) => {
+    it.each([false, true])('defers when the queue key is an alias: %s', async (alias) => {
+      const harness = await createHarness();
+      try {
+        const owner = await registerAccount(harness);
+        const other = await registerAccount(harness, { email: 'pending-erasure@example.com' });
+        let key = `org/${owner.organisationId}/exports/example.csv`;
+        let documentId = '';
+        if (operation === 'retention') {
+          const upload = await harness.api.upload(owner.accessToken);
+          documentId = upload.json<{ id: string }>().id;
+          await harness.services.worker.drain();
+          const row = await harness.db.one<{ storage_key: string }>(
+            'SELECT storage_key FROM documents WHERE id = ?',
+            [documentId],
+          );
+          key = row!.storage_key;
+          await harness.db.execute('UPDATE documents SET created_at = ? WHERE id = ?', [
+            '2000-01-01T00:00:00.000Z',
+            documentId,
+          ]);
+        } else {
+          await harness.storage.put(key, Buffer.from('sensitive'));
+          await harness.db.execute(
+            `INSERT INTO exports (id, organisation_id, requested_by, format, filter, storage_key, status, expires_at, created_at)
+             VALUES (?, ?, ?, 'csv', '{}', ?, 'ready', ?, ?)`,
+            [
+              'expired-export',
+              owner.organisationId,
+              owner.userId,
+              key,
+              '2001-01-01T00:00:00.000Z',
+              '2000-01-01T00:00:00.000Z',
+            ],
+          );
+        }
+        await harness.db.execute(
+          'INSERT INTO erasure_file_deletions (id, user_id, storage_key, created_at) VALUES (?, ?, ?, ?)',
+          [
+            'erasure',
+            other.userId,
+            alias ? key.replace('/', '//') : key,
+            '2000-01-01T00:00:00.000Z',
+          ],
+        );
+        const deletion = jest.spyOn(harness.storage, 'delete');
+        const attempt = () =>
+          operation === 'retention'
+            ? harness.services.documents.purgeExpired(owner.organisationId, 90)
+            : harness.services.maintenance.runOnce().then((report) => report.exportsExpired);
+        if (operation === 'retention') await expect(attempt()).rejects.toThrow();
+        else expect(await attempt()).toBe(0);
+        expect(deletion).not.toHaveBeenCalledWith(key);
+        expect(await harness.storage.exists(key)).toBe(true);
+        expect(
+          await harness.db.one('SELECT storage_key FROM erasure_file_deletions WHERE id = ?', [
+            'erasure',
+          ]),
+        ).toEqual({ storage_key: alias ? key.replace('/', '//') : key });
+        if (operation === 'retention') {
+          expect(
+            await harness.db.one('SELECT deleted_at FROM documents WHERE id = ?', [documentId]),
+          ).toEqual({ deleted_at: null });
+        } else {
+          expect(
+            await harness.db.one('SELECT status, storage_key FROM exports WHERE id = ?', [
+              'expired-export',
+            ]),
+          ).toEqual({ status: 'ready', storage_key: key });
+        }
+        // Remove only a synthetic test fixture; real conflicts require authorized review.
+        await harness.db.execute('DELETE FROM erasure_file_deletions WHERE id = ?', ['erasure']);
+        expect(await attempt()).toBe(1);
+        expect(await harness.storage.exists(key)).toBe(false);
+      } finally {
+        await harness.close();
+      }
+    });
+  },
+);

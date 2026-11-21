@@ -3,7 +3,7 @@ import { newId } from '@idcp/shared/ids';
 import type { Database } from '../db/database';
 import { nowIso, toDbBool } from '../db/database';
 import type { DocumentPageRow, DocumentRow, ExtractionRow } from './types';
-import { hasStorageReference } from './storage-references';
+import { hasPendingErasureReference, hasStorageReference } from './storage-references';
 
 export class DocumentsRepository {
   constructor(private readonly db: Database) {}
@@ -236,14 +236,19 @@ export class DocumentsRepository {
     return updated !== null;
   }
 
-  /** Check known references before best-effort cleanup of an uncommitted upload key. */
-  hasAnyStorageReference(key: string): Promise<boolean> {
-    return hasStorageReference(this.db, key);
+  /** Check known references and pending erasure before cleanup of an uncommitted upload key. */
+  async hasAnyStorageReference(key: string): Promise<boolean> {
+    return (
+      (await hasStorageReference(this.db, key)) || (await hasPendingErasureReference(this.db, key))
+    );
   }
 
-  /** Fail closed on known references other than this document and its pages. */
-  hasOtherStorageReference(documentId: string, key: string): Promise<boolean> {
-    return hasStorageReference(this.db, key, { documentId });
+  /** Fail closed on known references other than this document and its pages, and on pending erasure. */
+  async hasOtherStorageReference(documentId: string, key: string): Promise<boolean> {
+    return (
+      (await hasStorageReference(this.db, key, { documentId })) ||
+      (await hasPendingErasureReference(this.db, key))
+    );
   }
 
   /** Documents past the organisation's retention window (SEC-001). */

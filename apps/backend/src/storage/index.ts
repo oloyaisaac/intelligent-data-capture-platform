@@ -1,5 +1,6 @@
-import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, normalize, sep } from 'node:path';
+import { constants } from 'node:fs';
+import { lstat, mkdir, open, rm, writeFile } from 'node:fs/promises';
+import { join, normalize, resolve, sep } from 'node:path';
 import { AppError } from '@idcp/shared';
 
 /**
@@ -55,16 +56,50 @@ export function buildStorageKey(parts: {
 export class FilesystemStorage implements Storage {
   readonly driver = 'filesystem' as const;
 
-  constructor(private readonly root: string) {}
+  private readonly root: string;
+
+  constructor(root: string) {
+    // Remove trailing separators so lstat does not accidentally follow a symlinked root.
+    this.root = resolve(root);
+  }
+
+  private components(key: string): string[] {
+    assertSafeKey(key);
+    return normalize(key).split(sep).filter(Boolean);
+  }
 
   private resolve(key: string): string {
-    assertSafeKey(key);
-    return join(this.root, ...key.split('/').filter((part) => part !== sep && part !== ''));
+    return join(this.root, ...this.components(key));
+  }
+
+  private async checkDirectory(path: string, create: boolean, recursive = false): Promise<void> {
+    if (create) {
+      try {
+        await mkdir(path, { recursive });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+    }
+    const entry = await lstat(path);
+    if (!entry.isDirectory() || entry.isSymbolicLink()) {
+      throw new Error('Storage path is not a safe directory.');
+    }
+  }
+
+  private async checkParents(key: string, create: boolean): Promise<string> {
+    const parts = this.components(key);
+    // Root creation preserves first-run behavior. It cannot verify a missing or wrong mount.
+    await this.checkDirectory(this.root, create, true);
+    let parent = this.root;
+    for (const part of parts.slice(0, -1)) {
+      parent = join(parent, part);
+      await this.checkDirectory(parent, create);
+    }
+    return join(parent, parts[parts.length - 1]!);
   }
 
   async put(key: string, data: Buffer): Promise<void> {
-    const path = this.resolve(key);
-    await mkdir(dirname(path), { recursive: true });
+    const path = await this.checkParents(key, true);
     try {
       // O_EXCL claims the final path atomically and refuses an existing symlink or file.
       await writeFile(path, data, { mode: 0o600, flag: 'wx' });
@@ -77,7 +112,26 @@ export class FilesystemStorage implements Storage {
 
   async get(key: string): Promise<Buffer> {
     try {
-      return await readFile(this.resolve(key));
+      const path = await this.checkParents(key, false);
+      const entry = await lstat(path);
+      if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1) {
+        throw new Error('Storage entry is not a safe file.');
+      }
+      // Where supported, do not follow a final symlink substituted after lstat; nonblocking open
+      // avoids hanging on a substituted FIFO. Parents and mount identity still are not fenced.
+      const handle = await open(
+        path,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
+      );
+      try {
+        const opened = await handle.stat();
+        if (!opened.isFile() || opened.nlink !== 1) {
+          throw new Error('Storage entry is not a safe file.');
+        }
+        return await handle.readFile();
+      } finally {
+        await handle.close();
+      }
     } catch {
       throw new AppError('NOT_FOUND', 'File not found.');
     }
@@ -117,8 +171,9 @@ export class FilesystemStorage implements Storage {
 
   async exists(key: string): Promise<boolean> {
     try {
-      await stat(this.resolve(key));
-      return true;
+      const path = await this.checkParents(key, false);
+      const entry = await lstat(path);
+      return entry.isFile() && !entry.isSymbolicLink() && entry.nlink === 1;
     } catch {
       return false;
     }
