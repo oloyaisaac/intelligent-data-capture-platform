@@ -31,6 +31,11 @@ interface Queryable {
   end(): Promise<void>;
 }
 
+/** Identifiers have already been validated; apply the configured schema to every data operation. */
+function qualifiedTable(table: string, database: string | null): string {
+  return database ? `\`${database}\`.\`${table}\`` : `\`${table}\``;
+}
+
 export class MysqlConnector implements Connector {
   readonly type = 'mysql';
   readonly label = 'MySQL database';
@@ -52,16 +57,14 @@ export class MysqlConnector implements Connector {
   ): Promise<{ db: Queryable; table: string; database: string | null }> {
     this.validateConfig(config);
     const parsed = config as unknown as MysqlConnectorConfig;
+    const table = assertIdentifier(parsed.table, 'MySQL table');
+    const database = parsed.database ? assertIdentifier(parsed.database, 'MySQL database') : null;
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mysql = require('mysql2/promise') as {
       createConnection(options: { uri: string }): Promise<Queryable>;
     };
     const connection = await mysql.createConnection({ uri: parsed.connectionString });
-    return {
-      db: connection,
-      table: assertIdentifier(parsed.table, 'MySQL table'),
-      database: parsed.database ? assertIdentifier(parsed.database, 'MySQL database') : null,
-    };
+    return { db: connection, table, database };
   }
 
   async describeSchema(
@@ -112,13 +115,14 @@ export class MysqlConnector implements Connector {
     }
   }
 
-  /** Inserts all records inside one transaction: either every row lands, or none do. */
+  /** Uses one connection and transaction; atomicity also depends on the destination storage engine. */
   async create(
     records: ConnectorRecord[],
     config: Record<string, unknown>,
     context: ConnectorContext,
   ): Promise<ConnectorWriteResult> {
-    const { db, table } = await this.connect(config);
+    const { db, table, database } = await this.connect(config);
+    const destination = qualifiedTable(table, database);
     let created = 0;
     try {
       await db.query('START TRANSACTION');
@@ -128,7 +132,7 @@ export class MysqlConnector implements Connector {
           if (columns.length === 0) continue;
           columns.forEach((column) => assertIdentifier(column, 'Destination column'));
           await db.query(
-            `INSERT INTO \`${table}\` (${columns.map((column) => `\`${column}\``).join(', ')})
+            `INSERT INTO ${destination} (${columns.map((column) => `\`${column}\``).join(', ')})
              VALUES (${columns.map(() => '?').join(', ')})`,
             columns.map((column) => record.values[column]),
           );
@@ -159,7 +163,8 @@ export class MysqlConnector implements Connector {
     context: ConnectorContext,
   ): Promise<ConnectorWriteResult> {
     if (keys.length === 0) throw new Error('An update needs at least one duplicate key.');
-    const { db, table } = await this.connect(config);
+    const { db, table, database } = await this.connect(config);
+    const destination = qualifiedTable(table, database);
     let updated = 0;
     try {
       await db.query('START TRANSACTION');
@@ -170,7 +175,7 @@ export class MysqlConnector implements Connector {
           columns.forEach((column) => assertIdentifier(column, 'Destination column'));
           keys.forEach((key) => assertIdentifier(key, 'Duplicate key'));
           const [result] = await db.query(
-            `UPDATE \`${table}\` SET ${columns.map((column) => `\`${column}\` = ?`).join(', ')}
+            `UPDATE ${destination} SET ${columns.map((column) => `\`${column}\` = ?`).join(', ')}
               WHERE ${keys.map((key) => `\`${key}\` = ?`).join(' AND ')}`,
             [
               ...columns.map((column) => record.values[column]),
@@ -197,7 +202,8 @@ export class MysqlConnector implements Connector {
     _context: ConnectorContext,
   ): Promise<ConnectorRecord[]> {
     void _context;
-    const { db, table } = await this.connect(config);
+    const { db, table, database } = await this.connect(config);
+    const destination = qualifiedTable(table, database);
     try {
       const where = Object.keys(query.where ?? {});
       where.forEach((column) => assertIdentifier(column, 'Filter column'));
@@ -205,7 +211,7 @@ export class MysqlConnector implements Connector {
         where.length > 0
           ? ` WHERE ${where.map((column) => `\`${column}\` = ?`).join(' AND ')}`
           : '';
-      const [rows] = await db.query(`SELECT * FROM \`${table}\`${clause} LIMIT ?`, [
+      const [rows] = await db.query(`SELECT * FROM ${destination}${clause} LIMIT ?`, [
         ...where.map((column) => query.where?.[column]),
         query.limit ?? 100,
       ]);

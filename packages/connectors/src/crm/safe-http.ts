@@ -61,3 +61,85 @@ export function guardedFetch(
   // may differ structurally from the separately installed Agent's TypeScript declarations.
   return fetch(url, { ...request, dispatcher } as unknown as RequestInit);
 }
+
+const DEFAULT_TIMEOUT_MS = 15_000;
+const MAX_TIMEOUT_MS = 120_000;
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+
+export function checkedTimeout(value: unknown): number {
+  if (value === undefined) return DEFAULT_TIMEOUT_MS;
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > MAX_TIMEOUT_MS
+  ) {
+    throw new Error('Connector timeoutMs must be an integer between 1 and 120000.');
+  }
+  return value;
+}
+
+export class BoundedFetchError extends Error {
+  constructor(readonly reason: 'timeout' | 'size' | 'network') {
+    super('Connector HTTP request failed.');
+    this.name = 'BoundedFetchError';
+  }
+}
+
+/** Bounds accumulated response bytes and the asynchronous fetch and body-read interval. */
+export async function boundedFetch(
+  context: ConnectorContext,
+  url: string,
+  init: Omit<RequestInit, 'signal'>,
+  timeoutMs?: number,
+): Promise<{ ok: boolean; status: number; text: string }> {
+  const deadline = checkedTimeout(timeoutMs);
+  const controller = new AbortController();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      if (reader) void reader.cancel().catch(() => undefined);
+      reject(new BoundedFetchError('timeout'));
+    }, deadline);
+  });
+  const request = async () => {
+    const response = await guardedFetch(context, url, { ...init, signal: controller.signal });
+    if (timedOut) {
+      if (response.body) void response.body.cancel().catch(() => undefined);
+      throw new BoundedFetchError('timeout');
+    }
+    reader = response.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    if (reader) {
+      while (true) {
+        const chunk = await reader.read();
+        if (timedOut) throw new BoundedFetchError('timeout');
+        if (chunk.done) break;
+        total += chunk.value.byteLength;
+        if (total > MAX_RESPONSE_BYTES) throw new BoundedFetchError('size');
+        chunks.push(chunk.value);
+      }
+    }
+    return {
+      ok: response.ok,
+      status: response.status,
+      text: Buffer.concat(chunks, total).toString('utf8'),
+    };
+  };
+  try {
+    return await Promise.race([request(), timeout]);
+  } catch (error) {
+    controller.abort();
+    if (reader) void reader.cancel().catch(() => undefined);
+    if (timedOut) throw new BoundedFetchError('timeout');
+    if (error instanceof BoundedFetchError) throw error;
+    throw new BoundedFetchError('network');
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}

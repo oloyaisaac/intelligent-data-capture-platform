@@ -7,7 +7,7 @@
  */
 import { isIP } from 'node:net';
 import type { ConnectorContext, ConnectorRecord } from '../contract';
-import { guardedFetch } from './safe-http';
+import { boundedFetch, BoundedFetchError, checkedTimeout } from './safe-http';
 
 export interface HttpConfig {
   baseUrl: string;
@@ -76,7 +76,7 @@ export function readHttpConfig(
       typeof config.idField === 'string' && config.idField
         ? config.idField
         : (defaults.idField ?? 'id'),
-    timeoutMs: typeof config.timeoutMs === 'number' ? config.timeoutMs : 15_000,
+    timeoutMs: checkedTimeout(config.timeoutMs),
   };
 }
 
@@ -93,39 +93,37 @@ export async function jsonRequest(
   vendor: string,
 ): Promise<JsonResponse> {
   const baseUrl = validateBaseUrl(config.baseUrl);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 15_000);
-
-  let response: Response;
+  const timeoutMs = checkedTimeout(config.timeoutMs);
+  let response: Awaited<ReturnType<typeof boundedFetch>>;
   try {
-    response = await guardedFetch(context, `${baseUrl}${path}`, {
-      method: init.method,
-      headers: {
-        accept: 'application/json',
-        ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
-        authorization: `Bearer ${config.token}`,
-        ...init.headers,
+    response = await boundedFetch(
+      context,
+      `${baseUrl}${path}`,
+      {
+        method: init.method,
+        headers: {
+          accept: 'application/json',
+          ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+          authorization: `Bearer ${config.token}`,
+          ...init.headers,
+        },
+        ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       },
-      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-      signal: controller.signal,
-    });
+      timeoutMs,
+    );
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new ConnectorRequestError(
-        `${vendor} did not answer within ${Math.round((config.timeoutMs ?? 15_000) / 1000)}s. Check that ${config.baseUrl} is reachable from the server.`,
-        0,
-      );
+    if (error instanceof BoundedFetchError && error.reason === 'timeout') {
+      throw new ConnectorRequestError(`${vendor} request timed out.`, 0);
+    }
+    if (error instanceof BoundedFetchError && error.reason === 'size') {
+      throw new ConnectorRequestError(`${vendor} response exceeded the size limit.`, 0);
     }
     throw new ConnectorRequestError(
-      `Could not reach ${vendor} at ${config.baseUrl}. Check the URL and the network.`,
+      `Could not complete the ${vendor} request. Check the connection and network.`,
       0,
     );
-  } finally {
-    clearTimeout(timeout);
   }
-
-  const text = await response.text();
-  const body = text ? safeJson(text) : null;
+  const body = response.text ? safeJson(response.text) : null;
   if (!response.ok) {
     throw new ConnectorRequestError(
       translateError(vendor, response.status, body),

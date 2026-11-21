@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Pool } from 'pg';
+import { PostgresConnector, type ConnectorContext } from '@idcp/connectors';
 import type { Database } from '../src/db/database';
 import { AuditRepository, JobsRepository } from '../src/repositories/system-repo';
 import { DocumentsRepository } from '../src/repositories/document-repo';
@@ -12,6 +13,7 @@ import { BatchesRepository } from '../src/repositories/batch-repo';
 import { RemoteOcrBudgetRepository } from '../src/repositories/remote-ocr-budget-repo';
 import { ErasureFilesRepository } from '../src/repositories/erasure-files-repo';
 import { WorkflowRunsRepository } from '../src/repositories/workflow-repo';
+import { ConnectorProcess } from '../src/adapters/connector-process';
 import {
   createHarness,
   openReview,
@@ -38,6 +40,144 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
   afterAll(async () => {
     await harness?.close();
   });
+
+  it('targets the resolved schema and commits or rolls back PostgreSQL connector writes', async () => {
+    const isolated = await createHarness();
+    let otherSchema: string | undefined;
+    try {
+      await isolated.db.execute(
+        'CREATE TABLE connector_tx_test (id INTEGER PRIMARY KEY, name VARCHAR(5))',
+      );
+      const schema = await isolated.db.one<{ schema: string }>('SELECT current_schema() AS schema');
+      if (!schema?.schema.match(/^idcp_test_[a-f0-9]{32}$/))
+        throw new Error('Unexpected test schema');
+      otherSchema = `${schema.schema}_other`;
+      await isolated.db.execute(`CREATE SCHEMA "${otherSchema}"`);
+      await isolated.db.execute(
+        `CREATE TABLE "${otherSchema}".connector_tx_test (secret_column TEXT)`,
+      );
+      await isolated.db.execute(
+        `CREATE TABLE "${otherSchema}".fallback_schema_test (fallback_column TEXT)`,
+      );
+      const url = new URL(process.env.DATABASE_URL!);
+      url.searchParams.set('options', `-c search_path=${schema.schema},${otherSchema}`);
+      const connector = new PostgresConnector();
+      const config = { connectionString: url.toString(), table: 'connector_tx_test' };
+      const context: ConnectorContext = {
+        organisationId: 'synthetic',
+        logger: {
+          info: () => undefined,
+          warn: () => undefined,
+          error: () => undefined,
+          debug: () => undefined,
+        },
+      };
+      const description = await connector.describeSchema(config, context);
+      expect(description.fields.map((field) => field.key)).toEqual(['id', 'name']);
+      expect(JSON.stringify(description)).not.toContain('secret_column');
+      expect(
+        (
+          await connector.describeSchema({ ...config, table: 'CONNECTOR_TX_TEST' }, context)
+        ).fields.map((field) => field.key),
+      ).toEqual(['id', 'name']);
+      expect(
+        (
+          await connector.describeSchema({ ...config, table: 'fallback_schema_test' }, context)
+        ).fields.map((field) => field.key),
+      ).toEqual(['fallback_column']);
+      await expect(
+        connector.create(
+          [{ values: { id: 1, name: 'first' } }, { values: { id: 1, name: 'dup' } }],
+          config,
+          context,
+        ),
+      ).rejects.toThrow();
+      expect(await isolated.db.query('SELECT id, name FROM connector_tx_test')).toEqual([]);
+      await expect(
+        connector.create(
+          [{ values: { id: 1, name: 'first' } }, { values: { id: 2, name: 'other' } }],
+          config,
+          context,
+        ),
+      ).resolves.toMatchObject({ created: 2 });
+      await expect(
+        connector.update(
+          [{ values: { id: 1, name: 'ok' } }, { values: { id: 2, name: 'too-long' } }],
+          ['id'],
+          config,
+          context,
+        ),
+      ).rejects.toThrow();
+      expect(await isolated.db.query('SELECT id, name FROM connector_tx_test ORDER BY id')).toEqual(
+        [
+          { id: 1, name: 'first' },
+          { id: 2, name: 'other' },
+        ],
+      );
+      await expect(
+        connector.update(
+          [{ values: { id: 1, name: 'new' } }, { values: { id: 2, name: 'fine' } }],
+          ['id'],
+          config,
+          context,
+        ),
+      ).resolves.toMatchObject({ updated: 2 });
+      expect(await isolated.db.query('SELECT id, name FROM connector_tx_test ORDER BY id')).toEqual(
+        [
+          { id: 1, name: 'new' },
+          { id: 2, name: 'fine' },
+        ],
+      );
+      // Exercise the default subprocess transport against this destination, too.
+      const transport = new ConnectorProcess(
+        process.execPath,
+        ['--import', 'tsx', resolve(__dirname, '../src/adapters/connector-runner.ts')],
+        {
+          maxConcurrent: 1,
+          timeoutMs: 10_000,
+          maxInputBytes: 2 * 1024 * 1024,
+          maxOutputBytes: 2 * 1024 * 1024,
+        },
+      );
+      const request = {
+        type: 'postgres',
+        operation: 'create',
+        organisationId: 'synthetic',
+        config,
+      };
+      await expect(
+        transport.invoke({
+          ...request,
+          records: [{ values: { id: 3, name: 'three' } }, { values: { id: 1, name: 'dup' } }],
+        }),
+      ).rejects.toThrow('Connector invocation failed');
+      expect(await isolated.db.query('SELECT id, name FROM connector_tx_test ORDER BY id')).toEqual(
+        [
+          { id: 1, name: 'new' },
+          { id: 2, name: 'fine' },
+        ],
+      );
+      await expect(
+        transport.invoke({
+          ...request,
+          records: [{ values: { id: 3, name: 'three' } }, { values: { id: 4, name: 'four' } }],
+        }),
+      ).resolves.toMatchObject({ created: 2 });
+      expect(await isolated.db.query('SELECT id FROM connector_tx_test ORDER BY id')).toEqual([
+        { id: 1 },
+        { id: 2 },
+        { id: 3 },
+        { id: 4 },
+      ]);
+    } finally {
+      try {
+        if (otherSchema)
+          await isolated.db.execute(`DROP SCHEMA IF EXISTS "${otherSchema}" CASCADE`);
+      } finally {
+        await isolated.close();
+      }
+    }
+  }, 30_000);
 
   it('keeps erasure work scoped and bounded on PostgreSQL', async () => {
     const isolated = await createHarness();

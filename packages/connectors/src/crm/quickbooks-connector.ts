@@ -35,6 +35,9 @@ export class QuickBooksConnector implements Connector {
 
   private config(config: Record<string, unknown>): QuickBooksConfig {
     const base = readHttpConfig(config, { baseUrl: DEFAULT_BASE, object: 'Invoice' });
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(base.object)) {
+      throw new Error('object must be a QuickBooks entity name, for example Invoice or Customer.');
+    }
     const realmId = config.realmId;
     if (typeof realmId !== 'string' || realmId.trim() === '') {
       throw new Error(
@@ -51,9 +54,6 @@ export class QuickBooksConnector implements Connector {
   validateConfig(config: Record<string, unknown>): void {
     const resolved = this.config(config);
     validateBaseUrl(resolved.baseUrl);
-    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(resolved.object)) {
-      throw new Error('object must be a QuickBooks entity name, for example Invoice or Customer.');
-    }
   }
 
   async describeSchema(
@@ -64,7 +64,10 @@ export class QuickBooksConnector implements Connector {
     const { body } = await jsonRequest(
       context,
       resolved,
-      this.path(resolved, `/query?query=${encodeURIComponent(`select * from ${resolved.object}`)}`),
+      this.path(
+        resolved,
+        `/query?query=${encodeURIComponent(`select * from ${resolved.object} maxresults 1`)}`,
+      ),
       { method: 'GET' },
       'QuickBooks',
     );
@@ -141,10 +144,12 @@ export class QuickBooksConnector implements Connector {
     context: ConnectorContext,
   ): Promise<ConnectorRecord[]> {
     const resolved = this.config(config);
-    const clauses = Object.entries(query.where ?? {}).map(
-      ([field, value]) =>
-        `${squote(field)} = ${typeof value === 'number' ? value : `'${squote(String(value))}'`}`,
-    );
+    const clauses = Object.entries(query.where ?? {}).map(([field, value]) => {
+      if (!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/.test(field)) {
+        throw new Error('QuickBooks filter field must be a simple or dotted identifier.');
+      }
+      return `${field} = ${queryLiteral(value)}`;
+    });
     const sql = `select * from ${resolved.object}${clauses.length > 0 ? ` where ${clauses.join(' and ')}` : ''}`;
     return this.runQuery(sql, query.limit, config, context);
   }
@@ -156,7 +161,10 @@ export class QuickBooksConnector implements Connector {
     context: ConnectorContext,
   ): Promise<ConnectorRecord[]> {
     const resolved = this.config(config);
-    const bounded = limit ? `${sql} maxresults ${Math.min(limit, 100)}` : sql;
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
+      throw new Error('QuickBooks query limit must be a positive integer.');
+    }
+    const bounded = `${sql} maxresults ${Math.min(limit ?? 100, 100)}`;
     const { body } = await jsonRequest(
       context,
       resolved,
@@ -219,7 +227,22 @@ function firstEntity(body: unknown): ConnectorRecord['values'] | null {
   return records[0]?.values ?? null;
 }
 
-/** Escapes a value for the QuickBooks SQL subset; there are no bind parameters there. */
-function squote(value: string): string {
-  return value.replace(/'/g, "\\'");
+/** The QuickBooks query API has no bind parameters. Reject ambiguous escape/control input. */
+function queryLiteral(value: string | number | boolean): string {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error('QuickBooks filter number must be finite.');
+    return String(value);
+  }
+  if (typeof value === 'boolean') return String(value);
+  if (
+    typeof value !== 'string' ||
+    value.includes('\\') ||
+    Array.from(value).some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127;
+    })
+  ) {
+    throw new Error('QuickBooks filter value contains unsupported characters.');
+  }
+  return `'${value.replace(/'/g, "\\'")}'`;
 }

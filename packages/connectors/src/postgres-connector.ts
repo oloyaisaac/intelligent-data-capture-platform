@@ -9,15 +9,15 @@ import type {
 import { assertIdentifier } from './sqlite-connector';
 
 /**
- * PostgreSQL/MySQL connector (CON-003).
+ * PostgreSQL connector (CON-003).
  *
- * Uses a lazily-created pool per configuration and parameterised statements only. Table and column
- * names are validated identifiers because they cannot be passed as query parameters.
+ * Uses a dedicated connection for each operation and parameterised statements only. Table and
+ * column names are validated identifiers because they cannot be passed as query parameters.
  */
 export interface SqlConnectorConfig {
   connectionString: string;
   table: string;
-  /** Defaults to `postgres`; the same implementation serves MySQL via the injected driver. */
+  /** Legacy field; this connector always uses PostgreSQL. MySQL has its own connector. */
   driver?: 'postgres' | 'mysql';
 }
 
@@ -46,23 +46,39 @@ export class PostgresConnector implements Connector {
   ): Promise<{ db: Queryable; table: string }> {
     this.validateConfig(config);
     const parsed = config as unknown as SqlConnectorConfig;
+    const table = assertIdentifier(parsed.table, 'SQL table');
     // Imported lazily: a deployment without a SQL destination never loads the driver.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Pool } = require('pg') as typeof import('pg');
     const pool = new Pool({
       connectionString: parsed.connectionString,
-      max: 2,
+      max: 1,
       connectionTimeoutMillis: 5000,
     });
+    // BEGIN, every statement and COMMIT/ROLLBACK must use the same checked-out client. Pool.query
+    // releases a connection between queries, so it is not a transaction ownership boundary.
+    let client: import('pg').PoolClient;
+    try {
+      client = await pool.connect();
+    } catch (error) {
+      await pool.end().catch(() => undefined);
+      throw error;
+    }
     return {
       db: {
         query: async (sql, params) => {
-          const result = await pool.query(sql, params as never[]);
+          const result = await client.query(sql, params as never[]);
           return { rows: result.rows as Array<Record<string, unknown>> };
         },
-        end: () => pool.end(),
+        end: async () => {
+          try {
+            client.release();
+          } finally {
+            await pool.end();
+          }
+        },
       },
-      table: assertIdentifier(parsed.table, 'SQL table'),
+      table,
     };
   }
 
@@ -76,7 +92,12 @@ export class PostgresConnector implements Connector {
       const { rows } = await db.query(
         `SELECT column_name, data_type, is_nullable
            FROM information_schema.columns
-          WHERE table_name = $1
+          WHERE (table_schema, table_name) = (
+            SELECT n.nspname, c.relname
+              FROM pg_catalog.pg_class c
+              JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+             WHERE c.oid = pg_catalog.to_regclass($1)
+          )
           ORDER BY ordinal_position`,
         [table],
       );
