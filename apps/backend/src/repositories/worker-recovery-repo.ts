@@ -1,5 +1,6 @@
 import { nowIso, toJson, type Database } from '../db/database';
 import { newId } from '@idcp/shared/ids';
+import { WORKER_REQUEUED, WORKER_ABANDONED } from '../domain/worker-errors';
 
 type RecoveryInput = {
   id: string;
@@ -39,7 +40,7 @@ export class WorkerRecoveryRepository {
         `UPDATE jobs SET status = 'queued', run_after = ?, last_error = ?
          WHERE id = ? AND status = 'running' AND attempts = ?
          RETURNING organisation_id, type`,
-        [now, 'Requeued by operator after offline review.', input.id, input.attempt],
+        [now, WORKER_REQUEUED, input.id, input.attempt],
       );
       if (!row) return false;
       await tx.execute(
@@ -85,7 +86,7 @@ export class WorkerRecoveryRepository {
          WHERE id = ? AND status = 'running' AND attempts = ?
            AND type IN ('extract_document', 'retention_purge')
          RETURNING organisation_id, type, document_id`,
-        [now, 'Abandoned by operator after offline review; not retried.', input.id, input.attempt],
+        [now, WORKER_ABANDONED, input.id, input.attempt],
       );
       if (!row) return { abandoned: false, documentFailed: false };
 
