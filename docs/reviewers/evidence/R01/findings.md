@@ -342,7 +342,11 @@ schema endpoint now validates the declared field types and strips extra schema/f
 `connector-boundary.test.ts` covers secret-bearing extra properties and a malformed type. This is
 not data-at-rest cleanup or an isolation boundary: historical rows, prior responses, logs, backups,
 destination-supplied schema strings, duplicate-preview values and direct in-process access remain
-potential exposure paths. Independent security review and P8 remain open.
+potential exposure paths. An operator-directed offline tool can now page existing connector IDs and
+replace selected health/run error fields with fixed messages, with bounded, transactional audit; see
+`docs/connector-error-remediation.md`. It does not process orphaned or mismatched runs, summaries,
+logs, backups or other copies, and no production execution is claimed. Independent security review
+and P8 remain open.
 
 ### ARC-014 update — best-effort descendant cleanup on POSIX
 
