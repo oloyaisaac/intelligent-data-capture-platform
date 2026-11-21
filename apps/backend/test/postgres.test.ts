@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Pool } from 'pg';
@@ -1176,6 +1176,93 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
       expect(
         await harness.db.one('SELECT status, storage_key FROM exports WHERE id = ?', [id]),
       ).toEqual({ status: 'failed', storage_key: null });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('runs the filesystem inventory CLI with PostgreSQL reference checks', async () => {
+    const account = await registerAccount(harness);
+    const schema = await harness.db.one<{ schema: string }>('SELECT current_schema() AS schema');
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.set('options', `-c search_path=${schema!.schema}`);
+    const root = await mkdtemp(join(tmpdir(), 'idcp-pg-storage-inventory-'));
+    try {
+      const directory = join(root, 'org', account.organisationId, 'documents');
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, 'unreferenced.png'), 'SYNTHETIC-SECRET-CONTENT');
+      const key = `org/${account.organisationId}/documents/unreferenced.png`;
+      const run = spawnSync(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          'src/db/storage-inventory-cli.ts',
+          '--list',
+          '--organisation',
+          account.organisationId,
+          '--kind',
+          'documents',
+          '--confirm-offline',
+          '--confirm-sensitive-output',
+        ],
+        {
+          cwd: resolve(__dirname, '..'),
+          env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            DB_DRIVER: 'postgres',
+            DATABASE_URL: url.toString(),
+            STORAGE_PATH: root,
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(run.status).toBe(0);
+      expect(JSON.parse(run.stdout)).toMatchObject({
+        directory: 'present',
+        items: [{ key, file: 'regular', referenceMayExist: false, pendingErasureMayExist: false }],
+      });
+      expect(run.stdout + run.stderr).not.toContain('SYNTHETIC-SECRET-CONTENT');
+      const document = await new DocumentsRepository(harness.db).createIfAbsent({
+        organisationId: account.organisationId,
+        storageKey: key,
+        mimeType: 'image/png',
+        sizeBytes: 1,
+        sha256: 'synthetic',
+      });
+      const referenceRun = spawnSync(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          'src/db/storage-inventory-cli.ts',
+          '--references',
+          '--organisation',
+          account.organisationId,
+          '--kind',
+          'documents',
+          '--confirm-offline',
+          '--confirm-sensitive-output',
+        ],
+        {
+          cwd: resolve(__dirname, '..'),
+          env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            DB_DRIVER: 'postgres',
+            DATABASE_URL: url.toString(),
+            STORAGE_PATH: root,
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(referenceRun.status).toBe(0);
+      expect(JSON.parse(referenceRun.stdout)).toMatchObject({
+        items: [{ recordId: document!.id, key, file: 'present', documentHasDeletedAt: false }],
+        nextAfter: null,
+      });
+      expect(referenceRun.stdout + referenceRun.stderr).not.toContain('SYNTHETIC-SECRET-CONTENT');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

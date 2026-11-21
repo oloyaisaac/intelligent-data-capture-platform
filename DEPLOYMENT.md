@@ -340,8 +340,10 @@ Additional gaps:
   preserved. Monitor and investigate stuck rows; never delete solely because they are old, since a
   writer may still be running. Old orphaned export files, backup copies and the storage/DB race remain.
   Follow authorized incident procedures and stop or fence all writers before reconciliation; see
-  ARC-026. `docs/export-inventory.md` provides read-only investigation, not automated cleanup or
-  proof that a candidate is safe to remove.
+  ARC-026. `docs/export-inventory.md` provides read-only export-row investigation, and
+  `docs/storage-inventory.md` can enumerate entries in selected current-layout filesystem directories,
+  including files without rows. Both require offline operational controls and neither is automated
+  cleanup or proof that a candidate is safe to remove; filesystem inventory output contains raw keys.
 - Playwright exercises browser journeys in CI; native mobile and packaged desktop end-to-end
   tests are not established.
 - Worker crash recovery lacks ownership fencing; connector subprocesses are not security-isolated.

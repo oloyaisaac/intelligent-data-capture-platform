@@ -37,6 +37,11 @@ Interrupted and queued exports still need detection and authorized offline recon
 external-effect races are not repaired; age alone cannot establish that a writer is dead. The
 read-only `docs/export-inventory.md` tool assists offline investigation only; it does not reconcile,
 delete or prove that a candidate belongs to an export, and cannot find files with no export row.
+The complementary read-only `docs/storage-inventory.md` command can enumerate regular and other
+entries in a selected current-layout filesystem directory, including files without known references,
+and separately observe recorded document/page/export/template keys for missing or unverifiable files.
+It is bounded and requires sensitive output confirmation; it is not ownership proof, complete
+filesystem discovery, authorization to delete or production reconciliation evidence.
 
 ## P8 — connector isolation
 

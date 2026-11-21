@@ -1,5 +1,5 @@
 import type { Database } from '../db/database';
-import { hasStorageReference } from './storage-references';
+import { hasPendingErasureReference, hasStorageReference } from './storage-references';
 
 export interface InventoryExport {
   id: string;
@@ -34,11 +34,7 @@ export class ExportInventoryRepository {
     return hasStorageReference(this.db, key, { exportId });
   }
 
-  async pendingErasure(key: string): Promise<boolean> {
-    return (
-      (await this.db.one('SELECT id FROM erasure_file_deletions WHERE storage_key = ? LIMIT 1', [
-        key,
-      ])) !== null
-    );
+  pendingErasure(key: string): Promise<boolean> {
+    return hasPendingErasureReference(this.db, key);
   }
 }

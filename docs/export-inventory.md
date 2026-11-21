@@ -58,12 +58,17 @@ symlinks, non-files or other errors. These are point-in-time filesystem metadata
 content checks, ownership checks or secure deletion verification. Symlinks at or below the root are
 not followed, but ancestor symlinks, hard links and concurrent replacement remain possible. Errors
 or an incorrect mount can mislead even when a name is missing. The tool does not inspect backups,
-logs, replicas, other storage backends or arbitrary files without an export row.
+logs, replicas, other storage backends or arbitrary files without an export row. The complementary
+`docs/storage-inventory.md` tool can enumerate entries in selected current-layout filesystem
+directories, but does not prove ownership or authorize deletion.
 
 `referencedElsewhere` checks known document, page, export and template-sample references across
 organisations, including deleted/inactive rows, excluding only the inspected export. `pendingErasure`
-checks the privacy file queue. A false result is not proof of no reference: it omits external copies,
-unknown database tables and out-of-band writers, and the check is not atomic with later actions.
+checks the privacy file queue for exact and certain syntactic aliases. Both checks fail closed for
+unsafe keys or when a source reaches its 1,024-candidate alias bound, so true may mean uncertainty
+rather than a confirmed match. A false result is not proof of no reference: it omits filesystem
+aliases, external copies, unknown database tables and out-of-band writers, and the check is not atomic
+with later actions.
 The inventory can miss files whose export rows were removed and objects at noncanonical unknown keys.
 It makes potentially unindexed cross-table queries; assess load and use a suitable maintenance window.
 
