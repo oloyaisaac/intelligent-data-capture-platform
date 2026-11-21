@@ -136,7 +136,7 @@ const en = {
   'settings.auditExported': 'Audit log downloaded.',
   'settings.auditExportFailed': 'Could not download the audit log.',
   'account.erased':
-    'Your account details have been anonymised and the identified draft files removed. Retained records may still contain identifying information.',
+    'Your account details have been anonymised, and no identified draft file deletions are currently pending. This does not confirm deletion of all copies; retained records may still contain identifying information.',
   'account.erasurePending':
     'Your account details have been anonymised, but some identified draft files may still be awaiting deletion. The system will retry; contact support if you need an update. Retained records may still contain identifying information.',
   'account.legalTitle': 'Legal',
@@ -814,7 +814,7 @@ const sw: Partial<Catalogue> = {
   'settings.auditExported': 'Kumbukumbu za ukaguzi zimepakuliwa.',
   'settings.auditExportFailed': 'Imeshindwa kupakua kumbukumbu za ukaguzi.',
   'account.erased':
-    'Maelezo ya akaunti yako yamefanywa bila utambulisho na faili za rasimu zilizotambuliwa zimeondolewa. Rekodi zilizohifadhiwa bado zinaweza kuwa na taarifa zinazokutambulisha.',
+    'Maelezo ya akaunti yako yamefanywa bila utambulisho, na kwa sasa hakuna faili za rasimu zilizotambuliwa zinazosubiri kufutwa. Hii haithibitishi kufutwa kwa nakala zote; rekodi zilizohifadhiwa bado zinaweza kuwa na taarifa zinazokutambulisha.',
   'account.erasurePending':
     'Maelezo ya akaunti yako yamefanywa bila utambulisho, lakini baadhi ya faili za rasimu zilizotambuliwa zinaweza bado kusubiri kufutwa. Mfumo utajaribu tena; wasiliana na usaidizi kwa taarifa. Rekodi zilizohifadhiwa bado zinaweza kuwa na taarifa zinazokutambulisha.',
   'account.legalTitle': 'Kisheria',
@@ -1497,7 +1497,7 @@ const fr: Partial<Catalogue> = {
   'settings.auditExported': "Journal d'audit téléchargé.",
   'settings.auditExportFailed': "Impossible de télécharger le journal d'audit.",
   'account.erased':
-    'Les informations de votre compte ont été anonymisées et les fichiers brouillons identifiés supprimés. Les documents conservés peuvent encore contenir des informations permettant de vous identifier.',
+    "Les informations de votre compte ont été anonymisées et aucune suppression de fichier brouillon identifié n'est actuellement en attente. Cela ne confirme pas la suppression de toutes les copies ; les documents conservés peuvent encore contenir des informations permettant de vous identifier.",
   'account.erasurePending':
     'Les informations de votre compte ont été anonymisées, mais certains fichiers brouillons identifiés restent peut-être à supprimer. Le système réessaiera ; contactez le support pour un suivi. Les documents conservés peuvent encore contenir des informations permettant de vous identifier.',
   'account.legalTitle': 'Mentions légales',

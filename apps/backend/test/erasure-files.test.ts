@@ -40,6 +40,22 @@ it('limits and scopes deletion work to the requested user in stable order', asyn
   }
 });
 
+it('rejects invalid user scopes and limits instead of widening the deletion sweep', async () => {
+  const db = await createTestDatabase();
+  try {
+    const repo = new ErasureFilesRepository(db);
+    for (const userId of ['', '  ']) {
+      expect(() => repo.listPending({ userId })).toThrow('Invalid erasure user scope.');
+    }
+    for (const limit of [-1, 0, 101, 1.5, NaN, Infinity]) {
+      expect(() => repo.listPending({ limit })).toThrow('Invalid erasure batch limit.');
+    }
+    expect(await repo.listPending({ limit: 100 })).toEqual([]);
+  } finally {
+    await db.close();
+  }
+});
+
 it('retries a failed file deletion after reopening the database and storage', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'idcp-erasure-'));
   const path = join(dir, 'db.sqlite');

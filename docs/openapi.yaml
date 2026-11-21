@@ -436,7 +436,7 @@ paths:
                 confirm: { type: string, const: DELETE }
       responses:
         '200':
-          description: Account anonymised and draft files removed
+          description: Account anonymised and no identified draft file deletions pending at the time of the count; this is not proof of deletion from backups or other copies
           content:
             application/json:
               schema: &EraseAccountResult
@@ -447,7 +447,10 @@ paths:
                   erased:
                     { type: boolean, const: true, description: Account anonymisation completed }
                   anonymisedAt: { type: string, format: date-time }
-                  fileDeletionStatus: { type: string, enum: [complete, pending] }
+                  fileDeletionStatus:
+                    type: string
+                    enum: [complete, pending]
+                    description: Complete means the identified file-deletion queue count was zero, not that all copies or personal data were erased
                   pendingFileCount:
                     {
                       type: [integer, 'null'],
@@ -456,7 +459,7 @@ paths:
                     }
                   retainedRecords: { type: string }
         '202':
-          description: Account anonymised; one or more draft files are pending deletion and will be retried
+          description: Account anonymised; identified file deletions remain pending or their count is unknown
           content:
             application/json:
               schema: *EraseAccountResult

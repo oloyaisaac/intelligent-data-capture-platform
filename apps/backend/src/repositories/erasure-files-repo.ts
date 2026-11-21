@@ -11,11 +11,21 @@ export class ErasureFilesRepository {
   constructor(private readonly db: Database) {}
 
   listPending(options: { userId?: string; limit?: number } = {}): Promise<ErasureFileRow[]> {
+    const { userId, limit = 100 } = options;
+    // Never turn an invalid user scope into a global sweep, or allow SQLite's negative LIMIT
+    // semantics to make a supposedly bounded operation unbounded.
+    if (userId !== undefined && (typeof userId !== 'string' || userId.trim().length === 0)) {
+      throw new Error('Invalid erasure user scope.');
+    }
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error('Invalid erasure batch limit.');
+    }
+    const scoped = userId !== undefined;
     return this.db.query<ErasureFileRow>(
       `SELECT id, storage_key FROM erasure_file_deletions
-        ${options.userId ? 'WHERE user_id = ?' : ''}
+        ${scoped ? 'WHERE user_id = ?' : ''}
         ORDER BY COALESCE(last_attempt_at, created_at), id LIMIT ?`,
-      options.userId ? [options.userId, options.limit ?? 100] : [options.limit ?? 100],
+      scoped ? [userId, limit] : [limit],
     );
   }
 

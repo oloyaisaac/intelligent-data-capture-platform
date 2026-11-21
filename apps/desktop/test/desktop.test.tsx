@@ -1622,6 +1622,13 @@ describe('account page: password, sessions and privacy', () => {
     await waitFor(() =>
       expect(client.eraseAccount).toHaveBeenCalledWith({ password: 'secret passphrase' }),
     );
-    await waitFor(() => expect(onSessionEnded).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(onSessionEnded).toHaveBeenCalledWith(
+        expect.stringMatching(/no identified draft file deletions are currently pending/i),
+      ),
+    );
+    expect(onSessionEnded).toHaveBeenCalledWith(
+      expect.stringMatching(/does not confirm deletion of all copies/i),
+    );
   });
 });
