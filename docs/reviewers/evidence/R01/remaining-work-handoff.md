@@ -28,10 +28,22 @@ purge audit now commit together; storage deletion remains outside that transacti
 on idempotent delete. Prior soft-deleted files, separate pages and retained/derived rows require a
 designed and authorized reconciliation and deletion strategy. Known cross-table storage references
 now block retention, erasure-file and expired-export deletion, and stale export metadata updates are
-conditional. Filesystem deletion now rejects an unavailable or symlinked root, observed symlinks,
+conditional. Erasure processors now lock and recheck the same queue row during deletion, limiting
+stale-selection duplicate attempts by current-version processors. They also fail closed on observed
+exact or syntactically aliased competing queue rows, leaving conflicts for authorized investigation.
+Retention purge, export expiry and failed-upload cleanup also defer when they observe pending
+requests for the same key or an alias; this can require manual conflict resolution, not automatic
+completion. These checks are bounded point-in-time observations. Erasure processing holds a database
+transaction over storage I/O and is not a storage fence or a solution for
+concurrent queue insertion, mixed versions, key reuse, new references or connection loss. See
+`docs/erasure-operations.md`. Filesystem deletion now rejects an unavailable or symlinked root, observed symlinks,
 non-regular files and multiply linked final files; see `docs/storage-deletion-safety.md` for the
-operational impact and important limitations. These checks are not atomic with unlink, do not verify
-mount identity or root ancestors, and do not fence concurrent references or key reuse. An absent
+operational impact and important limitations. Writes and reads now also refuse observed unsafe
+root/parent links, and reads reject observed unsafe final entries; POSIX-focused tests include the
+document API. These are still non-atomic checks, root creation can mask a missing mount, root
+ancestors are not checked, and platform and filesystem semantics need deployment validation. The
+checks are not atomic with unlink, do not verify mount identity or root ancestors, and do not fence
+concurrent references or key reuse. An absent
 component below the root is treated as already deleted. Test and design for concurrent references,
 changed exports and mixed versions. Measure cross-table scan costs and plan
 indexing with a safe deployment strategy. ARC-026 adds an export key reservation before file writes;

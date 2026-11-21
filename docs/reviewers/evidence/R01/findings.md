@@ -603,12 +603,20 @@ report no rows on I/O failure and a later write could attempt to overwrite exist
 only checked the first incoming record's columns and could silently discard later fields. Current
 code treats only an observed absent path as empty, rejects observed nonregular files, propagates
 other read errors, checks columns across the batch and leaves empty batches untouched. These are
-partial safeguards, not safe transactional file writes. The destination is still rewritten in place;
-concurrent writes, interruption, wrong mounts, parser limitations, hardlinks, path races and old or
-external writers can corrupt or lose data. A separately designed durable and coordinated protocol,
-historical destination review and authorized recovery remain. Local `npm run verify` passed 123 suites
-/ 901 tests (30 skipped), and the backend PostgreSQL 16.16 suite passed 110 suites / 624 tests. See
-`docs/connector-write-safety.md`. Owner: unassigned; integration and storage.
+partial safeguards, not safe transactional file writes. Current code also rejects observed hardlinks,
+malformed/ambiguous CSV and invalid UTF-8, creates missing destinations exclusively, and appends to
+existing files without rewriting their bytes. A metadata recheck rejects some changed snapshots.
+Tests cover byte preservation, malformed files, stale snapshots and a real connector child. Existing
+empty files and previously tolerated malformed files now require review. Historical formula cells
+remain intact, not sanitized. Concurrent and partial appends, lost acknowledgements, wrong mounts,
+path races, later hardlinks and old or external writers can still corrupt data or cause duplicate
+writes. A separately designed durable and coordinated protocol, historical destination review and
+authorized recovery remain. An earlier local `npm run verify` passed 123 suites / 901 tests (30
+skipped), and the backend PostgreSQL 16.16 suite passed 110 suites / 624 tests; those earlier results
+predate this update. In pre-commit local testing, `npm run verify -- --runInBand` passed
+125 suites / 953 tests (31 skipped); the PostgreSQL 16.16-configured backend suite passed
+111 suites / 643 tests. These results do not establish production filesystem behavior or an
+independent review. See `docs/connector-write-safety.md`. Owner: unassigned; integration and storage.
 
 ### ARC-033 — HIGH: duplicate policy and destination update identity
 

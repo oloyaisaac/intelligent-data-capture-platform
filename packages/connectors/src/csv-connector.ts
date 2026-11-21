@@ -1,5 +1,6 @@
 import { toCsv, type CsvCell } from '@idcp/shared';
-import { readFile, writeFile, mkdir, lstat } from 'node:fs/promises';
+import { constants, type Stats } from 'node:fs';
+import { writeFile, mkdir, lstat, open } from 'node:fs/promises';
 import { dirname, join, normalize } from 'node:path';
 import type {
   Connector,
@@ -44,6 +45,12 @@ export class CsvFileConnector implements Connector {
     }
     if (!parsed.directory || typeof parsed.directory !== 'string') {
       throw new Error('CSV connector requires a "directory".');
+    }
+    if (parsed.delimiter !== undefined && ![',', ';', '\t', '|'].includes(parsed.delimiter)) {
+      throw new Error('CSV delimiter is not supported.');
+    }
+    if (parsed.bom !== undefined && typeof parsed.bom !== 'boolean') {
+      throw new Error('CSV bom must be a boolean.');
     }
   }
 
@@ -94,7 +101,10 @@ export class CsvFileConnector implements Connector {
     const file = this.path(config);
     await mkdir(dirname(file), { recursive: true });
 
-    const { rows: existingRows, headers } = await this.readRaw(parsed, file);
+    const { rows: existingRows, headers, content, snapshot } = await this.readRaw(parsed, file);
+    if (snapshot && headers.length === 0) {
+      throw new Error('CSV destination is empty; review it before writing.');
+    }
     const incomingHeaders = Object.keys(records[0]!.values);
     if (records.some((record) => Object.keys(record.values).length === 0)) {
       throw new Error('CSV records must contain at least one field.');
@@ -112,13 +122,41 @@ export class CsvFileConnector implements Connector {
     const rows: CsvCell[][] = records.map((record) =>
       finalHeaders.map((header) => (record.values[header] ?? null) as CsvCell),
     );
-    const combined = [...existingRows, ...rows];
-    const body = toCsv(finalHeaders, combined, {
-      delimiter: parsed.delimiter ?? ',',
-      bom: parsed.bom ?? false,
+    validateHeaders(finalHeaders);
+    const options = { delimiter: parsed.delimiter ?? ',' } as const;
+    if (!snapshot) {
+      // Do not replace a destination created after the read observed it missing.
+      await writeFile(file, toCsv(finalHeaders, rows, { ...options, bom: parsed.bom ?? false }), {
+        encoding: 'utf8',
+        mode: 0o600,
+        flag: 'wx',
+      });
+    } else {
+      // Existing bytes, including formulas, quoting and line endings, are never reserialized.
+      const header = toCsv(finalHeaders, [], options);
+      const encoded = toCsv(finalHeaders, rows, options).slice(header.length);
+      const separator = content.endsWith('\n') || content.endsWith('\r') ? '' : '\r\n';
+      const handle = await open(
+        file,
+        constants.O_WRONLY |
+          constants.O_APPEND |
+          (constants.O_NOFOLLOW ?? 0) |
+          (constants.O_NONBLOCK ?? 0),
+      );
+      try {
+        const current = await handle.stat();
+        if (!isRegularSingleLink(current) || !sameSnapshot(snapshot, current)) {
+          throw new Error('CSV destination changed; review before retrying.');
+        }
+        await handle.writeFile(separator + encoded, 'utf8');
+      } finally {
+        await handle.close();
+      }
+    }
+    context.logger.info('csv connector wrote rows', {
+      added: rows.length,
+      total: existingRows.length + rows.length,
     });
-    await writeFile(file, body, { encoding: 'utf8', mode: 0o600 });
-    context.logger.info('csv connector wrote rows', { added: rows.length, total: combined.length });
 
     return {
       created: rows.length,
@@ -152,22 +190,46 @@ export class CsvFileConnector implements Connector {
   private async readRaw(
     config: CsvConnectorConfig,
     file: string,
-  ): Promise<{ headers: string[]; rows: CsvCell[][] }> {
-    const { parseCsv } = await import('@idcp/shared');
-    let info;
+  ): Promise<{ headers: string[]; rows: CsvCell[][]; content: string; snapshot: Stats | null }> {
+    let info: Stats;
     try {
       info = await lstat(file);
     } catch (error) {
       // Only an absent path is treated as an empty destination; do not mask IO failures.
-      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return { headers: [], rows: [] };
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        return { headers: [], rows: [], content: '', snapshot: null };
+      }
       throw error;
     }
-    // This observation is not atomic with reading or writing; external writers still require
-    // operational coordination. In particular, reject dangling or existing symlinks here.
-    if (!info.isFile()) throw new Error('CSV destination must be a regular file.');
-    const content = await readFile(file, 'utf8');
-    const [headerRow, ...rows] = parseCsv(content, config.delimiter ?? ',');
-    return { headers: headerRow ?? [], rows: rows as CsvCell[][] };
+    if (!isRegularSingleLink(info)) throw new Error('CSV destination must be a regular file.');
+    const handle = await open(
+      file,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
+    );
+    try {
+      const before = await handle.stat();
+      if (!isRegularSingleLink(before) || !sameSnapshot(info, before)) {
+        throw new Error('CSV destination changed; review before retrying.');
+      }
+      const bytes = await handle.readFile();
+      const after = await handle.stat();
+      if (!isRegularSingleLink(after) || !sameSnapshot(before, after)) {
+        throw new Error('CSV destination changed; review before retrying.');
+      }
+      // Reject invalid UTF-8 rather than silently replacing bytes before interpreting the header.
+      const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+      const [headerRow, ...rows] = parseStrictCsv(content, config.delimiter ?? ',');
+      const headers = headerRow ?? [];
+      if (headers.length > 0) {
+        validateHeaders(headers);
+        if (rows.some((row) => row.length !== headers.length)) {
+          throw new Error('CSV destination contains rows with different column counts.');
+        }
+      }
+      return { headers, rows, content, snapshot: after };
+    } finally {
+      await handle.close();
+    }
   }
 }
 
@@ -177,4 +239,80 @@ function cellToValue(cell: unknown): string | number | boolean | null {
   if (cell instanceof Date) return cell.toISOString();
   if (typeof cell === 'number' || typeof cell === 'boolean') return cell;
   return String(cell);
+}
+
+function isRegularSingleLink(info: Stats): boolean {
+  return info.isFile() && info.nlink === 1;
+}
+
+function sameSnapshot(a: Stats, b: Stats): boolean {
+  return (
+    a.dev === b.dev &&
+    a.ino === b.ino &&
+    a.size === b.size &&
+    a.mtimeMs === b.mtimeMs &&
+    a.ctimeMs === b.ctimeMs
+  );
+}
+
+function validateHeaders(headers: string[]): void {
+  if (
+    headers.length === 0 ||
+    headers.some((header) => header.length === 0) ||
+    new Set(headers).size !== headers.length
+  ) {
+    throw new Error('CSV destination must have distinct, non-empty column names.');
+  }
+}
+
+/** A strict connector-local parser: do not silently repair malformed destination data. */
+function parseStrictCsv(input: string, delimiter: string): string[][] {
+  const text = input.startsWith('\uFEFF') ? input.slice(1) : input;
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let state: 'start' | 'unquoted' | 'quoted' | 'closed' = 'start';
+  let recordStarted = false;
+  const finishField = () => {
+    row.push(field);
+    field = '';
+    state = 'start';
+  };
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]!;
+    if (state === 'quoted') {
+      if (char === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else state = 'closed';
+      } else field += char;
+      continue;
+    }
+    if (char === delimiter) {
+      finishField();
+      recordStarted = true;
+    } else if (char === '\r' || char === '\n') {
+      finishField();
+      rows.push(row);
+      row = [];
+      recordStarted = false;
+      if (char === '\r' && text[i + 1] === '\n') i++;
+    } else if (char === '"') {
+      if (state !== 'start') throw new Error('CSV destination is malformed.');
+      state = 'quoted';
+      recordStarted = true;
+    } else {
+      if (state === 'closed') throw new Error('CSV destination is malformed.');
+      state = 'unquoted';
+      field += char;
+      recordStarted = true;
+    }
+  }
+  if (state === 'quoted') throw new Error('CSV destination is malformed.');
+  if (recordStarted) {
+    finishField();
+    rows.push(row);
+  }
+  return rows;
 }

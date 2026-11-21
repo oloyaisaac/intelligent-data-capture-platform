@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ConnectorProcess } from '../src/adapters/connector-process';
@@ -138,6 +138,34 @@ it('executes a first-party CSV connector in a real child process', async () => {
         config: { directory, filename: '../secret' },
       }),
     ).rejects.toThrow('Connector invocation failed');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 30_000);
+
+it('preserves existing CSV bytes and refuses malformed data in the real connector child', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'idcp-connector-csv-append-'));
+  const file = join(directory, 'out.csv');
+  const transport = new ConnectorProcess(process.execPath, ['--import', 'tsx', runner], {
+    ...limits,
+    timeoutMs: 10_000,
+  });
+  const request = {
+    type: 'csv',
+    organisationId: 'synthetic-org',
+    config: { directory, filename: 'out.csv' },
+    operation: 'create',
+    records: [{ values: { name: 'new' } }],
+  };
+  try {
+    const prior = 'name\n=1+1\n';
+    await writeFile(file, prior);
+    await expect(transport.invoke(request)).resolves.toMatchObject({ created: 1 });
+    expect(await readFile(file, 'utf8')).toBe(`${prior}new\r\n`);
+    const malformed = 'name\n"unterminated';
+    await writeFile(file, malformed);
+    await expect(transport.invoke(request)).rejects.toThrow('Connector invocation failed');
+    expect(await readFile(file, 'utf8')).toBe(malformed);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

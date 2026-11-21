@@ -546,8 +546,7 @@ it('runs independent maintenance steps with injected repositories and no databas
     },
     erasureFiles: {
       listPending: jest.fn().mockRejectedValue(new Error('queue unavailable')),
-      isReferenced: jest.fn(),
-      complete: jest.fn(),
+      withLockedPending: jest.fn(),
       recordFailedAttempt: jest.fn(),
     },
   };
@@ -578,8 +577,7 @@ it('uses injected privacy repositories and refuses erasure for a missing user', 
     },
     erasureFiles: {
       listPending: jest.fn(),
-      isReferenced: jest.fn(),
-      complete: jest.fn(),
+      withLockedPending: jest.fn(),
       recordFailedAttempt: jest.fn(),
       countForUser: jest.fn(),
     },

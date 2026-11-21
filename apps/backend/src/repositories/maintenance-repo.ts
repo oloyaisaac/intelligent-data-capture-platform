@@ -1,5 +1,5 @@
 import type { Database } from '../db/database';
-import { hasStorageReference } from './storage-references';
+import { hasPendingErasureReference, hasStorageReference } from './storage-references';
 
 /** Database operations used by the housekeeping scheduler. */
 export class MaintenanceRepository {
@@ -35,8 +35,11 @@ export class MaintenanceRepository {
     );
   }
 
-  hasOtherStorageReference(exportId: string, key: string): Promise<boolean> {
-    return hasStorageReference(this.db, key, { exportId });
+  async hasOtherStorageReference(exportId: string, key: string): Promise<boolean> {
+    return (
+      (await hasStorageReference(this.db, key, { exportId })) ||
+      (await hasPendingErasureReference(this.db, key))
+    );
   }
 
   async markExportExpired(row: {

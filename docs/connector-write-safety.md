@@ -25,13 +25,27 @@ constraints or provider idempotency where available, verify mappings and permiss
 the destination after uncertain failures before retrying. No historical destination data was
 inspected or repaired, and no real CRM provider was tested.
 
-CSV reads now reject observed nonregular files and propagate read errors instead of treating them as
-empty. A missing path remains an empty destination, and observed symlinks are rejected. CSV writes
-reject records containing columns missing from the destination header, including later records in a
-batch; an empty batch is a no-op. These checks are not atomic with filesystem operations: symlink,
-parent-path and replacement races, missing/wrong mounts, hardlinks and external writers remain.
-The connector still rewrites the whole destination in place; concurrent writes, process death or
-I/O failure can lose or corrupt data, and its permissive parser and reserialization can alter
-existing content. Do not rely on it for concurrent or crash-safe writes; coordinate writers and
-maintain verified backups. A sandbox, durable transactional CSV protocol, historical assessment and
+CSV reads and writes reject observed nonregular or multiply linked destination files and propagate
+read errors instead of treating them as empty. A missing path remains an empty destination; creating
+it now uses exclusive creation so a file appearing after that observation is not overwritten. An
+existing zero-byte or BOM-only file is no longer treated as a new destination for writes. Existing
+files must be valid UTF-8 with well-formed quoting, distinct non-empty headers and consistent row
+widths. Reads also fail on malformed or ambiguous data. Only comma, semicolon, tab and pipe
+delimiters and boolean BOM options are accepted. These are compatibility changes: investigate and
+repair affected files with an authorized backup and review process, not automatic truncation.
+
+For an existing valid file, the connector preserves its bytes and appends the new rows, adding a line
+separator if needed; it no longer parses and reserializes old rows. It checks the observed file
+identity and metadata again before append and refuses some stale snapshots. New row values still use
+the shared spreadsheet-formula escaping; pre-existing formulas and headers are **not sanitized** by
+this append and may remain dangerous when opened in spreadsheet software. An empty batch is a no-op,
+and every incoming record must fit the existing header.
+
+These checks are not a transactional or security boundary. Filesystem parent paths, mounts and
+symlink changes can race checks; hard links can be created later; metadata can fail to expose a
+change; a file may be replaced after the final check; and external or concurrent writers are not
+locked. Appends can be partial, interleaved or committed despite a failed acknowledgement, so retry
+can duplicate or corrupt rows. Format-valid does not mean ownership is correct or data is safe. The
+whole file is still read and parsed in memory. Coordinate writers, inspect uncertain outcomes and
+maintain verified backups. A sandbox, durable coordinated CSV protocol, historical assessment and
 reconciliation remain outstanding.

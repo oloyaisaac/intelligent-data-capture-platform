@@ -12,6 +12,8 @@ import { WorkerRecoveryRepository } from '../src/repositories/worker-recovery-re
 import { BatchesRepository } from '../src/repositories/batch-repo';
 import { RemoteOcrBudgetRepository } from '../src/repositories/remote-ocr-budget-repo';
 import { ErasureFilesRepository } from '../src/repositories/erasure-files-repo';
+import { processErasureFiles } from '../src/services/erasure-files';
+import { silentLogger } from '../src/logger';
 import { WorkflowRunsRepository } from '../src/repositories/workflow-repo';
 import { ConnectorProcess } from '../src/adapters/connector-process';
 import {
@@ -205,6 +207,71 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
       await isolated.close();
     }
   });
+
+  it('locks the queue row while deleting and skips a competing stale selection', async () => {
+    const isolated = await createHarness();
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    const repo = new ErasureFilesRepository(isolated.db);
+    const key = 'org/example/erasure-test';
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const deleting = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let first: Promise<number> | undefined;
+    let second: Promise<number> | undefined;
+    try {
+      await isolated.storage.put(key, Buffer.from('original'));
+      await isolated.db.execute(
+        'INSERT INTO erasure_file_deletions (id, user_id, storage_key, created_at) VALUES (?, ?, ?, ?)',
+        ['queue', 'user', key, '2026-01-01T00:00:00.000Z'],
+      );
+      const selected = await repo.listPending();
+      const queue = {
+        listPending: async () => selected,
+        withLockedPending: repo.withLockedPending.bind(repo),
+        recordFailedAttempt: repo.recordFailedAttempt.bind(repo),
+      };
+      const originalDelete = isolated.storage.delete.bind(isolated.storage);
+      const deleteSpy = jest.spyOn(isolated.storage, 'delete').mockImplementation(async (path) => {
+        started();
+        await hold;
+        await originalDelete(path);
+        await isolated.storage.put(path, Buffer.from('replacement'));
+      });
+      first = processErasureFiles(queue, isolated.storage, silentLogger);
+      void first.catch(() => undefined);
+      await deleting;
+      second = processErasureFiles(queue, isolated.storage, silentLogger);
+      void second.catch(() => undefined);
+      const deadline = Date.now() + 10_000;
+      let blocked = 0;
+      while (Date.now() < deadline && blocked === 0) {
+        const result = await observer.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM pg_stat_activity activity
+           WHERE cardinality(pg_blocking_pids(activity.pid)) > 0 AND activity.wait_event_type = 'Lock'
+             AND activity.query LIKE 'SELECT id, storage_key FROM erasure_file_deletions WHERE id =%FOR UPDATE'`,
+        );
+        blocked = result.rows[0]?.count ?? 0;
+        if (!blocked) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(blocked).toBe(1);
+      release();
+      expect(await first).toBe(1);
+      expect(await second).toBe(0);
+      expect(deleteSpy).toHaveBeenCalledTimes(1);
+      expect((await isolated.storage.get(key)).toString()).toBe('replacement');
+    } finally {
+      release();
+      if (first) await first.catch(() => undefined);
+      if (second) await second.catch(() => undefined);
+      await observer.end();
+      await isolated.close();
+    }
+  }, 30_000);
 
   it('serializes competing remote OCR reservations on the PostgreSQL document row', async () => {
     const isolated = await createHarness();
