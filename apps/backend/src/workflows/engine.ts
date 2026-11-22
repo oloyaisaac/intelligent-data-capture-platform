@@ -124,7 +124,11 @@ export function evaluateCondition(
   context: ConditionContext,
 ): boolean {
   const value =
-    condition.field === 'documentType' ? context.documentType : context.fields[condition.field];
+    condition.field === 'documentType'
+      ? context.documentType
+      : Object.hasOwn(context.fields, condition.field)
+        ? context.fields[condition.field]
+        : undefined;
   const present = value !== null && value !== undefined && value !== '';
 
   switch (condition.operator) {

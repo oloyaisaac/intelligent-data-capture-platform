@@ -720,9 +720,9 @@ transform, not after an invalid transformation. Tests cover these cases and veri
 connector is not contacted. A previously accepted configuration can now fail, and the check precedes
 connector-run creation.
 
-This is partial mitigation. Duplicate destination mappings remain allowed and can overwrite a
-non-empty value with another non-empty value; optional destination names such as `__proto__` can
-still be lost because of ordinary object assignment. Other name-sensitive mapping, duplicate,
+This is partial mitigation. At that revision, duplicate destinations could overwrite a non-empty
+value and optional destination names such as `__proto__` could be lost; subsequent safeguards and
+remaining limitations are recorded under ARC-038 below. Other name-sensitive mapping, duplicate,
 workflow and review paths need investigation. Direct connector calls, old binaries, other validations,
 previous sends and remote side effects are not repaired. An authorized integration/data owner must
 assess mappings, historical effects and any correction or retry against the actual destination.
@@ -730,3 +730,120 @@ No production or vendor investigation is claimed. Local `npm run verify -- --run
 126 suites / 977 tests with 31 skipped; a PostgreSQL 16.16-configured backend run passed 112 suites /
 653 tests, including SQLite-specific fixtures. Formatting, diff checks and the backend build passed.
 Owner: unassigned; integration and data integrity.
+
+### ARC-038 — HIGH: mapping destination collisions can silently lose values
+
+Two source fields could target the same destination: the later assignment silently replaced the
+first, even when both values were non-empty. Optional mapped names such as `__proto__` could also be
+lost or alter a local object's prototype, because the mapper and other connector paths use ordinary
+JavaScript objects. An API regression confirmed the duplicate profile was accepted before the fix;
+unit tests cover the direct mapping boundary and Object.prototype names.
+
+New profiles now reject exact repeated destination names and every own property name of
+`Object.prototype`. The SDK mapper rejects the same names; the backend checks stored profiles before
+send or duplicate preview, including malformed JSON or non-array field maps, and returns a generic
+conflict before invoking a destination. Tests exercise rejected new and synthetic legacy profiles,
+including duplicate lookup and a valid control. Existing profiles are not automatically changed;
+the API currently provides no mapping edit route, so affected users must review and create/select a
+corrected profile. This is a compatibility restriction, including for legitimate destination fields
+named `constructor`, `toString`, or `__proto__`.
+
+This is not destination identity validation: case-folding, collation, Unicode normalization,
+provider-specific aliases and response/merge names can still collide. Direct calls to connector
+implementations bypass backend/mapper checks; old processes, historical mappings and remote writes
+are unchanged. Malformed-profile handling does not establish full schema validation. Review other
+name-sensitive mapping, duplicate, workflow and review paths; an authorized integration/data owner
+must assess affected mappings, historical effects and any destination-specific corrections. No
+production or vendor investigation is claimed. Local `npm run verify -- --runInBand` passed
+127 suites / 990 tests, with 31 skipped. Four PostgreSQL 16.16-configured connector backend suites
+passed 19 tests. A concurrent full PostgreSQL backend command lost its shell before a summary; its
+orphaned process was stopped, so a full PostgreSQL pass is not claimed for this revision. Formatting,
+diff checks and the backend build passed. Owner: unassigned; integration and data integrity.
+
+### ARC-039 — HIGH: inherited workflow fields can spuriously match and trigger deletion
+
+Workflow condition lookup previously read properties inherited from `Object.prototype` as if they
+were present fields. Before the fix, an end-to-end SQLite regression created an owner-configured
+`auto_approve` rule with `toString exists`, evaluated it for an invoice without that field, and
+observed the document's `deleted_at` become non-null. With `always_ask`, the same false match led
+to a pending plan. No production execution is claimed.
+
+Current condition evaluation reads only own field properties, while preserving the special
+`documentType` behavior. Tests cover Object.prototype and custom inherited properties, genuine own
+properties (including `__proto__`), false and zero, plus API evaluations under both policies. The
+synthetic tests verify a skipped plan and no soft-delete for this specific `exists` case. This is a
+partial mitigation, not a universal fail-closed rule: existing `not_equals` semantics still allow a
+missing field to match a non-null value, and comparison to null has its own existing semantics.
+
+Previously created awaiting-approval or interrupted plans are not reevaluated or cancelled by this
+change, old binaries remain unsafe, and prior soft-deletions and downstream effects are unchanged.
+Authorized owners should review affected definitions, runs and records before approving, replaying
+or correcting anything; do not blindly retry or restore. Other authorization, trigger, snapshot,
+concurrent execution, field semantics and real deployment behavior require independent review.
+Local `npm run verify -- --runInBand` passed 127 suites / 994 tests, with 31 skipped. Six focused
+PostgreSQL 16.16-configured workflow and connector backend suites passed 32 tests; this is not a full
+PostgreSQL suite. Formatting, diff checks and the backend build passed. Owner: unassigned;
+workflow/product and data integrity.
+
+### ARC-040 — HIGH: documented workflow field paths do not match evaluation context
+
+A regression using an approved sample invoice reproduced the API-documented `total.amount > 100`
+condition being skipped, even though the synthetic invoice's amount exceeds the threshold. The
+same test records that `fields.total.amount.value > 100` matches and waits for approval. This
+reflects the current implementation flattening the whole latest extraction, not a specification
+that the raw path is the intended long-term interface. With `not_equals`, a missing documented path
+can instead match. An incorrect match can lead to actions, including soft-deletion for an
+owner-configured auto-approve rule. The evaluate API accepts the caller's trigger and reads the
+latest extraction; trigger and approved-snapshot consistency need separate review.
+
+No automatic path rewrite or silent behavior change is made here: activating previously nonmatching
+rules could itself execute destructive actions. An authorized product/workflow owner must define
+field, missing-value, trigger and snapshot semantics and a versioned, explicitly reviewed migration,
+assess existing definitions and runs, and test both databases and supported clients before enabling
+changed behavior. Tests characterize one path and do not exhaust all conditions. Historical effects,
+production rules and downstream records have not been investigated. Owner: unassigned;
+workflow/product and data integrity.
+
+### ARC-041 — HIGH: read-only principals could mutate documents and reviews, execute workflows and send records
+
+A synthetic API regression using a `documents:read`-only API key reproduced HTTP 201 for document
+upload, 202 for reprocess, 204 for soft-delete and 200 for workflow evaluation. The evaluation test
+used an owner-configured automatic delete; it could run that destructive action even though the key
+was mapped to the viewer role. The prior service methods did not check roles. No production access,
+incident, credential abuse or historical impact is claimed.
+
+Upload now requires operator or above, while reprocess, soft-delete and workflow evaluation require
+reviewer or above; the checks are enforced in the services, and the HTTP upload route also checks
+before buffering the file. Integration tests cover read-only keys, viewer and operator sessions,
+viewer service calls, a permitted operator upload and permitted reviewer-level key operations. They
+show those particular denied operations have no document deletion or workflow run, not that all
+routes enforce RBAC. These are compatibility changes: operators who previously reprocessed or deleted
+and viewers who previously invoked these actions will be denied. Review intended role policy and
+client deployments with product/security owners.
+
+Further synthetic tests reproduced a read-only key opening a review (200), sending an approved record
+through a connector (202, with the adapter invoked), and creating a batch (201). In the batch case,
+the downstream upload role error was caught as an item failure rather than denying batch creation.
+Review open, field edits, approval, rejection and bulk approval, and connector send now require
+reviewer or above in their services; direct mapping creation has the same check as its existing HTTP
+route. Batch creation requires operator or above in the service before consuming files and in the
+HTTP route before multipart spooling. Tests cover denial and unchanged review/extraction state,
+no connector adapter call, no batch row, direct service denial, permitted reviewer-level key actions,
+and an operator session creating a batch with a non-failed item. These changes also deny operators
+review and send operations they may previously have used. They do not undo prior external writes,
+review changes or batch records and are not a complete authorization review.
+
+API-key scopes are currently converted to the highest broad role rather than independently enforced
+per operation. For example, `review:write` and `documents:write` both map to reviewer; neither is
+proof of exact scope isolation. Other routes, direct services, device actors, credentials and effects
+remain unaudited; the `document.approved` workflow trigger still requires a separate current-approval
+and race-safety design. Previous soft-deletes, requests, cloud costs, copies, logs and old binaries
+are unchanged. An authorized owner should assess exposure, logs, existing keys and possible
+credential rotation or record recovery without blind replay. Independent security review and a
+complete route/scope/tenant authorization matrix remain necessary. Local `npm run verify -- --runInBand`
+passed 129 suites / 1003 tests with 31 skipped after updating two composition fixtures for the new
+roles. Six focused PostgreSQL 16.16-configured suites passed 62 tests; the composition suite uses
+repository doubles rather than PostgreSQL. An initial PostgreSQL attempt used a nonexistent database
+role and did not exercise the integration tests; the corrected run passed. This is not a full
+PostgreSQL run. Formatting, diff checks and the backend build passed. Owner: unassigned; security
+and product.

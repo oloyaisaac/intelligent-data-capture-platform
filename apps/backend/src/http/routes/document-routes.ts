@@ -27,6 +27,8 @@ export function registerDocumentRoutes(
   /** DOC-001 — upload one document (image or PDF). */
   app.post('/documents', async (request, reply) => {
     const actor = await guards.authenticate(request);
+    // Reject unauthorized uploads before buffering the multipart file as well as in the service.
+    await guards.requireRole('operator')(request, reply);
 
     if (!request.isMultipart()) {
       throw badRequest('Upload the file as multipart/form-data.');

@@ -196,15 +196,15 @@ Errors: `422 PAIRING_TOKEN_EXPIRED`, `422 PAIRING_TOKEN_USED`, `404 PAIRING_SESS
 
 ## 5. Documents
 
-| Method | Path                       | Purpose                                                                                    |
-| ------ | -------------------------- | ------------------------------------------------------------------------------------------ |
-| POST   | `/documents`               | Upload a document (multipart: `file`, optional `documentType`, `templateId`)               |
-| GET    | `/documents`               | List/filter (`status`, `type`, `deviceId`, `from`, `to`)                                   |
-| GET    | `/documents/:id`           | Metadata + processing status                                                               |
-| GET    | `/documents/:id/file`      | Stream the original image (authorised, never public)                                       |
-| GET    | `/documents/:id/result`    | Current extraction (UDM + flattened fields/tables)                                         |
-| POST   | `/documents/:id/reprocess` | Re-run extraction (admin/reviewer); returns 409 while extraction is queued or running      |
-| DELETE | `/documents/:id`           | Soft delete (the retention worker currently skips already-deleted records and their files) |
+| Method | Path                       | Purpose                                                                                         |
+| ------ | -------------------------- | ----------------------------------------------------------------------------------------------- |
+| POST   | `/documents`               | Upload a document (operator or above; multipart: `file`, optional `documentType`, `templateId`) |
+| GET    | `/documents`               | List/filter (`status`, `type`, `deviceId`, `from`, `to`)                                        |
+| GET    | `/documents/:id`           | Metadata + processing status                                                                    |
+| GET    | `/documents/:id/file`      | Stream the original image (authorised, never public)                                            |
+| GET    | `/documents/:id/result`    | Current extraction (UDM + flattened fields/tables)                                              |
+| POST   | `/documents/:id/reprocess` | Re-run extraction (admin/reviewer); returns 409 while extraction is queued or running           |
+| DELETE | `/documents/:id`           | Soft delete (reviewer or above; retention currently skips already-deleted records and files)    |
 
 `POST /documents` — requires `Idempotency-Key`; max 20 MB per image, JPEG/PNG/PDF/HEIC.
 
@@ -225,8 +225,8 @@ Errors: `422 PAIRING_TOKEN_EXPIRED`, `422 PAIRING_TOKEN_USED`, `404 PAIRING_SESS
 | GET    | `/batches/:id/items`       | `total`, `processed`, `succeeded`, `failed`, `status`, `items` |
 | GET    | `/batches/:id/results.csv` | Per-item results as CSV (UTF-8 with BOM, formula-escaped)      |
 
-Form fields: `name` (optional), `projectId` (optional), `documentType` (optional). Each file
-becomes its own document and job.
+Batch upload requires operator or above. Form fields: `name` (optional), `projectId` (optional),
+`documentType` (optional). Each file becomes its own document and job.
 
 ```json
 // response 201 — partial success is normal, so the batch itself always succeeds
@@ -268,6 +268,8 @@ request and never blocks the other files.
 | POST   | `/review/:id/approve`        | Approve the record (blocked while required fields are unresolved) |
 | POST   | `/review/:id/reject`         | Reject with a reason                                              |
 | POST   | `/review/bulk-approve`       | Approve many, skipping any with unresolved low-confidence fields  |
+
+Opening, editing, approving, rejecting and bulk approving reviews require reviewer or above.
 
 `PATCH /review/:id/fields`
 
@@ -321,6 +323,10 @@ not a name-keyed dictionary, to avoid losing data. XLSX rows are written by posi
 projected fields produce empty cells, including when their names match JavaScript prototype properties.
 Previously generated files are unchanged; see R01 ARC-036 for the historical integrity risk.
 
+Mapping creation rejects exact repeated destination names and names inherited from `Object.prototype`;
+send and duplicate preview reject already-saved profiles containing them. This is a compatibility
+restriction, not destination-schema validation. See `docs/connector-write-safety.md`.
+
 **Connector configuration:** `config` and `credentials` are write-only. Responses include an empty
 `config` object for compatibility with the response shape, rather than returning stored settings.
 Creating or replacing configuration encrypts both objects; credentials override matching config
@@ -328,6 +334,11 @@ keys and the merged settings are validated. PATCH `config` replaces the complete
 object while preserving existing credentials; PATCH does not update credentials. Existing plaintext
 rows require the offline migration in `docs/connector-config-migration.md`, and prior copies may
 need rotation or secure disposal. See `SECURITY.md` and R01 finding ARC-023.
+
+Creating a mapping profile and sending a document require reviewer or above. API-key scopes
+currently map to broad roles rather than being independently enforced per operation; a `review:write`
+key, for example, can meet the reviewer role for sending. Do not treat the scope names as an
+operation-level isolation guarantee.
 
 `POST /documents/:id/send`
 
@@ -357,17 +368,17 @@ packages stay listed with `revokedReason` but cannot be installed.
 
 ### 7c. Workflow automation (AGENT-001)
 
-| Method | Path                                     | Purpose                                                       |
-| ------ | ---------------------------------------- | ------------------------------------------------------------- |
-| GET    | `/workflows`                             | Rules for this organisation                                   |
-| POST   | `/workflows`                             | Create a rule (admin; `auto_approve` needs an owner)          |
-| PATCH  | `/workflows/:id`                         | Pause or enable                                               |
-| DELETE | `/workflows/:id`                         | Delete the rule; its run history stays                        |
-| POST   | `/workflows/evaluate`                    | Evaluate every enabled rule for a trigger and log the outcome |
-| GET    | `/workflows/runs`                        | Run log, newest first                                         |
-| GET    | `/workflows/runs/:id`                    | Inspect one run and its recorded plan                         |
-| POST   | `/workflows/runs/:id/approve`            | Approve one pending run and execute its actions (reviewer)    |
-| POST   | `/workflows/runs/:id/cancel-interrupted` | Cancel one reviewed interrupted run (signed-in owner)         |
+| Method | Path                                     | Purpose                                                         |
+| ------ | ---------------------------------------- | --------------------------------------------------------------- |
+| GET    | `/workflows`                             | Rules for this organisation                                     |
+| POST   | `/workflows`                             | Create a rule (admin; `auto_approve` needs an owner)            |
+| PATCH  | `/workflows/:id`                         | Pause or enable                                                 |
+| DELETE | `/workflows/:id`                         | Delete the rule; its run history stays                          |
+| POST   | `/workflows/evaluate`                    | Evaluate rules and execute eligible actions (reviewer or above) |
+| GET    | `/workflows/runs`                        | Run log, newest first                                           |
+| GET    | `/workflows/runs/:id`                    | Inspect one run and its recorded plan                           |
+| POST   | `/workflows/runs/:id/approve`            | Approve one pending run and execute its actions (reviewer)      |
+| POST   | `/workflows/runs/:id/cancel-interrupted` | Cancel one reviewed interrupted run (signed-in owner)           |
 
 ```json
 {
@@ -382,6 +393,13 @@ packages stay listed with `revokedReason` but cannot be installed.
   "approvalPolicy": "always_ask"
 }
 ```
+
+**Workflow condition caution:** The example's `total.amount` path does not currently resolve to
+the extracted UDM field: evaluation flattens the latest extraction under paths such as
+`fields.total.amount.value`. Conditions can therefore match or skip unexpectedly, and `not_equals`
+can match a missing field. Evaluation can execute actions, not just preview them. Do not rely on
+this example for destructive rules; review and test existing rules with an authorized owner. The
+field-path semantics and migration are unresolved (R01 ARC-039/ARC-040).
 
 Triggers: `document.approved`, `document.extracted`, `document.needs_review`, `batch.completed`.
 Actions: `notify`, `send_to_connector`, `create_export`, `delete_document` — the last three are

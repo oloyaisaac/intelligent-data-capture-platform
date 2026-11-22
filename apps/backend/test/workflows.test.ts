@@ -103,6 +103,62 @@ describe('workflow automation (AGENT-001)', () => {
       ).toBe(false);
     });
 
+    it('ignores inherited field names but evaluates actual own fields', () => {
+      for (const field of Object.getOwnPropertyNames(Object.prototype)) {
+        expect(evaluateCondition({ field, operator: 'exists' }, context)).toBe(false);
+      }
+      const inherited = Object.create({ secret: 'value' }) as Record<string, unknown>;
+      expect(
+        evaluateCondition(
+          { field: 'secret', operator: 'exists' },
+          { ...context, fields: inherited },
+        ),
+      ).toBe(false);
+      expect(
+        evaluateCondition(
+          { field: 'secret', operator: 'equals', value: 'value' },
+          { ...context, fields: inherited },
+        ),
+      ).toBe(false);
+      // Preserve existing missing-value comparison behavior; it is not a presence check.
+      expect(
+        evaluateCondition(
+          { field: 'secret', operator: 'not_equals', value: 'value' },
+          { ...context, fields: inherited },
+        ),
+      ).toBe(true);
+      const fields = Object.fromEntries([
+        ['toString', 'real'],
+        ['__proto__', 'own value'],
+        ['count', 0],
+        ['paid', false],
+      ]);
+      expect(
+        evaluateCondition(
+          { field: 'toString', operator: 'equals', value: 'real' },
+          { ...context, fields },
+        ),
+      ).toBe(true);
+      expect(
+        evaluateCondition(
+          { field: '__proto__', operator: 'equals', value: 'own value' },
+          { ...context, fields },
+        ),
+      ).toBe(true);
+      expect(
+        evaluateCondition({ field: 'count', operator: 'exists' }, { ...context, fields }),
+      ).toBe(true);
+      expect(evaluateCondition({ field: 'paid', operator: 'exists' }, { ...context, fields })).toBe(
+        true,
+      );
+      expect(
+        evaluateCondition(
+          { field: 'documentType', operator: 'equals', value: 'invoice' },
+          { ...context, fields },
+        ),
+      ).toBe(true);
+    });
+
     it('rejects a definition that could never work', () => {
       expect(
         validateWorkflow({
@@ -287,6 +343,74 @@ describe('workflow automation (AGENT-001)', () => {
       },
       30_000,
     );
+
+    it.each(['auto_approve', 'always_ask'])(
+      'does not match an inherited field or delete a document with %s policy',
+      async (policy) => {
+        const account = await registerAccount(harness);
+        const created = await createWorkflow(account, {
+          name: 'Missing field must not match',
+          conditions: [{ field: 'toString', operator: 'exists' }],
+          approvalPolicy: policy,
+          actions: [{ type: 'delete_document', config: {} }],
+        });
+        expect(created.statusCode).toBe(201);
+        const documentId = await approvedInvoice(account);
+        const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
+          token: account.accessToken,
+          body: { trigger: 'document.approved', documentId },
+        });
+        expect(evaluation.statusCode).toBe(200);
+        const result = evaluation.json<{
+          plans: Array<{ matched: boolean }>;
+          runs: Array<{ status: string; matched: boolean; actions: unknown[] }>;
+        }>();
+        expect(
+          await harness.db.one('SELECT deleted_at FROM documents WHERE id = ?', [documentId]),
+        ).toEqual({ deleted_at: null });
+        expect(result.plans[0]!.matched).toBe(false);
+        expect(result.runs[0]).toMatchObject({ matched: false, status: 'skipped', actions: [] });
+      },
+    );
+
+    it('characterizes the unresolved flat UDM path mismatch without executing the destructive action', async () => {
+      const account = await registerAccount(harness);
+      const documented = await createWorkflow(account, {
+        name: 'Documented path',
+        conditions: [{ field: 'total.amount', operator: 'greater_than', value: 100 }],
+        actions: [{ type: 'delete_document', config: {} }],
+      });
+      const raw = await createWorkflow(account, {
+        name: 'Current raw path',
+        conditions: [{ field: 'fields.total.amount.value', operator: 'greater_than', value: 100 }],
+        actions: [{ type: 'delete_document', config: {} }],
+      });
+      expect(documented.statusCode).toBe(201);
+      expect(raw.statusCode).toBe(201);
+      const documentId = await approvedInvoice(account);
+      const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
+        token: account.accessToken,
+        body: { trigger: 'document.approved', documentId },
+      });
+      expect(evaluation.statusCode).toBe(200);
+      const runs = evaluation.json<{
+        runs: Array<{ workflowId: string; status: string; matched: boolean }>;
+      }>().runs;
+      // This describes the current defect, not a specification for correct field semantics.
+      expect(
+        runs.find((run) => run.workflowId === documented.json<{ id: string }>().id),
+      ).toMatchObject({
+        status: 'skipped',
+        matched: false,
+      });
+      expect(runs.find((run) => run.workflowId === raw.json<{ id: string }>().id)).toMatchObject({
+        status: 'awaiting_approval',
+        matched: true,
+      });
+      expect(
+        await harness.db.one('SELECT deleted_at FROM documents WHERE id = ?', [documentId]),
+      ).toEqual({ deleted_at: null });
+    });
 
     it('does not report a successful deletion for a run without a document', async () => {
       const account = await registerAccount(harness);

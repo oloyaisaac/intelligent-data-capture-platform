@@ -4,6 +4,7 @@ import {
   LIMITS,
   badRequest,
   conflict,
+  roleAtLeast,
   type DocumentStatus,
   type DocumentSummary,
   type DocumentType,
@@ -112,6 +113,9 @@ export class DocumentService {
     actor: AuthenticatedActor,
     input: UploadInput,
   ): Promise<{ document: DocumentSummary; jobId: string; duplicate: boolean }> {
+    if (!roleAtLeast(actor.role, 'operator')) {
+      throw new AppError('ROLE_REQUIRED', 'Operators and above can upload documents.');
+    }
     if (!input.buffer || input.buffer.length === 0) throw badRequest('The uploaded file is empty.');
 
     const maxBytes = this.config.MAX_UPLOAD_MB * 1024 * 1024;
@@ -329,6 +333,9 @@ export class DocumentService {
   }
 
   async reprocess(actor: AuthenticatedActor, id: string): Promise<{ jobId: string }> {
+    if (!roleAtLeast(actor.role, 'reviewer')) {
+      throw new AppError('ROLE_REQUIRED', 'Reviewers and above can reprocess documents.');
+    }
     return this.transaction(async (repositories) => {
       // The document lock serialises concurrent repairs/reprocess requests. On PostgreSQL the
       // subsequent active-job query runs after the lock is acquired, using a fresh statement
@@ -361,6 +368,9 @@ export class DocumentService {
 
   /** Soft delete hides the record. Existing soft-deleted files are not purged by retention. */
   async delete(actor: AuthenticatedActor, id: string): Promise<void> {
+    if (!roleAtLeast(actor.role, 'reviewer')) {
+      throw new AppError('ROLE_REQUIRED', 'Reviewers and above can delete documents.');
+    }
     await this.transaction(async (repositories) => {
       const ok = await repositories.documents.softDelete(actor.organisationId, id);
       if (!ok) throw new AppError('NOT_FOUND', 'Document not found.');

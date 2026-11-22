@@ -99,13 +99,12 @@ describe('mapping and transforms (MAP-001)', () => {
     expect(result.missingRequired).toEqual(['N', 'D', 'B', 'T']);
   });
 
-  it('does not treat inherited properties as mapped source or destination values', () => {
+  it('does not treat inherited properties as mapped source values', () => {
     const missing = applyMapping({}, [
       { udmPath: 'toString', destinationField: 'Value', required: true },
-      { udmPath: 'absent', destinationField: '__proto__', required: true },
     ]);
     expect(missing.values.Value).toBeNull();
-    expect(missing.missingRequired).toEqual(['Value', '__proto__']);
+    expect(missing.missingRequired).toEqual(['Value']);
     const present = applyMapping({ toString: 'actual' }, [
       { udmPath: 'toString', destinationField: 'Value', required: true },
     ]);
@@ -113,14 +112,23 @@ describe('mapping and transforms (MAP-001)', () => {
     expect(present.missingRequired).toEqual([]);
   });
 
-  it('blocks a required destination emptied by a later mapping', () => {
-    const result = applyMapping({ first: 'valid', second: 'not-a-number' }, [
-      { udmPath: 'first', destinationField: 'Same', required: true },
-      { udmPath: 'second', destinationField: 'Same', transform: 'number' },
-    ]);
-    expect(result.values.Same).toBeNull();
-    expect(result.missingRequired).toEqual(['Same']);
+  it('rejects duplicate destination names instead of silently overwriting a value', () => {
+    expect(() =>
+      applyMapping({ first: 'valid', second: 'other' }, [
+        { udmPath: 'first', destinationField: 'Same', required: true },
+        { udmPath: 'second', destinationField: 'Same' },
+      ]),
+    ).toThrow('Mapping destination fields must be unique and not use reserved property names.');
   });
+
+  it.each(Object.getOwnPropertyNames(Object.prototype))(
+    'rejects prototype property destination name %s even when optional',
+    (destinationField) => {
+      expect(() =>
+        applyMapping({ first: 'valid' }, [{ udmPath: 'first', destinationField }]),
+      ).toThrow('Mapping destination fields must be unique and not use reserved property names.');
+    },
+  );
 
   it('never guesses at unparseable values', () => {
     expect(transformValue('not a date', 'date_iso')).toBeNull();

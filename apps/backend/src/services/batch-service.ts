@@ -1,6 +1,7 @@
 import {
   AppError,
   badRequest,
+  roleAtLeast,
   toCsv,
   type BatchItem,
   type BatchSummary,
@@ -93,6 +94,9 @@ export class BatchService {
       files: AsyncIterable<BatchFile>;
     },
   ): Promise<BatchSummary> {
+    if (!roleAtLeast(actor.role, 'operator')) {
+      throw new AppError('ROLE_REQUIRED', 'Operators and above can upload batches.');
+    }
     const iterator = input.files[Symbol.asyncIterator]();
     const first = await iterator.next();
     if (first.done) throw badRequest('Add at least one file to the batch.');

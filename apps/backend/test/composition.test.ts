@@ -321,7 +321,9 @@ it('uses injected batch repositories and limits tenant-scoped reads', async () =
   async function* noFiles() {
     /* intentionally empty */
   }
-  await expect(service.create(actor, { files: noFiles() })).rejects.toMatchObject({
+  await expect(
+    service.create({ ...actor, role: 'operator' }, { files: noFiles() }),
+  ).rejects.toMatchObject({
     code: 'FIELD_VALIDATION_FAILED',
   });
   expect(repositories.batches.create).not.toHaveBeenCalled();
@@ -368,7 +370,9 @@ it('uses injected review repositories for tenant-scoped queue and approval', asy
     status: 'needs_review',
     limit: 10,
   });
-  await expect(service.approve(actor, 'foreign-review')).rejects.toMatchObject({
+  await expect(
+    service.approve({ ...actor, role: 'reviewer' }, 'foreign-review'),
+  ).rejects.toMatchObject({
     code: 'NOT_FOUND',
   });
   expect(repositories.reviews.findById).toHaveBeenCalledWith('org', 'foreign-review');

@@ -91,7 +91,12 @@ compatibility changes and limitations.
 ## 5. Authorisation
 
 - Roles: `owner` > `admin` > `reviewer` > `operator` > `viewer`, scoped per organisation.
-- Enforced in middleware **and** re-checked in the service layer for privileged actions.
+- Role enforcement is incomplete and requires a full route, service and machine-credential review;
+  do not assume every privileged action is covered. Document and batch upload require operator or
+  above. Document reprocessing, soft-deletion, workflow evaluation, review mutations, mapping
+  creation and connector send require reviewer or above. These are scoped mitigations, not evidence
+  of comprehensive RBAC. API-key scopes currently map to broad roles rather than being enforced
+  independently per operation; see R01 ARC-041.
 - Every tenant-owned row carries `organisation_id`; the data access layer requires a tenant context and refuses queries without one.
 - Objects are addressed by unguessable UUIDs, but this is never the only control.
 - `404` is returned for resources outside the caller's organisation, so existence is not disclosed.

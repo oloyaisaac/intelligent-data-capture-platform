@@ -5,11 +5,18 @@ An unparseable required number, date or boolean, or an empty result of `trim`, n
 duplicate previews before contacting the destination. Defaults apply to missing input before the
 transform, not as a fallback for an invalid transformed value. Numeric zero and boolean false remain
 valid. Source lookup ignores inherited properties, and a required destination must actually be an
-own property. This may cause previously accepted mappings to fail; review and correct mappings
-before rollout. Missing-required errors occur before a connector run is created. These checks do not
-validate destination schema, prohibit repeated destination mappings, prevent an optional special
-property name from being lost, or repair earlier writes. Direct connector calls bypass backend send
-policy. See R01 ARC-037 for outstanding data-integrity risks.
+own property.
+
+New mapping profiles reject exact duplicate destination field names and names that are own properties
+of JavaScript's `Object.prototype` (including `__proto__`, `constructor`, and `toString`). The mapper
+also rejects them, and sends and previews fail closed when they encounter such a stored profile.
+This intentionally restricts even legitimate external fields with those names until all downstream
+record, filter and merge paths can safely support them. The mapping API currently has no update
+endpoint; create and select a corrected profile after authorized review. Invalid saved profiles are not
+changed automatically. These checks happen before a connector run is created. They do not establish
+destination-schema validity or detect case, collation, Unicode or other vendor-specific equivalences.
+Direct connector calls bypass backend mapping checks, and historical writes are not repaired. See R01
+ARC-037/ARC-038.
 
 A send using `skip`, `update` or `merge` now requires unique, non-empty duplicate keys, a lookup
 method, and a mapped, non-empty value for every key. Missing prerequisites return a conflict rather

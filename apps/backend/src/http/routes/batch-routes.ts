@@ -29,6 +29,7 @@ export function registerBatchRoutes(
 ): void {
   app.post('/batches', async (request, reply) => {
     const actor = await guards.authenticate(request);
+    await guards.requireRole('operator')(request, reply);
     if (!request.isMultipart()) throw badRequest('Upload the files as multipart/form-data.');
 
     const tempDir = await mkdtemp(join(tmpdir(), 'idcp-batch-'));

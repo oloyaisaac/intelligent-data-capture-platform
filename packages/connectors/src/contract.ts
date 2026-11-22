@@ -118,6 +118,24 @@ export const MappedFieldSchema = z.object({
 /** Input shape: `transform` and `required` are optional and normalised during apply. */
 export type MappedField = z.input<typeof MappedFieldSchema>;
 
+// Several connector paths use ordinary objects for destination records, filters and merges.
+// Until those paths support arbitrary property names end to end, reject prototype names rather
+// than silently losing or misinterpreting a mapped value.
+const UNSAFE_DESTINATION_NAMES = new Set(Object.getOwnPropertyNames(Object.prototype));
+
+export function hasUnsafeMappingDestinations(
+  mapped: Array<Pick<MappedField, 'destinationField'>>,
+): boolean {
+  const seen = new Set<string>();
+  for (const field of mapped) {
+    if (UNSAFE_DESTINATION_NAMES.has(field.destinationField) || seen.has(field.destinationField)) {
+      return true;
+    }
+    seen.add(field.destinationField);
+  }
+  return false;
+}
+
 export interface AppliedMapping {
   values: Record<string, string | number | boolean | null>;
   /** Destination fields that were required but could not be filled. */
@@ -137,6 +155,11 @@ export function applyMapping(
   documentType?: DocumentType,
 ): AppliedMapping {
   void documentType;
+  if (hasUnsafeMappingDestinations(mapped)) {
+    throw new Error(
+      'Mapping destination fields must be unique and not use reserved property names.',
+    );
+  }
   const values: Record<string, string | number | boolean | null> = {};
   const missingRequired: string[] = [];
 
