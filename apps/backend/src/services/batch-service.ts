@@ -1,7 +1,7 @@
 import {
   AppError,
   badRequest,
-  escapeCsvField,
+  toCsv,
   type BatchItem,
   type BatchSummary,
   type DocumentType,
@@ -200,23 +200,19 @@ export class BatchService {
     id: string,
   ): Promise<{ filename: string; body: string }> {
     const batch = await this.get(actor, id);
-    const header = ['position', 'filename', 'document_id', 'document_type', 'status', 'error'].join(
-      ',',
-    );
-    const lines = batch.items.map((item) =>
-      [
-        String(item.position + 1),
-        escapeCsvField(item.filename ?? ''),
-        escapeCsvField(item.documentId ?? ''),
-        escapeCsvField(item.documentType ?? ''),
-        escapeCsvField(item.status),
-        escapeCsvField(item.error ?? ''),
-      ].join(','),
-    );
+    const header = ['position', 'filename', 'document_id', 'document_type', 'status', 'error'];
+    const rows = batch.items.map((item) => [
+      item.position + 1,
+      item.filename ?? '',
+      item.documentId ?? '',
+      item.documentType ?? '',
+      item.status,
+      item.error ?? '',
+    ]);
     // Excel opens a UTF-8 CSV correctly only with a BOM; harmless everywhere else.
     return {
       filename: `batch-${batch.id.slice(0, 8)}.csv`,
-      body: `\uFEFF${[header, ...lines].join('\r\n')}\r\n`,
+      body: toCsv(header, rows, { bom: true }),
     };
   }
 

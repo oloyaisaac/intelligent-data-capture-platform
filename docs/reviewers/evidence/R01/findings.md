@@ -658,3 +658,25 @@ multi-record Odoo writes can partially succeed. Historical data, prior formulas 
 been reviewed or repaired. Local `npm run verify` passed 124 suites / 914 tests (30 skipped), and
 the backend suite on temporary PostgreSQL 16.16 passed 110 suites / 624 tests. See
 `docs/sheets-odoo-connector-safety.md`. Owner: unassigned; integration and security.
+
+### ARC-035 — HIGH: formula-like CSV headers and batch filenames
+
+A user-supplied CSV export column was emitted as an unprotected header, and batch-results CSV only
+quoted user-supplied filenames rather than applying formula mitigation. A regression test reproduced
+both formula-like header and whitespace-prefix gaps in the shared writer; an API regression showed
+unprotected selected column names. New code prefixes formula-like header and text values, including
+a formula marker after whitespace and leading tab/CR/LF, and applies it to batch and dashboard CSV.
+Distinct headers that collapse after prefixing are rejected, while the CSV connector rejects
+formula-like headers rather than changing destination field identities. A synthetic ExcelJS test
+checks that a formula-looking XLSX column header is a string cell. Tests demonstrate these specific
+paths; they do not establish behavior in real spreadsheet applications.
+
+This is a compatibility change and partial mitigation. Apostrophe handling varies by spreadsheet,
+import configuration and save/reopen behavior. Old exports, batch results, destination files,
+copies and other output paths have not been inspected or remediated. The connector preserves
+existing row content, including formula-like values. Review historical exposure, all export paths,
+supported spreadsheet workflows and possible remediation with an authorized owner and independent
+security reviewer. No production investigation is claimed. Local full verification passed 125
+suites / 970 tests with 31 skipped, and a PostgreSQL 16.16-configured backend run passed 111 suites /
+649 tests (including SQLite-specific fixtures). The PostgreSQL run preceded a lint-only test edit.
+See `docs/csv-formula-safety.md`. Owner: unassigned; product and security.

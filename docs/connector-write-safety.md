@@ -37,8 +37,10 @@ repair affected files with an authorized backup and review process, not automati
 For an existing valid file, the connector preserves its bytes and appends the new rows, adding a line
 separator if needed; it no longer parses and reserializes old rows. It checks the observed file
 identity and metadata again before append and refuses some stale snapshots. New row values still use
-the shared spreadsheet-formula escaping; pre-existing formulas and headers are **not sanitized** by
-this append and may remain dangerous when opened in spreadsheet software. An empty batch is a no-op,
+the shared spreadsheet-formula escaping. Formula-like headers are now rejected rather than renamed,
+for both reads and writes; existing mappings and files may require review. Pre-existing formulas and
+headers are **not sanitized** by this append and may remain dangerous when opened in spreadsheet
+software. See `csv-formula-safety.md` for compatibility and limitations. An empty batch is a no-op,
 and every incoming record must fit the existing header.
 
 These checks are not a transactional or security boundary. Filesystem parent paths, mounts and

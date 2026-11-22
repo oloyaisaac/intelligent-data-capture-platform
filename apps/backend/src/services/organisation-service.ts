@@ -1,4 +1,11 @@
-import { AppError, escapeCsvField, roleAtLeast, toCsv, type Role } from '@idcp/shared';
+import {
+  AppError,
+  defuseFormula,
+  escapeCsvField,
+  roleAtLeast,
+  toCsv,
+  type Role,
+} from '@idcp/shared';
 import { nowIso } from '../db/database';
 import type {
   MembershipsRepository,
@@ -305,7 +312,7 @@ export function statsToCsv(stats: Awaited<ReturnType<OrganisationService['stats'
   rows.push(['exports_ready', String(stats.exports.ready)]);
 
   return `\uFEFF${rows
-    .map((row) => row.map((cell) => escapeCsvField(cell)).join(','))
+    .map((row) => row.map((cell) => escapeCsvField(defuseFormula(cell))).join(','))
     .join('\r\n')}\r\n`;
 }
 

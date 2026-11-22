@@ -309,7 +309,11 @@ A rollback to older code can reopen the race. Review history can now contain sta
 
 Export creation failures return generic guidance rather than internal storage or database details.
 A failed response does not prove that no file was written; interrupted exports may require operator
-reconciliation (see `DEPLOYMENT.md` and R01 ARC-026).
+reconciliation (see `DEPLOYMENT.md` and R01 ARC-026). CSV exports prefix formula-like headers and
+text values, changing their serialized spelling. Distinct column names that collapse to the same
+protected header cause a generic export failure. CSV destination connectors reject formula-like
+headers instead of renaming them. These mitigations do not sanitize historical files or guarantee
+safe spreadsheet behavior; see `docs/csv-formula-safety.md`.
 
 **Connector configuration:** `config` and `credentials` are write-only. Responses include an empty
 `config` object for compatibility with the response shape, rather than returning stored settings.

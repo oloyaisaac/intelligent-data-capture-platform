@@ -48,6 +48,7 @@ be refreshed against the final reviewed commit; a blank or unchecked reviewer it
 | ARC-032 HIGH   | CSV validates existing files and preserves their bytes during guarded append, but concurrent writes, partial appends, path races, historical data and reconciliation remain.                                                                                                                   |
 | ARC-033 HIGH   | Duplicate checks fail closed on missing inputs and unsafe update identity, but bounded lookup, destination races, CRM compatibility, historical effects and direct calls remain.                                                                                                               |
 | ARC-034 HIGH   | Sheets header failures and formula interpretation are mitigated, and Odoo response checks tightened; real-provider compatibility, concurrent writes, remote effects and historical assessment remain.                                                                                          |
+| ARC-035 HIGH   | CSV header and batch filename formula-injection mitigations require historical exposure assessment, real spreadsheet validation, other export review, and independent security review.                                                                                                         |
 
 These are the currently recorded findings, not a claim that no other defects exist. Owners and gate
 chairs must determine whether fixes or permitted, written and dated exceptions satisfy P12.

@@ -231,6 +231,37 @@ describe('CSV', () => {
     expect(defuseFormula('plain')).toBe('plain');
   });
 
+  it('neutralises formula-like CSV headers and whitespace-prefixed text cells', () => {
+    const headers = ['=1+1', '  +cmd', '\tkey', '\nkey', 'normal'];
+    const row = ['  =1+1', '\ttext', '\rtext', '\ntext', 'safe'];
+    expect(parseCsv(toCsv(headers, [row]))).toEqual([
+      ["'=1+1", "'  +cmd", "'\tkey", "'\nkey", 'normal'],
+      ["'  =1+1", "'\ttext", "'\rtext", "'\ntext", 'safe'],
+    ]);
+    expect(parseCsv(toCsv(['=key'], [['  =value']], { escapeFormulas: false }))).toEqual([
+      ['=key'],
+      ['  =value'],
+    ]);
+  });
+
+  it.each(['=', '+', '-', '@'])(
+    'protects formula marker %s after leading whitespace and when quoting is required',
+    (marker) => {
+      const header = `  ${marker}header,"quoted"`;
+      const value = `\u00a0${marker}value,"quoted"`;
+      expect(parseCsv(toCsv([header], [[value]]))).toEqual([[`'${header}`], [`'${value}`]]);
+    },
+  );
+
+  it('rejects distinct headers that collapse to the same protected CSV name', () => {
+    expect(() => toCsv(['=key', "'=key"], [])).toThrow(
+      'CSV column names collide after formula protection.',
+    );
+    expect(parseCsv(toCsv(['=key', "'=key"], [], { escapeFormulas: false }))).toEqual([
+      ['=key', "'=key"],
+    ]);
+  });
+
   it('quotes delimiters, quotes and newlines', () => {
     const csv = toCsv(
       ['a', 'b'],
