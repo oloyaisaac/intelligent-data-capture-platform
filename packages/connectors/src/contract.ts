@@ -141,7 +141,7 @@ export function applyMapping(
   const missingRequired: string[] = [];
 
   for (const field of mapped) {
-    const raw = fields[field.udmPath];
+    const raw = Object.hasOwn(fields, field.udmPath) ? fields[field.udmPath] : undefined;
     const fallback = field.defaultValue ?? null;
     const source = raw === undefined || raw === null || raw === '' ? fallback : raw;
 
@@ -151,9 +151,27 @@ export function applyMapping(
       continue;
     }
 
-    values[field.destinationField] = transformValue(source, field.transform ?? 'none');
+    const transformed = transformValue(source, field.transform ?? 'none');
+    values[field.destinationField] = transformed;
+    if (field.required && (transformed === null || transformed === '')) {
+      missingRequired.push(field.destinationField);
+    }
   }
 
+  // Recheck required destinations after all assignments: a later mapping to the same destination
+  // may have replaced a previously valid value with an empty one.
+  for (const field of mapped) {
+    if (
+      field.required &&
+      (!Object.hasOwn(values, field.destinationField) ||
+        values[field.destinationField] === null ||
+        values[field.destinationField] === undefined ||
+        values[field.destinationField] === '') &&
+      !missingRequired.includes(field.destinationField)
+    ) {
+      missingRequired.push(field.destinationField);
+    }
+  }
   return { values, missingRequired };
 }
 

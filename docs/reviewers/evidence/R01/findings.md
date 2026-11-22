@@ -680,3 +680,53 @@ security reviewer. No production investigation is claimed. Local full verificati
 suites / 970 tests with 31 skipped, and a PostgreSQL 16.16-configured backend run passed 111 suites /
 649 tests (including SQLite-specific fixtures). The PostgreSQL run preceded a lint-only test edit.
 See `docs/csv-formula-safety.md`. Owner: unassigned; product and security.
+
+### ARC-036 — HIGH: export projection collisions can silently corrupt data
+
+The XLSX writer used header strings as ExcelJS column keys and as properties of a row object. A
+projection repeating a field name or colliding with the fixed `document_id` / `document_type`
+headers could silently replace or omit values. An API regression demonstrated that a selected
+`document_id` field caused the actual document ID to be absent from the XLSX row. In both export
+formats, selecting an absent prototype-named field such as `constructor` could produce the literal
+text `undefined` rather than an empty cell, because the field lookup included inherited properties.
+
+Current code writes XLSX rows by position without using untrusted headers as keys and only reads own
+UDM fields. API tests compare CSV and XLSX position-by-position for repeated and metadata-colliding
+projections, check absent prototype names, and inject a synthetic approved snapshot to check that
+actual own fields with those names still export. An ExcelJS round-trip also checks a formula-looking
+approved XLSX value is a string cell. These are synthetic tests; they do not establish how every
+spreadsheet or downstream importer interprets the file.
+
+Repeated headers are still allowed for compatibility, and name-keyed consumers can still conflate
+them; consumers must use positions. Existing exports, delivered copies, old binaries and downstream
+imports are unchanged. An authorized product/data owner must assess historical projections and
+potential impacts, decide whether ambiguous headers should be rejected or renamed, and review
+regeneration and downstream corrections. No production investigation or remediation is claimed.
+This remains open pending that assessment and independent review. Local `npm run verify -- --runInBand`
+passed 125 suites / 973 tests with 31 skipped. The PostgreSQL 16.16-configured backend run passed
+111 suites / 652 tests, including SQLite-specific fixtures. Formatting, diff checks and the backend
+build passed. Owner: unassigned; product and data integrity.
+
+### ARC-037 — HIGH: required mappings could send empty transformed values
+
+The mapper previously checked whether the source was empty before transforming it, but did not
+recheck the result. A required number, date or boolean transform could therefore yield null, or a
+trim transform an empty string, while `missingRequired` stayed empty. An API regression reproduced
+an approved invoice being sent with a null required boolean. Current mapping checks transformed
+required values and rechecks required destinations after all assignments; duplicate preview now
+applies the same required check as send. Own-property checks stop an inherited source or destination
+from satisfying the required check. Zero and false remain valid; defaults are applied before the
+transform, not after an invalid transformation. Tests cover these cases and verify that the fixture
+connector is not contacted. A previously accepted configuration can now fail, and the check precedes
+connector-run creation.
+
+This is partial mitigation. Duplicate destination mappings remain allowed and can overwrite a
+non-empty value with another non-empty value; optional destination names such as `__proto__` can
+still be lost because of ordinary object assignment. Other name-sensitive mapping, duplicate,
+workflow and review paths need investigation. Direct connector calls, old binaries, other validations,
+previous sends and remote side effects are not repaired. An authorized integration/data owner must
+assess mappings, historical effects and any correction or retry against the actual destination.
+No production or vendor investigation is claimed. Local `npm run verify -- --runInBand` passed
+126 suites / 977 tests with 31 skipped; a PostgreSQL 16.16-configured backend run passed 112 suites /
+653 tests, including SQLite-specific fixtures. Formatting, diff checks and the backend build passed.
+Owner: unassigned; integration and data integrity.

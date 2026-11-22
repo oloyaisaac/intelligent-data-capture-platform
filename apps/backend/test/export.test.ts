@@ -116,6 +116,21 @@ Total: UGX 10,000`);
 
     expect(download.body).toContain("'=1+1");
     expect(download.body).not.toMatch(/(^|,)=1\+1/m);
+
+    const xlsx = await harness.api.json('POST', '/api/v1/exports', {
+      token: account.accessToken,
+      body: { format: 'xlsx', columns: ['invoice.number'] },
+    });
+    expect(xlsx.statusCode).toBe(201);
+    const xlsxDownload = await harness.api.download(
+      `/api/v1/exports/${xlsx.json<{ id: string }>().id}/download`,
+      account.accessToken,
+    );
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(xlsxDownload.buffer() as unknown as ArrayBuffer);
+    const cell = workbook.getWorksheet('Records')!.getCell('C2');
+    expect(cell.type).toBe(ExcelJS.ValueType.String);
+    expect(cell.value).toBe('=1+1');
   });
 
   it('escapes user-selected formula-like CSV column headers', async () => {
@@ -179,6 +194,112 @@ Total: UGX 10,000`);
     const cell = workbook.getWorksheet('Records')!.getCell('C1');
     expect(cell.type).toBe(ExcelJS.ValueType.String);
     expect(cell.value).toBe('=1+1');
+  });
+
+  it('preserves positions when XLSX projections repeat or collide with metadata columns', async () => {
+    const account = await registerAccount(harness);
+    const documentId = await approvedInvoice(account);
+    const columns = ['document_id', 'invoice.number', 'invoice.number'];
+    const downloadExport = async (format: 'csv' | 'xlsx') => {
+      const created = await harness.api.json('POST', '/api/v1/exports', {
+        token: account.accessToken,
+        body: { format, columns },
+      });
+      expect(created.statusCode).toBe(201);
+      return harness.api.download(
+        `/api/v1/exports/${created.json<{ id: string }>().id}/download`,
+        account.accessToken,
+      );
+    };
+    const csv = parseCsv((await downloadExport('csv')).body);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load((await downloadExport('xlsx')).buffer() as unknown as ArrayBuffer);
+    const sheet = workbook.getWorksheet('Records')!;
+    expect(csv[0]).toEqual(['document_id', 'document_type', ...columns]);
+    expect(csv[1]![0]).toBe(documentId);
+    expect(csv[1]![3]).not.toBe('');
+    for (let index = 0; index < csv[0]!.length; index++) {
+      expect(sheet.getRow(1).getCell(index + 1).value).toBe(csv[0]![index]);
+      expect(String(sheet.getRow(2).getCell(index + 1).value ?? '')).toBe(csv[1]![index]);
+    }
+  });
+
+  it('treats absent prototype-named projected fields as empty in both formats', async () => {
+    const account = await registerAccount(harness);
+    await approvedInvoice(account);
+    for (const format of ['csv', 'xlsx'] as const) {
+      const created = await harness.api.json('POST', '/api/v1/exports', {
+        token: account.accessToken,
+        body: { format, columns: ['constructor', 'toString', '__proto__'] },
+      });
+      expect(created.statusCode).toBe(201);
+      const download = await harness.api.download(
+        `/api/v1/exports/${created.json<{ id: string }>().id}/download`,
+        account.accessToken,
+      );
+      if (format === 'csv') {
+        expect(parseCsv(download.body)[1]!.slice(2)).toEqual(['', '', '']);
+      } else {
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(download.buffer() as unknown as ArrayBuffer);
+        const row = workbook.getWorksheet('Records')!.getRow(2);
+        expect([row.getCell(3).value, row.getCell(4).value, row.getCell(5).value]).toEqual([
+          null,
+          null,
+          null,
+        ]);
+      }
+    }
+  });
+
+  it('exports prototype-named fields when they are actually present in an approved snapshot', async () => {
+    const account = await registerAccount(harness);
+    const documentId = await approvedInvoice(account);
+    const review = await harness.db.one<{ approved_udm: string }>(
+      "SELECT approved_udm FROM reviews WHERE document_id = ? AND status = 'approved'",
+      [documentId],
+    );
+    const udm = JSON.parse(review!.approved_udm) as { fields: Record<string, unknown> };
+    // Inject a synthetic stored snapshot, rather than assuming the review UI permits these names.
+    for (const [key, value] of Object.entries({ constructor: 'one', toString: 'two' })) {
+      Object.defineProperty(udm.fields, key, {
+        value: { type: 'string', value, confidence: 1 },
+        enumerable: true,
+        configurable: true,
+      });
+    }
+    Object.defineProperty(udm.fields, '__proto__', {
+      value: { type: 'string', value: 'three', confidence: 1 },
+      enumerable: true,
+      configurable: true,
+    });
+    await harness.db.execute(
+      "UPDATE reviews SET approved_udm = ? WHERE document_id = ? AND status = 'approved'",
+      [JSON.stringify(udm), documentId],
+    );
+    for (const format of ['csv', 'xlsx'] as const) {
+      const created = await harness.api.json('POST', '/api/v1/exports', {
+        token: account.accessToken,
+        body: { format, columns: ['constructor', 'toString', '__proto__'] },
+      });
+      expect(created.statusCode).toBe(201);
+      const download = await harness.api.download(
+        `/api/v1/exports/${created.json<{ id: string }>().id}/download`,
+        account.accessToken,
+      );
+      if (format === 'csv') {
+        expect(parseCsv(download.body)[1]!.slice(2)).toEqual(['one', 'two', 'three']);
+      } else {
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(download.buffer() as unknown as ArrayBuffer);
+        const row = workbook.getWorksheet('Records')!.getRow(2);
+        expect([row.getCell(3).value, row.getCell(4).value, row.getCell(5).value]).toEqual([
+          'one',
+          'two',
+          'three',
+        ]);
+      }
+    }
   });
 
   it('writes a valid .xlsx workbook that opens in Excel', async () => {

@@ -83,6 +83,45 @@ describe('mapping and transforms (MAP-001)', () => {
     expect(missingRequired).toEqual([]);
   });
 
+  it('reports required values that become empty after transformation', () => {
+    const result = applyMapping(
+      { number: 'no number', date: 'not a date', flag: 'perhaps', blank: '  ', zero: 0, no: false },
+      [
+        { udmPath: 'number', destinationField: 'N', transform: 'number', required: true },
+        { udmPath: 'date', destinationField: 'D', transform: 'date_iso', required: true },
+        { udmPath: 'flag', destinationField: 'B', transform: 'boolean', required: true },
+        { udmPath: 'blank', destinationField: 'T', transform: 'trim', required: true },
+        { udmPath: 'zero', destinationField: 'Z', required: true },
+        { udmPath: 'no', destinationField: 'F', required: true },
+      ],
+    );
+    expect(result.values).toEqual({ N: null, D: null, B: null, T: '', Z: 0, F: false });
+    expect(result.missingRequired).toEqual(['N', 'D', 'B', 'T']);
+  });
+
+  it('does not treat inherited properties as mapped source or destination values', () => {
+    const missing = applyMapping({}, [
+      { udmPath: 'toString', destinationField: 'Value', required: true },
+      { udmPath: 'absent', destinationField: '__proto__', required: true },
+    ]);
+    expect(missing.values.Value).toBeNull();
+    expect(missing.missingRequired).toEqual(['Value', '__proto__']);
+    const present = applyMapping({ toString: 'actual' }, [
+      { udmPath: 'toString', destinationField: 'Value', required: true },
+    ]);
+    expect(present.values.Value).toBe('actual');
+    expect(present.missingRequired).toEqual([]);
+  });
+
+  it('blocks a required destination emptied by a later mapping', () => {
+    const result = applyMapping({ first: 'valid', second: 'not-a-number' }, [
+      { udmPath: 'first', destinationField: 'Same', required: true },
+      { udmPath: 'second', destinationField: 'Same', transform: 'number' },
+    ]);
+    expect(result.values.Same).toBeNull();
+    expect(result.missingRequired).toEqual(['Same']);
+  });
+
   it('never guesses at unparseable values', () => {
     expect(transformValue('not a date', 'date_iso')).toBeNull();
     expect(transformValue('twelve', 'number')).toBeNull();

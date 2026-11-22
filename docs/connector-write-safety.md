@@ -1,5 +1,16 @@
 # Connector duplicate and CSV write boundaries
 
+Required mapping values are checked after transformation and again after all fields are assigned.
+An unparseable required number, date or boolean, or an empty result of `trim`, now blocks sends and
+duplicate previews before contacting the destination. Defaults apply to missing input before the
+transform, not as a fallback for an invalid transformed value. Numeric zero and boolean false remain
+valid. Source lookup ignores inherited properties, and a required destination must actually be an
+own property. This may cause previously accepted mappings to fail; review and correct mappings
+before rollout. Missing-required errors occur before a connector run is created. These checks do not
+validate destination schema, prohibit repeated destination mappings, prevent an optional special
+property name from being lost, or repair earlier writes. Direct connector calls bypass backend send
+policy. See R01 ARC-037 for outstanding data-integrity risks.
+
 A send using `skip`, `update` or `merge` now requires unique, non-empty duplicate keys, a lookup
 method, and a mapped, non-empty value for every key. Missing prerequisites return a conflict rather
 than silently creating a record. Duplicate preview also fails for incomplete non-append checks. An
