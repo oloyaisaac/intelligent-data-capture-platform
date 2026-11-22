@@ -1,4 +1,4 @@
-import { toCsv, type CsvCell } from '@idcp/shared';
+import { defuseFormula, toCsv, type CsvCell } from '@idcp/shared';
 import { constants, type Stats } from 'node:fs';
 import { writeFile, mkdir, lstat, open } from 'node:fs/promises';
 import { dirname, join, normalize } from 'node:path';
@@ -15,8 +15,8 @@ import type {
  * CSV file connector (FR-18 / CON-001).
  *
  * Writes to a directory configured per connector. Used for local deployments and as the simplest
- * end-to-end destination for testing the whole review → connector path. Formula injection is
- * neutralised by the shared CSV writer, not by this connector.
+ * end-to-end destination for testing the whole review → connector path. The shared writer guards
+ * formula-like new cells; unsafe headers are rejected to preserve stable destination identities.
  */
 export interface CsvConnectorConfig {
   directory: string;
@@ -262,6 +262,10 @@ function validateHeaders(headers: string[]): void {
     new Set(headers).size !== headers.length
   ) {
     throw new Error('CSV destination must have distinct, non-empty column names.');
+  }
+  // Silently escaping a destination header would change the key used for later mapping/lookup.
+  if (headers.some((header) => defuseFormula(header) !== header)) {
+    throw new Error('CSV destination has a formula-like column name.');
   }
 }
 

@@ -244,3 +244,44 @@ it.each([',', ';', '\t', '|'] as const)(
     }
   },
 );
+
+it.each(['=cmd', '  +cmd', '\tname', '\nname'])(
+  'refuses a formula-like destination header without creating or modifying the file: %j',
+  async (header) => {
+    const directory = await mkdtemp(join(tmpdir(), 'idcp-csv-header-'));
+    try {
+      const file = join(directory, 'rows.csv');
+      const connector = new CsvFileConnector();
+      const config = { directory, filename: 'rows.csv' };
+      await expect(
+        connector.create([{ values: { [header]: 'data' } }], config, context),
+      ).rejects.toThrow();
+      await expect(readFile(file)).rejects.toMatchObject({ code: 'ENOENT' });
+      const prior = `"${header.replace(/"/g, '""')}"\r\nold\r\n`;
+      await writeFile(file, prior);
+      await expect(
+        connector.create([{ values: { [header]: 'new' } }], config, context),
+      ).rejects.toThrow();
+      await expect(connector.read({}, config, context)).rejects.toThrow();
+      expect(await readFile(file, 'utf8')).toBe(prior);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+it('keeps a safely apostrophe-prefixed connector header stable across writes and reads', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'idcp-csv-safe-header-'));
+  try {
+    const connector = new CsvFileConnector();
+    const config = { directory, filename: 'rows.csv' };
+    await connector.create([{ values: { "'=key": 'one' } }], config, context);
+    await connector.create([{ values: { "'=key": 'two' } }], config, context);
+    expect(await connector.read({}, config, context)).toEqual([
+      { values: { "'=key": 'one' } },
+      { values: { "'=key": 'two' } },
+    ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

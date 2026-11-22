@@ -24,7 +24,7 @@ Security rulebook for the AI Universal Data Capture Platform. This product handl
 | Cross-tenant access | Guessing another organisation's document ID    | Tenant-scoped queries, `404` rather than `403`, tests (`TC-10`)                               |
 | Document leakage    | Public bucket or unprotected download URL      | Private storage, brokered downloads, short-lived signed URLs                                  |
 | Malicious upload    | Executable disguised as an image               | Content sniffing, MIME allow-list, size limits, no execution, no image-metadata passthrough   |
-| Injection           | SQL or spreadsheet formula injection on export | Parameterised queries, formula-neutralising on CSV/XLSX export                                |
+| Injection           | SQL or spreadsheet formula injection on export | Parameterised queries; CSV text prefixing and XLSX string cells provide partial mitigation    |
 | Prompt/AI injection | Document text instructing the AI model         | Treat document text as untrusted data; never let it alter system behaviour or trigger actions |
 | Insider misuse      | Employee exporting the whole database          | RBAC, audit trail, export rate limits, review of bulk actions                                 |
 | Supply chain        | Compromised npm package                        | Lockfile, dependency scanning, no postinstall scripts from unvetted packages                  |
@@ -152,7 +152,7 @@ compatibility changes and limitations.
 - Validate every request body against a schema (Zod); reject unknown fields.
 - Uploads: allow-list of MIME types, size limit (20 MB/image, 50 MB/request), content sniffing (magic bytes), image re-encoding to strip metadata (EXIF, GPS), filename never used as a storage path.
 - Object storage keys are generated server-side; never derived from user input.
-- CSV/XLSX export neutralises leading `=`, `+`, `-`, `@` to prevent formula injection.
+- CSV exports prefix formula-like headers and text values as a partial mitigation; XLSX uses string cells for text. Spreadsheet software and import modes can differ, and historical files are not sanitized. See `docs/csv-formula-safety.md`.
 - All SQL through the ORM or parameterised queries; no string concatenation.
 - User-supplied content is escaped in UI and email; no `dangerouslySetInnerHTML` with untrusted data.
 

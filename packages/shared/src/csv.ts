@@ -3,14 +3,14 @@
  * Used by EXPORT-002 and by the CSV connector.
  */
 
-/** Danger characters that make a spreadsheet evaluate a cell as a formula. */
-const FORMULA_PREFIXES = ['=', '+', '-', '@', '\t', '\r'];
+/** Leading control characters or formula markers (including after whitespace) are guarded. */
+const FORMULA_CONTROL_PREFIXES = ['\t', '\r', '\n'];
 
 export interface CsvOptions {
   delimiter?: ',' | ';' | '\t' | '|';
   /** Prefix the file with a UTF-8 BOM so Excel detects the encoding. */
   bom?: boolean;
-  /** Neutralise cells starting with =, +, -, @ (default true). Never disable in production. */
+  /** Neutralise formula-like text in headers and cells (default true). Never disable in production. */
   escapeFormulas?: boolean;
   /** Line ending. RFC 4180 uses CRLF; Excel on Windows expects it. */
   lineEnding?: '\r\n' | '\n';
@@ -18,12 +18,13 @@ export interface CsvOptions {
 
 /**
  * Neutralise a value that a spreadsheet could interpret as a formula.
- * Applied to *text* cells only; real numbers are written unquoted and unaffected.
+ * Applied to headers and *text* cells only; real numbers are written unquoted and unaffected.
+ * This is a conservative CSV mitigation, not a guarantee for every spreadsheet or import mode.
  */
 export function defuseFormula(value: string): string {
   if (value.length === 0) return value;
   const first = value[0]!;
-  if (FORMULA_PREFIXES.includes(first)) {
+  if (FORMULA_CONTROL_PREFIXES.includes(first) || /^\s*[=+\-@]/u.test(value)) {
     // A leading apostrophe makes spreadsheets treat the cell as literal text.
     return `'${value}`;
   }
@@ -68,9 +69,25 @@ export function toCsv(headers: string[], rows: CsvCell[][], options: CsvOptions 
   } as const;
   const lineEnding = options.lineEnding ?? '\r\n';
 
+  const protectedHeaders = headers.map((header) =>
+    resolved.escapeFormulas ? defuseFormula(header) : header,
+  );
+  // Escaping is not injective: "=x" and "'=x" both become "'=x". Do not silently
+  // merge two distinct column identities in the serialized file.
+  const headerOrigins = new Map<string, string>();
+  for (let index = 0; index < headers.length; index++) {
+    const output = protectedHeaders[index]!;
+    const original = headers[index]!;
+    if (headerOrigins.has(output) && headerOrigins.get(output) !== original) {
+      throw new Error('CSV column names collide after formula protection.');
+    }
+    headerOrigins.set(output, original);
+  }
   const lines: string[] = [];
   lines.push(
-    headers.map((header) => escapeCsvField(header, resolved.delimiter)).join(resolved.delimiter),
+    protectedHeaders
+      .map((header) => escapeCsvField(header, resolved.delimiter))
+      .join(resolved.delimiter),
   );
   for (const row of rows) {
     if (row.length !== headers.length) {

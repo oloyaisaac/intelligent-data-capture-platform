@@ -1,5 +1,6 @@
 import { createHarness, registerAccount, uploadDocument, type Harness } from './helpers';
-import { buildTimeline } from '../src/services/organisation-service';
+import { buildTimeline, statsToCsv } from '../src/services/organisation-service';
+import { parseCsv } from '@idcp/shared';
 
 /**
  * DASH-001 — the figures behind the dashboard.
@@ -41,6 +42,19 @@ describe('DASH-001 statistics', () => {
     expect(stats.review).toEqual({ pending: 0, approved: 0 });
     expect(stats.connectors).toEqual({ total: 0, active: 0 });
     expect(stats.exports).toEqual({ total: 0, ready: 0 });
+  });
+
+  it('protects formula-like text in dashboard CSV while retaining its multi-section format', async () => {
+    const account = await registerAccount(harness);
+    const response = await harness.api.get('/api/v1/stats', account.accessToken);
+    const stats = response.json<Awaited<ReturnType<typeof harness.services.organisation.stats>>>();
+    stats.timeline[0]!.date = '  =1+1';
+    const csv = statsToCsv(stats);
+    expect(csv.startsWith('\uFEFF')).toBe(true);
+    const rows = parseCsv(csv);
+    expect(rows[0]).toEqual(['date', 'uploaded', 'approved', 'failed']);
+    expect(rows[1]![0]).toBe("'  =1+1");
+    expect(rows).toContainEqual(['metric', 'value']);
   });
 
   it('counts uploads by status, type and day for the calling organisation only', async () => {

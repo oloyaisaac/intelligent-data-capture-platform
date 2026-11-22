@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { request as httpRequest } from 'node:http';
 import type { MultipartFile } from '@fastify/multipart';
+import { parseCsv } from '@idcp/shared';
 import { spoolBatchParts } from '../src/http/routes/batch-upload';
 import { MAX_BATCH_FILES } from '../src/services/batch-service';
 import {
@@ -172,6 +173,29 @@ describe('BATCH-001 batch upload', () => {
     // A comma inside a filename must be quoted, not split into a new column.
     expect(text).toContain('"receipt, with comma.png"');
     expect(text).toContain('bad.txt');
+  });
+
+  it('protects user-supplied filenames in batch CSV without changing the stored names', async () => {
+    const account = await registerAccount(harness);
+    const filenames = ['=1+1.png', '+SUM(1,2).png', '  -2.png', 'normal.png'];
+    const response = await postBatch(
+      account.accessToken,
+      filenames.map((filename) => ({ buffer: fakePng(filename), filename })),
+    );
+    expect(response.statusCode).toBe(201);
+    const batch = JSON.parse(response.body) as { id: string; items: Array<{ filename: string }> };
+    expect(batch.items.map((item) => item.filename)).toEqual(filenames);
+    const csv = await harness.api.download(
+      `/api/v1/batches/${batch.id}/results.csv`,
+      account.accessToken,
+    );
+    expect(csv.statusCode).toBe(200);
+    expect(csv.buffer().toString('utf8').startsWith('\uFEFF')).toBe(true);
+    expect(
+      parseCsv(csv.body)
+        .slice(1)
+        .map((row) => row[1]),
+    ).toEqual(["'=1+1.png", "'+SUM(1,2).png", "'  -2.png", 'normal.png']);
   });
 
   it('rejects an empty batch and is scoped to the organisation', async () => {

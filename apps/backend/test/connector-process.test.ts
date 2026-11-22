@@ -170,3 +170,26 @@ it('preserves existing CSV bytes and refuses malformed data in the real connecto
     await rm(directory, { recursive: true, force: true });
   }
 }, 30_000);
+
+it('rejects formula-like CSV headers through the real connector child', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'idcp-connector-header-'));
+  const file = join(directory, 'out.csv');
+  const transport = new ConnectorProcess(process.execPath, ['--import', 'tsx', runner], {
+    ...limits,
+    timeoutMs: 10_000,
+  });
+  try {
+    await expect(
+      transport.invoke({
+        type: 'csv',
+        organisationId: 'synthetic-org',
+        config: { directory, filename: 'out.csv' },
+        operation: 'create',
+        records: [{ values: { '=synthetic': 'value' } }],
+      }),
+    ).rejects.toThrow('Connector invocation failed');
+    await expect(access(file)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 30_000);

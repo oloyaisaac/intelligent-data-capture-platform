@@ -118,6 +118,69 @@ Total: UGX 10,000`);
     expect(download.body).not.toMatch(/(^|,)=1\+1/m);
   });
 
+  it('escapes user-selected formula-like CSV column headers', async () => {
+    const account = await registerAccount(harness);
+    const created = await harness.api.json('POST', '/api/v1/exports', {
+      token: account.accessToken,
+      body: { format: 'csv', columns: ['=1+1', '  +cmd', '\n@cmd', 'plain'] },
+    });
+    expect(created.statusCode).toBe(201);
+    const exportId = created.json<{ id: string }>().id;
+    const download = await harness.api.download(
+      `/api/v1/exports/${exportId}/download`,
+      account.accessToken,
+    );
+    expect(download.statusCode).toBe(200);
+    expect(parseCsv(download.body)[0]).toEqual([
+      'document_id',
+      'document_type',
+      "'=1+1",
+      "'  +cmd",
+      "'\n@cmd",
+      'plain',
+    ]);
+  });
+
+  it('fails a CSV export instead of emitting colliding protected headers', async () => {
+    const account = await registerAccount(harness);
+    const put = jest.spyOn(harness.storage, 'put');
+    try {
+      const created = await harness.api.json('POST', '/api/v1/exports', {
+        token: account.accessToken,
+        body: { format: 'csv', columns: ['=sensitive', "'=sensitive"] },
+      });
+      expect(created.statusCode).toBe(500);
+      expect(created.body).not.toContain('=sensitive');
+      expect(put).not.toHaveBeenCalled();
+      const row = await harness.db.one<{ status: string; storage_key: string | null }>(
+        'SELECT status, storage_key FROM exports WHERE organisation_id = ?',
+        [account.organisationId],
+      );
+      expect(row).toEqual({ status: 'failed', storage_key: null });
+    } finally {
+      put.mockRestore();
+    }
+  });
+
+  it('stores formula-like XLSX column names as literal text', async () => {
+    const account = await registerAccount(harness);
+    const created = await harness.api.json('POST', '/api/v1/exports', {
+      token: account.accessToken,
+      body: { format: 'xlsx', columns: ['=1+1'] },
+    });
+    expect(created.statusCode).toBe(201);
+    const exportId = created.json<{ id: string }>().id;
+    const download = await harness.api.download(
+      `/api/v1/exports/${exportId}/download`,
+      account.accessToken,
+    );
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(download.buffer() as unknown as ArrayBuffer);
+    const cell = workbook.getWorksheet('Records')!.getCell('C1');
+    expect(cell.type).toBe(ExcelJS.ValueType.String);
+    expect(cell.value).toBe('=1+1');
+  });
+
   it('writes a valid .xlsx workbook that opens in Excel', async () => {
     const account = await registerAccount(harness);
     await approvedInvoice(account);
