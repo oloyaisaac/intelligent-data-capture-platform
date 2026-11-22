@@ -5,6 +5,7 @@ import {
   findBestDuplicate,
   matchDuplicate,
   mergeRecord,
+  roleAtLeast,
   type CreateConnectorRequest,
   type CreateMappingProfileRequest,
   type DuplicatePolicy,
@@ -12,6 +13,7 @@ import {
 } from '@idcp/shared';
 import {
   applyMapping,
+  hasUnsafeMappingDestinations,
   type ConnectorContext,
   type ConnectorRecord,
   type ConnectorWriteResult,
@@ -243,6 +245,14 @@ export class ConnectorService {
   }
 
   async createMapping(actor: AuthenticatedActor, input: CreateMappingProfileRequest) {
+    if (!roleAtLeast(actor.role, 'reviewer')) {
+      throw new AppError('ROLE_REQUIRED', 'Reviewers and above can create mappings.');
+    }
+    if (hasUnsafeMappingDestinations(input.fieldMap)) {
+      throw badRequest(
+        'Mapping destination fields must be unique and not use reserved property names.',
+      );
+    }
     if (input.connectorId) {
       const connector = await this.connectors.findById(actor.organisationId, input.connectorId);
       if (!connector) throw new AppError('NOT_FOUND', 'Connector not found.');
@@ -283,6 +293,9 @@ export class ConnectorService {
     connectorId: string,
     mappingProfileId: string,
   ) {
+    if (!roleAtLeast(actor.role, 'reviewer')) {
+      throw new AppError('ROLE_REQUIRED', 'Reviewers and above can send documents.');
+    }
     const document = await this.documents.findById(actor.organisationId, documentId);
     if (!document || document.deleted_at) throw new AppError('NOT_FOUND', 'Document not found.');
     if (document.status !== 'approved') {
@@ -304,11 +317,8 @@ export class ConnectorService {
     const fieldValues = Object.fromEntries(
       Object.entries(udm.fields).map(([path, field]) => [path, field.value]),
     );
-    const mapped = applyMapping(
-      fieldValues,
-      JSON.parse(mappingRow.field_map) as MappedField[],
-      udm.documentType,
-    );
+    const mappingFields = readSafeMappingFields(mappingRow.field_map);
+    const mapped = applyMapping(fieldValues, mappingFields, udm.documentType);
     if (mapped.missingRequired.length > 0) {
       throw new AppError(
         'UNPROCESSABLE',
@@ -432,11 +442,7 @@ export class ConnectorService {
       if (status !== 'skipped_duplicate') {
         if (matchedRow && policy === 'merge') {
           // Never overwrite a value a human confirmed; report every value we kept instead.
-          const reviewed = reviewedDestinationFields(
-            JSON.parse(mappingRow.field_map) as MappedField[],
-            udm,
-            keys,
-          );
+          const reviewed = reviewedDestinationFields(mappingFields, udm, keys);
           const merged = mergeRecord(matchedRow, mapped.values, {
             keys,
             reviewedFields: reviewed,
@@ -564,11 +570,8 @@ export class ConnectorService {
     const fieldValues = Object.fromEntries(
       Object.entries(udm.fields).map(([path, field]) => [path, field.value]),
     );
-    const mapped = applyMapping(
-      fieldValues,
-      JSON.parse(mappingRow.field_map) as MappedField[],
-      udm.documentType,
-    );
+    const mappingFields = readSafeMappingFields(mappingRow.field_map);
+    const mapped = applyMapping(fieldValues, mappingFields, udm.documentType);
     if (mapped.missingRequired.length > 0) {
       throw new AppError(
         'UNPROCESSABLE',
@@ -742,6 +745,29 @@ function duplicateLookupProblem(
     return 'Every duplicate key needs a mapped, non-empty value before checking the destination.';
   }
   return null;
+}
+
+/** Fail closed for malformed or collision-prone saved profiles before any destination operation. */
+function readSafeMappingFields(serialized: string): MappedField[] {
+  let fields: unknown;
+  try {
+    fields = JSON.parse(serialized) as unknown;
+  } catch {
+    throw new AppError('CONFLICT', 'This mapping needs review before it can be used.');
+  }
+  if (
+    !Array.isArray(fields) ||
+    fields.some(
+      (field: unknown) =>
+        !field ||
+        typeof field !== 'object' ||
+        typeof (field as { destinationField?: unknown }).destinationField !== 'string',
+    ) ||
+    hasUnsafeMappingDestinations(fields as MappedField[])
+  ) {
+    throw new AppError('CONFLICT', 'This mapping needs review before it can be used.');
+  }
+  return fields as MappedField[];
 }
 
 /** Destination fields that participate in the duplicate check. */

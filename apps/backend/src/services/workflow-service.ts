@@ -170,6 +170,10 @@ export class WorkflowService {
     actor: AuthenticatedActor,
     input: { trigger: WorkflowTrigger; documentId?: string | null },
   ): Promise<{ plans: WorkflowPlan[]; runs: ReturnType<typeof toRun>[] }> {
+    // Evaluation is not a preview: it can execute owner-configured destructive actions.
+    if (!roleAtLeast(actor.role, 'reviewer')) {
+      throw new AppError('ROLE_REQUIRED', 'Reviewers and above can evaluate workflows.');
+    }
     const document = input.documentId
       ? await this.documents.findById(actor.organisationId, input.documentId)
       : null;

@@ -59,6 +59,12 @@ export interface ReviewServiceRepositories {
   transaction<T>(run: (repositories: ReviewTransactionRepositories) => Promise<T>): Promise<T>;
 }
 
+function requireReviewer(actor: AuthenticatedActor): void {
+  if (!roleAtLeast(actor.role, 'reviewer')) {
+    throw new AppError('ROLE_REQUIRED', 'Reviewers and above can change reviews.');
+  }
+}
+
 export class ReviewService {
   private readonly documents: ReviewServiceRepositories['documents'];
   private readonly extractions: ReviewServiceRepositories['extractions'];
@@ -103,6 +109,7 @@ export class ReviewService {
   }
 
   async open(actor: AuthenticatedActor, documentId: string) {
+    requireReviewer(actor);
     return this.transaction(async (repositories) => {
       const { document, extraction } = await this.lockReviewableDocument(
         repositories,
@@ -283,6 +290,7 @@ export class ReviewService {
    * reported — never silently approved.
    */
   async bulkApprove(actor: AuthenticatedActor, documentIds: string[]) {
+    requireReviewer(actor);
     const approved: string[] = [];
     const skipped: Array<{ documentId: string; blocking: unknown }> = [];
 
@@ -441,6 +449,7 @@ export class ReviewService {
       extraction: ExtractionRow,
     ) => Promise<T>,
   ): Promise<T> {
+    requireReviewer(actor);
     return this.transaction(async (repositories) => {
       // Read the document id without locking the review, then acquire locks in document-first order.
       // Re-read the review under that lock so a concurrent review or reprocess cannot make it stale.
