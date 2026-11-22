@@ -315,6 +315,12 @@ protected header cause a generic export failure. CSV destination connectors reje
 headers instead of renaming them. These mitigations do not sanitize historical files or guarantee
 safe spreadsheet behavior; see `docs/csv-formula-safety.md`.
 
+Export projections can contain repeated names, including names matching the fixed `document_id`
+and `document_type` columns. The resulting headers are repeated: consumers must use column position,
+not a name-keyed dictionary, to avoid losing data. XLSX rows are written by position. Missing
+projected fields produce empty cells, including when their names match JavaScript prototype properties.
+Previously generated files are unchanged; see R01 ARC-036 for the historical integrity risk.
+
 **Connector configuration:** `config` and `credentials` are write-only. Responses include an empty
 `config` object for compatibility with the response shape, rather than returning stored settings.
 Creating or replacing configuration encrypts both objects; credentials override matching config

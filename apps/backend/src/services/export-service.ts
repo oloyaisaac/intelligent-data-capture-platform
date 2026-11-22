@@ -236,13 +236,13 @@ export class ExportService {
       for (const path of Object.keys(record.udm.fields)) fieldPaths.add(path);
     }
     const selected = request.columns?.length ? request.columns : [...fieldPaths].sort();
-    for (const column of selected) fieldPaths.delete(column);
 
     const headers = ['document_id', 'document_type', ...selected];
     const rows: CsvCell[][] = records.map((record) => [
       record.documentId,
       record.udm.documentType,
       ...selected.map((path) => {
+        if (!Object.prototype.hasOwnProperty.call(record.udm.fields, path)) return null;
         const field = record.udm.fields[path];
         if (!field) return null;
         if (field.type === 'currency' && typeof field.value === 'number') {
@@ -265,18 +265,15 @@ export class ExportService {
 
     sheet.columns = table.headers.map((header) => ({
       header,
-      key: header,
       width: Math.min(Math.max(header.length + 4, 14), 48),
     }));
     sheet.getRow(1).font = { bold: true };
     sheet.views = [{ state: 'frozen', ySplit: 1 }];
 
+    // Headers are user-selected and may repeat or resemble object prototype properties. Rows
+    // are positional, so never use those headers as object/ExcelJS column keys.
     for (const row of table.rows) {
-      const values: Record<string, CsvCell> = {};
-      table.headers.forEach((header, index) => {
-        values[header] = row[index] ?? null;
-      });
-      sheet.addRow(values);
+      sheet.addRow(row);
     }
 
     const buffer = await workbook.xlsx.writeBuffer();

@@ -569,6 +569,12 @@ export class ConnectorService {
       JSON.parse(mappingRow.field_map) as MappedField[],
       udm.documentType,
     );
+    if (mapped.missingRequired.length > 0) {
+      throw new AppError(
+        'UNPROCESSABLE',
+        `These destination fields are required but empty: ${mapped.missingRequired.join(', ')}`,
+      );
+    }
 
     const keys = JSON.parse(mappingRow.duplicate_keys) as string[];
     const connector = this.registry.get(connectorRow.type);
