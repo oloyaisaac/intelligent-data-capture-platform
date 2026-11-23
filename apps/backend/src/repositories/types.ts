@@ -291,6 +291,7 @@ export interface ApiKeyRow {
   created_by: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  expires_at: string | null;
   created_at: string;
 }
 

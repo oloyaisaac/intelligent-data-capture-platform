@@ -17,8 +17,8 @@ import type { AuthenticatedActor } from './auth-service';
  * Developer API keys (DEVAPI-001).
  *
  * The secret is generated once, returned once, and stored only as a SHA-256 hash with a short
- * prefix for display. Because scopes map onto the existing role ladder, every existing
- * authorisation check keeps working without a second permission system.
+ * prefix for display. Scopes currently map to a broad role ladder, not per-operation permissions;
+ * key management separately requires a signed-in owner or admin.
  */
 
 const KEY_PREFIX = 'idcp_';
@@ -74,10 +74,19 @@ export class ApiKeyService {
 
   async create(
     actor: AuthenticatedActor,
-    input: { name: string; scopes: ApiKeyScope[] },
+    input: { name: string; scopes: ApiKeyScope[]; expiresInDays?: number },
   ): Promise<CreatedApiKey> {
-    if (!['owner', 'admin'].includes(actor.role)) {
-      throw new AppError('ROLE_REQUIRED', 'Only owners and admins can create API keys.');
+    requireKeyManager(actor);
+    if (
+      input.expiresInDays !== undefined &&
+      (!Number.isInteger(input.expiresInDays) ||
+        input.expiresInDays < 1 ||
+        input.expiresInDays > 730)
+    ) {
+      throw new AppError(
+        'FIELD_VALIDATION_FAILED',
+        'API key expiry must be between 1 and 730 days.',
+      );
     }
     if (input.scopes.includes('admin') && actor.role !== 'owner') {
       throw new AppError('ROLE_REQUIRED', 'Only an owner can issue a key with the admin scope.');
@@ -91,6 +100,10 @@ export class ApiKeyService {
       keyPrefix: secret.slice(0, KEY_PREFIX.length + 6),
       scopes: input.scopes,
       createdBy: actor.userId,
+      expiresAt:
+        input.expiresInDays === undefined
+          ? null
+          : new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString(),
     });
 
     await this.audit.record({
@@ -108,14 +121,13 @@ export class ApiKeyService {
   }
 
   async list(actor: AuthenticatedActor): Promise<ApiKey[]> {
+    requireKeyManager(actor);
     const rows = await this.keys.list(actor.organisationId);
     return rows.map(toApiKey);
   }
 
   async revoke(actor: AuthenticatedActor, id: string): Promise<ApiKey> {
-    if (!['owner', 'admin'].includes(actor.role)) {
-      throw new AppError('ROLE_REQUIRED', 'Only owners and admins can revoke API keys.');
-    }
+    requireKeyManager(actor);
     const row = await this.keys.revoke(actor.organisationId, id);
     if (!row) throw new AppError('NOT_FOUND', 'API key not found.');
     await this.audit.record({
@@ -133,7 +145,7 @@ export class ApiKeyService {
   async authenticate(rawKey: string): Promise<ApiKeyPrincipal | null> {
     if (!rawKey.startsWith(KEY_PREFIX) || rawKey.length < 24) return null;
     const row = await this.keys.findByHash(hashToken(rawKey));
-    if (!row || row.revoked_at) return null;
+    if (!row || row.revoked_at || !isUnexpired(row.expires_at)) return null;
 
     const scopes = parseScopes(row.scopes);
     const role = roleForScopes(scopes);
@@ -156,6 +168,20 @@ export class ApiKeyService {
       keyId: row.id,
     };
   }
+}
+
+function requireKeyManager(actor: AuthenticatedActor): void {
+  if (actor.actorType !== 'user' || !['owner', 'admin'].includes(actor.role)) {
+    throw new AppError('ROLE_REQUIRED', 'Only signed-in owners and admins can manage API keys.');
+  }
+}
+
+function isUnexpired(value: unknown): boolean {
+  if (value === null) return true;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))
+    return false;
+  const millis = Date.parse(value);
+  return Number.isFinite(millis) && new Date(millis).toISOString() === value && millis > Date.now();
 }
 
 /** A key can never exceed the role of the person who created it, even after a role change. */
@@ -182,5 +208,6 @@ function toApiKey(row: ApiKeyRow): ApiKey {
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at,
     revokedAt: row.revoked_at,
+    expiresAt: row.expires_at,
   };
 }

@@ -247,6 +247,7 @@ export class WorkflowService {
               ? 'failed'
               : 'matched';
 
+      const workflowRevision = parseWorkflowRevision(row.revision);
       let run = await this.runs.create({
         organisationId: actor.organisationId,
         workflowId: row.id,
@@ -258,7 +259,10 @@ export class WorkflowService {
         actions: plan.actions,
         outputs: [],
         failure: status === 'failed' ? (triggerUnavailable ?? unavailable) : null,
-        approvalSnapshot,
+        approvalSnapshot:
+          approvalSnapshot && workflowRevision !== null
+            ? { ...approvalSnapshot, workflowRevision }
+            : null,
         // Only runs created under this version's transactional execution protocol are eligible
         // for owner-directed cancellation. Older and unknown runs remain operator-only cases.
         executionProtocol: status === 'matched' ? 1 : 0,
@@ -434,8 +438,7 @@ export class WorkflowService {
         if (!failed) throw new WorkflowRunUnavailable();
         return failed;
       }
-      // Serialize execution with current-version disable and deletion of the definition. This is
-      // a point-in-time check: re-enabling a rule can make an untouched pending plan eligible again.
+      // Serialize execution with current-version changes and deletion of the workflow definition.
       const workflow = await repositories.workflows.lockForExecution(
         run.organisation_id,
         run.workflow_id,
@@ -451,6 +454,18 @@ export class WorkflowService {
         return failed;
       }
       if (run.trigger_event === 'document.approved') {
+        const planned = parseApprovalSnapshot(run.approval_snapshot);
+        const revision = parseWorkflowRevision(workflow.revision);
+        if (!planned || revision === null || planned.workflowRevision !== revision) {
+          const failed = await repositories.runs.markFailedIfStatus(
+            actor.organisationId,
+            run.id,
+            expectedStatus,
+            'The workflow plan revision or condition semantics are not current.',
+          );
+          if (!failed) throw new WorkflowRunUnavailable();
+          return failed;
+        }
         if (!run.document_id) {
           throw new WorkflowActionFailure('The workflow run has no approved document.');
         }
@@ -466,10 +481,8 @@ export class WorkflowService {
               document.id,
             )
           : null;
-        const planned = parseApprovalSnapshot(run.approval_snapshot);
         if (
           !approved ||
-          !planned ||
           approved.reviewId !== planned.reviewId ||
           approved.extractionId !== planned.extractionId
         ) {
@@ -522,9 +535,19 @@ export class WorkflowService {
   }
 }
 
-function parseApprovalSnapshot(
-  raw: string | null,
-): { reviewId: string; extractionId: string; conditionSemanticsVersion: number } | null {
+function parseWorkflowRevision(value: unknown): number | null {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value)))
+    return null;
+  const revision = Number(value);
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : null;
+}
+
+function parseApprovalSnapshot(raw: string | null): {
+  reviewId: string;
+  extractionId: string;
+  conditionSemanticsVersion: number;
+  workflowRevision: number;
+} | null {
   if (!raw) return null;
   try {
     const value: unknown = JSON.parse(raw);
@@ -535,13 +558,16 @@ function parseApprovalSnapshot(
       !snapshot.reviewId ||
       typeof snapshot.extractionId !== 'string' ||
       !snapshot.extractionId ||
-      snapshot.conditionSemanticsVersion !== WORKFLOW_CONDITION_SEMANTICS_VERSION
+      snapshot.conditionSemanticsVersion !== WORKFLOW_CONDITION_SEMANTICS_VERSION ||
+      typeof snapshot.workflowRevision !== 'number' ||
+      parseWorkflowRevision(snapshot.workflowRevision) === null
     )
       return null;
     return {
       reviewId: snapshot.reviewId,
       extractionId: snapshot.extractionId,
       conditionSemanticsVersion: WORKFLOW_CONDITION_SEMANTICS_VERSION,
+      workflowRevision: snapshot.workflowRevision as number,
     };
   } catch {
     return null;

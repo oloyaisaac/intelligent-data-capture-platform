@@ -427,6 +427,7 @@ describe('workflow trigger and snapshot safety (ARC-042)', () => {
       reviewId: review!.id,
       extractionId: review!.extraction_id,
       conditionSemanticsVersion: 1,
+      workflowRevision: 0,
     });
     const visible = await harness.api.get(`/api/v1/workflows/runs/${run.id}`, owner.accessToken);
     expect(visible.statusCode).toBe(200);
@@ -434,6 +435,7 @@ describe('workflow trigger and snapshot safety (ARC-042)', () => {
       reviewId: review!.id,
       extractionId: review!.extraction_id,
       conditionSemanticsVersion: 1,
+      workflowRevision: 0,
     });
     const response = await harness.api.json('POST', `/api/v1/workflows/runs/${run.id}/approve`, {
       token: owner.accessToken,
@@ -451,7 +453,7 @@ describe('workflow trigger and snapshot safety (ARC-042)', () => {
     null,
     'not-json',
     '{}',
-    '{"reviewId":"other","extractionId":"other","conditionSemanticsVersion":1}',
+    '{"reviewId":"other","extractionId":"other","conditionSemanticsVersion":1,"workflowRevision":0}',
   ])('fails closed for a legacy, malformed or mismatched snapshot %s', async (snapshot) => {
     await workflow('document.approved', 'always_ask');
     const id = await document();
@@ -506,6 +508,36 @@ describe('workflow trigger and snapshot safety (ARC-042)', () => {
           id,
         ]),
       ).toHaveLength(0);
+    },
+  );
+
+  it.each([undefined, null, -1, 0.5, '0', Number.MAX_SAFE_INTEGER + 1, 10])(
+    'fails an otherwise current pending plan with missing or invalid workflow revision %s',
+    async (workflowRevision) => {
+      await workflow('document.approved', 'always_ask');
+      const id = await document();
+      await approveDocument(harness, owner, id);
+      const run = await evaluate('document.approved', id);
+      const stored = await harness.db.one<{ approval_snapshot: string }>(
+        'SELECT approval_snapshot FROM workflow_runs WHERE id = ?',
+        [run.id],
+      );
+      const snapshot = JSON.parse(stored!.approval_snapshot);
+      snapshot.workflowRevision = workflowRevision;
+      await harness.db.execute('UPDATE workflow_runs SET approval_snapshot = ? WHERE id = ?', [
+        JSON.stringify(snapshot),
+        run.id,
+      ]);
+      const response = await harness.api.json('POST', `/api/v1/workflows/runs/${run.id}/approve`, {
+        token: owner.accessToken,
+      });
+      expect(response.statusCode).toBe(409);
+      expect(
+        await harness.db.one('SELECT status, outputs FROM workflow_runs WHERE id = ?', [run.id]),
+      ).toEqual({ status: 'failed', outputs: '[]' });
+      expect(await harness.db.one('SELECT deleted_at FROM documents WHERE id = ?', [id])).toEqual({
+        deleted_at: null,
+      });
     },
   );
 

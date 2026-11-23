@@ -173,6 +173,7 @@ components:
         createdAt: { type: string, format: date-time }
         lastUsedAt: { type: string, format: date-time, nullable: true }
         revokedAt: { type: string, format: date-time, nullable: true }
+        expiresAt: { type: string, format: date-time, nullable: true }
 paths:
   /auth/password/forgot:
     post:
@@ -1551,6 +1552,7 @@ paths:
     get:
       tags: [Organisation]
       summary: API keys (secrets are never returned)
+      description: Requires a signed-in owner or admin; machine and device credentials cannot manage keys.
       operationId: listApiKeys
       responses:
         '200':
@@ -1566,6 +1568,7 @@ paths:
     post:
       tags: [Organisation]
       summary: Create an API key — the secret is returned once
+      description: Requires a signed-in owner or admin. Only an owner may issue the admin scope. Older keys have unknown expiry history.
       operationId: createApiKey
       requestBody:
         required: true
@@ -1576,6 +1579,13 @@ paths:
               required: [name, scopes]
               properties:
                 name: { type: string }
+                expiresInDays:
+                  {
+                    type: integer,
+                    minimum: 1,
+                    maximum: 730,
+                    description: 'Optional; earlier releases ignored this value.',
+                  }
                 scopes:
                   type: array
                   items:
@@ -1594,6 +1604,7 @@ paths:
     delete:
       tags: [Organisation]
       summary: Revoke an API key
+      description: Requires a signed-in owner or admin. Revocation does not cancel requests already authenticated.
       operationId: revokeApiKey
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }

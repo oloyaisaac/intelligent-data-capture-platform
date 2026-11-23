@@ -109,6 +109,21 @@ operational record. Do not paste secrets, connection strings or customer data in
 Synthetic SQLite tests and PostgreSQL CI do not establish a production rollout or sanitize old
 backups, WAL, logs or historical data.
 
+## API-key expiry and delegation (ARC-045)
+
+An authorized security owner must identify each deployment and its actual pre-upgrade key issuance
+history, including external provisioning logs where available. Old key rows cannot establish whether
+an expiry was requested; migration 017 deliberately leaves old expiries null and keys active. Assess
+unexpected key creation/delegation, historical access and any untrusted copies; decide and document
+revocation/rotation and incident response without publishing secrets. Coordinate affected clients and
+human owner/admin management, since API keys and devices can no longer administer keys in new code.
+The release operator must review backup/rollback and clock synchronization, stop or fence all older
+writers, apply migrations 016 and 017, deploy and verify both expiry enforcement and key-management
+authorization with safe test credentials. Existing workflow plans can fail after migration 016; avoid
+blind reevaluation because evaluation can execute actions. Record real environment, artifact, operator,
+timestamps, non-secret checks and outcomes in protected evidence. These are outstanding actions, not
+claims of production execution or an authorized security exception.
+
 ## Independent reviewer
 
 Once engineering and operational evidence is ready, an independent qualified software architect

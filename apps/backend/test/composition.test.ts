@@ -163,6 +163,7 @@ it('uses injected API-key repositories and rechecks membership in the key organi
         created_by: 'creator',
         key_hash: keyHash,
         revoked_at: null,
+        expires_at: null,
         scopes: JSON.stringify(['admin']),
       }),
       touch: jest.fn().mockResolvedValue(undefined),

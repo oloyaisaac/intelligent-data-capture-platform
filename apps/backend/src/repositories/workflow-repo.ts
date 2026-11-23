@@ -12,6 +12,7 @@ export interface WorkflowRow {
   actions: string;
   approval_policy: string;
   enabled: number;
+  revision: number | string;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -94,6 +95,7 @@ export class WorkflowsRepository {
       actions: JSON.stringify(input.actions),
       approval_policy: input.approvalPolicy,
       enabled: 1,
+      revision: 0,
       created_by: input.createdBy,
       created_at: now,
       updated_at: now,
@@ -127,7 +129,7 @@ export class WorkflowsRepository {
     enabled: boolean,
   ): Promise<WorkflowRow | null> {
     await this.db.execute(
-      'UPDATE workflows SET enabled = ?, updated_at = ? WHERE organisation_id = ? AND id = ?',
+      'UPDATE workflows SET enabled = ?, revision = revision + 1, updated_at = ? WHERE organisation_id = ? AND id = ?',
       [enabled ? 1 : 0, nowIso(), organisationId, id],
     );
     return this.findById(organisationId, id);
@@ -161,6 +163,7 @@ export class WorkflowRunsRepository {
       reviewId: string;
       extractionId: string;
       conditionSemanticsVersion: number;
+      workflowRevision: number;
     } | null;
   }): Promise<WorkflowRunRow> {
     const row: WorkflowRunRow = {

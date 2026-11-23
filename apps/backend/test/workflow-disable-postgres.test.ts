@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { AuditRepository } from '../src/repositories/system-repo';
+import { WorkflowsRepository } from '../src/repositories/workflow-repo';
 import {
   approveDocument,
   createHarness,
@@ -100,6 +101,62 @@ pgTest(
     } finally {
       release();
       await disabling?.catch(() => undefined);
+      await approving?.catch(() => undefined);
+      await observer.end();
+      await harness.close();
+    }
+  },
+  30_000,
+);
+
+pgTest(
+  'a disable and re-enable committed while approval waits cannot revive the old plan',
+  async () => {
+    const harness = await createHarness();
+    const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let release!: () => void;
+    let reached!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let toggling: Promise<void> | undefined;
+    let approving: Promise<{ statusCode: number }> | undefined;
+    try {
+      const owner = await registerAccount(harness);
+      const { documentId, workflowId, runId } = await pending(harness, owner);
+      toggling = harness.db.transaction(async (tx) => {
+        const repo = new WorkflowsRepository(tx);
+        await repo.setEnabled(owner.organisationId, workflowId, false);
+        await repo.setEnabled(owner.organisationId, workflowId, true);
+        reached();
+        await gate;
+      });
+      await barrier;
+      approving = harness.api.json('POST', `/api/v1/workflows/runs/${runId}/approve`, {
+        token: owner.accessToken,
+      });
+      await waitForBlocked(observer, 'SELECT * FROM workflows WHERE organisation_id = %FOR UPDATE');
+      release();
+      await toggling;
+      expect((await approving).statusCode).toBe(409);
+      const workflow = await harness.db.one<{ enabled: number; revision: number | string }>(
+        'SELECT enabled, revision FROM workflows WHERE id = ?',
+        [workflowId],
+      );
+      expect(workflow?.enabled).toBe(1);
+      expect(Number(workflow?.revision)).toBe(2);
+      expect(
+        await harness.db.one('SELECT status, outputs FROM workflow_runs WHERE id = ?', [runId]),
+      ).toEqual({ status: 'failed', outputs: '[]' });
+      expect(
+        await harness.db.one('SELECT deleted_at FROM documents WHERE id = ?', [documentId]),
+      ).toEqual({ deleted_at: null });
+    } finally {
+      release();
+      await toggling?.catch(() => undefined);
       await approving?.catch(() => undefined);
       await observer.end();
       await harness.close();

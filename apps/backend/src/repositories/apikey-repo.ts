@@ -13,6 +13,7 @@ export class ApiKeysRepository {
     keyPrefix: string;
     scopes: string[];
     createdBy: string;
+    expiresAt: string | null;
   }): Promise<ApiKeyRow> {
     const row: ApiKeyRow = {
       id: newId(),
@@ -24,11 +25,12 @@ export class ApiKeysRepository {
       created_by: input.createdBy,
       last_used_at: null,
       revoked_at: null,
+      expires_at: input.expiresAt,
       created_at: nowIso(),
     };
     await this.db.execute(
-      `INSERT INTO api_keys (id, organisation_id, name, key_hash, key_prefix, scopes, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO api_keys (id, organisation_id, name, key_hash, key_prefix, scopes, created_by, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.organisation_id,
@@ -38,6 +40,7 @@ export class ApiKeysRepository {
         row.scopes,
         row.created_by,
         row.created_at,
+        row.expires_at,
       ],
     );
     return row;
