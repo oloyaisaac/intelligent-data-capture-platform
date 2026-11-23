@@ -287,6 +287,13 @@ in sync); treating keys as owners (too much authority for an integration).
 **Consequences:** New scopes must state which role they imply. A key can never exceed its creator's
 current role, even after a role change.
 
+**Implementation note (R01 ARC-041):** The role-only design allowed unrelated operations across
+scopes. Current HTTP code adds a default-deny method/route scope allowlist and computes the effective
+role from the applicable scope, still capped by live membership; see `docs/api-key-scopes.md`. This is
+a compatibility change and a departure from the original alternative analysis, not an approved
+replacement ADR or evidence of a complete authorization model. Product/security owners and the
+independent reviewer must assess the new policy and decide whether to supersede this decision.
+
 ---
 
 ## DEC-018 — Batch progress is derived, never stored

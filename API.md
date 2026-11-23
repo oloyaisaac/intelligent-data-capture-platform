@@ -335,10 +335,9 @@ object while preserving existing credentials; PATCH does not update credentials.
 rows require the offline migration in `docs/connector-config-migration.md`, and prior copies may
 need rotation or secure disposal. See `SECURITY.md` and R01 finding ARC-023.
 
-Creating a mapping profile and sending a document require reviewer or above. API-key scopes
-currently map to broad roles rather than being independently enforced per operation; a `review:write`
-key, for example, can meet the reviewer role for sending. Do not treat the scope names as an
-operation-level isolation guarantee.
+Creating a mapping profile and sending a document require reviewer or above. API keys additionally
+need the `connectors:write` or `admin` scope for those HTTP operations; `review:write` alone does not
+permit sending. See the explicit route allowlist and compatibility limits in `docs/api-key-scopes.md`.
 
 `POST /documents/:id/send`
 
@@ -488,6 +487,12 @@ cancellation mechanism for requests already in flight. Apply migration 017 and f
 which ignore expiry. Before this release the expiry input was silently ignored: existing keys have
 unknown expiry history and remain usable unless revoked. Authorized owners should inventory and
 revoke/replace affected keys rather than assume they expired. See R01 ARC-045.
+
+API-key access is now limited to the explicit HTTP method/route and scope matrix in
+`docs/api-key-scopes.md`. Unlisted operations are denied even for an `admin` key; earlier integrations
+may break. A valid device credential takes precedence over an API key, which takes precedence over a
+bearer token; use only one credential type. The policy does not govern direct service calls or old
+binaries. Fence old binaries during rollout and review intended permissions before changing keys.
 
 Non-append sends require a usable duplicate lookup and unique, non-empty keys with mapped values;
 incomplete checks return `409` instead of silently creating. Updates and merges also reject

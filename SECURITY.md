@@ -95,8 +95,9 @@ compatibility changes and limitations.
   do not assume every privileged action is covered. Document and batch upload require operator or
   above. Document reprocessing, soft-deletion, workflow evaluation, review mutations, mapping
   creation and connector send require reviewer or above. These are scoped mitigations, not evidence
-  of comprehensive RBAC. API-key scopes currently map to broad roles rather than being enforced
-  independently per operation; see R01 ARC-041. Key management now requires a signed-in owner or
+  of comprehensive RBAC. API keys now use the default-deny HTTP route allowlist in
+  `docs/api-key-scopes.md`, but that policy does not govern direct service calls, device credentials,
+  old binaries or historical effects; see R01 ARC-041. Key management requires a signed-in owner or
   admin, not a machine or device credential. Earlier software ignored requested API key expiries;
   see R01 ARC-045 and inventory/revoke or replace affected historical keys. Migration 017 and fencing
   older binaries are required before relying on new expiry checks.

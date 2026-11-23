@@ -117,6 +117,9 @@ an expiry was requested; migration 017 deliberately leaves old expiries null and
 unexpected key creation/delegation, historical access and any untrusted copies; decide and document
 revocation/rotation and incident response without publishing secrets. Coordinate affected clients and
 human owner/admin management, since API keys and devices can no longer administer keys in new code.
+Review the breaking default-deny API-key HTTP scope matrix in `docs/api-key-scopes.md` with product and
+security owners and affected clients; direct services and device credentials are not covered. Audit
+historical cross-scope access, inspect credential exposure and plan client rollout and rotation.
 The release operator must review backup/rollback and clock synchronization, stop or fence all older
 writers, apply migrations 016 and 017, deploy and verify both expiry enforcement and key-management
 authorization with safe test credentials. Existing workflow plans can fail after migration 016; avoid

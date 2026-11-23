@@ -215,6 +215,13 @@ export async function buildApp(services: Services): Promise<FastifyInstance> {
   const guards = createGuards(services);
   await app.register(
     async (scope) => {
+      // Enforce machine-credential policy before body parsing, including on future routes that
+      // accidentally omit an authentication guard. Explicitly public routes can be used without
+      // a machine credential. A valid device credential retains the existing precedence.
+      scope.addHook('onRequest', async (request) => {
+        const key = request.headers['x-api-key'];
+        if (typeof key === 'string' && key.length > 0) await guards.authenticate(request);
+      });
       registerAuthRoutes(scope, services, guards);
       registerPrivacyRoutes(scope, services, guards);
       registerLegalRoutes(scope, services);

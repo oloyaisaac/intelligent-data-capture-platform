@@ -3,6 +3,7 @@ import { AppError, roleAtLeast, type Role } from '@idcp/shared';
 import { hashIp, isUuid } from '@idcp/shared/ids';
 import type { Services } from '../services/container';
 import type { AuthenticatedActor } from '../services/auth-service';
+import { apiKeyRoleForRoute } from './api-key-policy';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -49,10 +50,12 @@ export function createGuards(services: Services) {
       const principal = await services.apiKeys.authenticate(apiKeyHeader);
       if (!principal)
         throw new AppError('UNAUTHENTICATED', 'This API key is not valid or was revoked.');
+      const role = apiKeyRoleForRoute(principal, request.method, request.routeOptions.url);
+      if (!role) throw new AppError('ROLE_REQUIRED', 'This API key cannot access this operation.');
       return {
         userId: principal.userId,
         organisationId: principal.organisationId,
-        role: principal.role,
+        role,
         actorType: 'api_key',
         apiKeyId: principal.keyId,
       };
