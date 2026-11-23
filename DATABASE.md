@@ -3,7 +3,7 @@
 Data model reference for the shipped schema. The authoritative DDL is
 `apps/backend/src/db/migrations.ts` — this document explains it and lists what each table is for.
 
-> **Status:** implemented. Forward-only migrations through `014_remote_ocr_organisation_count` run
+> **Status:** implemented. Forward-only migrations through `015_workflow_approval_snapshot` run
 > on SQLite (`node:sqlite`, the local path) or PostgreSQL (the production path). There is no ORM:
 > repositories hold the SQL, and
 > one schema serves both drivers (DEC-013). Types below are written in PostgreSQL terms; on SQLite
@@ -15,7 +15,7 @@ Data model reference for the shipped schema. The authoritative DDL is
 
 - Table names: plural `snake_case`. Column names: `snake_case`.
 - Primary keys: `id` — UUID v7 (time-sortable) unless stated otherwise.
-- Every table has `created_at`; mutable rows also have `updated_at` (`timestamptz`, UTC). Append-only tables (audit, runs, deliveries) deliberately have none.
+- Many tables have `created_at`; some mutable tables also have `updated_at` (`timestamptz`, UTC). Audit is append-only; workflow runs and deliveries can change status without an `updated_at` column.
 - Every tenant-owned table has `organisation_id uuid not null` referencing `organisations(id)`.
 - Soft delete only where stated (`deleted_at`); audit records are never deleted.
 - Enums are stored as `text` with a check constraint, never a database enum type — the same DDL has to run on SQLite and PostgreSQL.
@@ -284,8 +284,9 @@ rollback has a version to return to.
 
 ### 3.15 `workflows` and `workflow_runs`
 
-A workflow is a rule; a run is what that rule decided for one document. Definitions are editable and
-deletable, runs are append-only (AGENT-001).
+A workflow is a rule; a run records what that rule decided for one document. Definitions are editable
+and deletable; runs remain after deletion, but their execution status, outputs and approval metadata
+can change (AGENT-001).
 
 | `workflows` column    | Type        | Notes                                                                                       |
 | --------------------- | ----------- | ------------------------------------------------------------------------------------------- |
@@ -301,23 +302,31 @@ deletable, runs are append-only (AGENT-001).
 | created_by            | uuid FK     | admin who created it                                                                        |
 | created_at/updated_at | timestamptz |                                                                                             |
 
-| `workflow_runs` column | Type        | Notes                                                                     |
-| ---------------------- | ----------- | ------------------------------------------------------------------------- |
-| id                     | uuid PK     |                                                                           |
-| organisation_id        | uuid FK     |                                                                           |
-| workflow_id            | uuid        | kept after the rule is deleted                                            |
-| document_id            | uuid        | null for document-less triggers                                           |
-| trigger_event          | text        | what fired                                                                |
-| status                 | text        | `matched` \| `skipped` \| `awaiting_approval` \| `completed` \| `failed`  |
-| matched                | integer     | 0 when a condition or the type did not match                              |
-| explanation            | text        | the sentence shown in the UI                                              |
-| actions                | jsonb/text  | the plan, including `requiresApproval` and `reason`                       |
-| outputs                | jsonb/text  | what each action actually did                                             |
-| failure                | text        | the message when an action threw                                          |
-| approved_by            | uuid FK     | the person who approved the run                                           |
-| approved_at            | timestamptz |                                                                           |
-| created_at             | timestamptz |                                                                           |
-| execution_protocol     | integer     | 1 for newly created transactional automatic runs, 0 for legacy/other runs |
+| `workflow_runs` column | Type        | Notes                                                                           |
+| ---------------------- | ----------- | ------------------------------------------------------------------------------- |
+| id                     | uuid PK     |                                                                                 |
+| organisation_id        | uuid FK     |                                                                                 |
+| workflow_id            | uuid        | kept after the rule is deleted                                                  |
+| document_id            | uuid        | null for document-less triggers                                                 |
+| trigger_event          | text        | caller-supplied trigger, not proof of an event                                  |
+| status                 | text        | `matched` \| `skipped` \| `awaiting_approval` \| `completed` \| `failed`        |
+| matched                | integer     | 0 when a condition or the type did not match                                    |
+| explanation            | text        | the sentence shown in the UI                                                    |
+| actions                | jsonb/text  | the plan, including `requiresApproval` and `reason`                             |
+| outputs                | jsonb/text  | what each action actually did                                                   |
+| failure                | text        | the message when an action threw                                                |
+| approved_by            | uuid FK     | the person who approved the run                                                 |
+| approved_at            | timestamptz |                                                                                 |
+| created_at             | timestamptz |                                                                                 |
+| execution_protocol     | integer     | 1 for newly created transactional automatic runs, 0 for legacy/other runs       |
+| approval_snapshot      | text / null | JSON review/extraction IDs and condition-semantics version; null on legacy runs |
+
+Migration 015 does not backfill historical runs: their planning snapshots cannot be inferred safely.
+Current code refuses approved-trigger deletion when the stored identity is missing or no longer
+current, or when the condition-semantics version is missing or unsupported. Older plans are not
+backfilled or automatically reevaluated. These identifiers remain in run history; assess retention,
+erasure and copies with the data owner. The snapshot is not an authenticated event or an immutable
+content hash; see R01 ARC-042.
 
 Indexes: `(organisation_id, created_at DESC)` on both, plus `(status, created_at DESC)` on runs so
 the approval queue is a cheap query.
@@ -528,7 +537,16 @@ job open for days.
 | next_attempt_at             | timestamptz | null when nothing is queued               |
 | created_at                  | timestamptz |                                           |
 
-`schema_migrations` (`id`, `applied_at`) is the framework table: one row per applied migration.
+`schema_migrations` (`id`, `applied_at`) is the framework table: one row per recorded migration.
+Migrations run automatically during process startup. The current runner applies pending SQL and
+ledger entries together in one transaction. SQLite uses an immediate write transaction; PostgreSQL
+uses a per-schema transaction advisory lock and reads the ledger after acquiring it. This only
+serializes current-version runners using the same database and schema (or SQLite file); older
+binaries and manual migrations do not participate. Lock contention can make startup fail or time out.
+Use a verified backup and a controlled deployment with other processes stopped or fenced. Old
+partial migrations are not repaired; after an error or ambiguous commit, have the database owner
+inspect schema and ledger against the release-specific recovery plan before any retry or manual
+change. Future migrations must be compatible with the transaction. See R01 ARC-043.
 
 ## 4. Universal Data Model storage
 

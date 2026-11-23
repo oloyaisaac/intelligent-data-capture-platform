@@ -33,6 +33,7 @@ export interface WorkflowRunRow {
   approved_at: string | null;
   created_at: string;
   execution_protocol: number;
+  approval_snapshot: string | null;
 }
 
 /** AGENT-001: workflow definitions and the run log. */
@@ -49,6 +50,15 @@ export class WorkflowsRepository {
   findById(organisationId: string, id: string): Promise<WorkflowRow | null> {
     return this.db.one<WorkflowRow>(
       'SELECT * FROM workflows WHERE organisation_id = ? AND id = ?',
+      [organisationId, id],
+    );
+  }
+
+  /** Lock the definition through database-local execution, serializing disable and deletion. */
+  lockForExecution(organisationId: string, id: string): Promise<WorkflowRow | null> {
+    const lock = this.db.driver === 'postgres' ? ' FOR UPDATE' : '';
+    return this.db.one<WorkflowRow>(
+      `SELECT * FROM workflows WHERE organisation_id = ? AND id = ?${lock}`,
       [organisationId, id],
     );
   }
@@ -147,6 +157,11 @@ export class WorkflowRunsRepository {
     outputs?: unknown;
     failure?: string | null;
     executionProtocol?: number;
+    approvalSnapshot?: {
+      reviewId: string;
+      extractionId: string;
+      conditionSemanticsVersion: number;
+    } | null;
   }): Promise<WorkflowRunRow> {
     const row: WorkflowRunRow = {
       id: newId(),
@@ -164,13 +179,14 @@ export class WorkflowRunsRepository {
       approved_at: null,
       created_at: nowIso(),
       execution_protocol: input.executionProtocol ?? 0,
+      approval_snapshot: input.approvalSnapshot ? JSON.stringify(input.approvalSnapshot) : null,
     };
 
     await this.db.execute(
       `INSERT INTO workflow_runs (id, organisation_id, workflow_id, document_id, trigger_event,
         status, matched, explanation, actions, outputs, failure, approved_by, approved_at,
-        created_at, execution_protocol)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        created_at, execution_protocol, approval_snapshot)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.organisation_id,
@@ -187,6 +203,7 @@ export class WorkflowRunsRepository {
         row.approved_at,
         row.created_at,
         row.execution_protocol,
+        row.approval_snapshot,
       ],
     );
     return row;

@@ -1,14 +1,24 @@
 import { AuditRepository } from '../src/repositories/system-repo';
-import { createHarness, registerAccount, type Harness, type TestAccount } from './helpers';
+import {
+  approveDocument,
+  SAMPLE_INVOICE_TEXT,
+  createHarness,
+  registerAccount,
+  type Harness,
+  type TestAccount,
+} from './helpers';
 
 async function interruptedRun(harness: Harness, account: TestAccount) {
   const upload = await harness.api.upload(account.accessToken);
   const documentId = upload.json<{ id: string }>().id;
+  harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+  await harness.services.worker.drain();
+  await approveDocument(harness, account, documentId);
   const workflow = await harness.api.json('POST', '/api/v1/workflows', {
     token: account.accessToken,
     body: {
       name: 'Automatic delete',
-      trigger: 'document.extracted',
+      trigger: 'document.approved',
       conditions: [],
       approvalPolicy: 'auto_approve',
       actions: [{ type: 'delete_document' }],
@@ -28,7 +38,7 @@ async function interruptedRun(harness: Harness, account: TestAccount) {
   try {
     const result = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
       token: account.accessToken,
-      body: { trigger: 'document.extracted', documentId },
+      body: { trigger: 'document.approved', documentId },
     });
     expect(result.statusCode).toBe(500);
   } finally {

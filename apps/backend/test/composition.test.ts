@@ -205,6 +205,7 @@ it('uses injected workflow repositories and preserves organisation and role chec
     },
     documents: { findById: jest.fn() },
     extractions: { findLatestForDocument: jest.fn() },
+    reviews: { findWorkflowApprovalSnapshot: jest.fn() },
     audit: { record: jest.fn() },
     transaction: jest.fn(),
   };

@@ -14,6 +14,8 @@ export interface PostgresOptions {
   poolSize?: number;
   /** Reject queries slower than this so a bad query cannot wedge a request forever. */
   statementTimeoutMs?: number;
+  /** Called with no error details when an idle pooled connection is lost. */
+  onIdleConnectionError?: () => void;
 }
 
 export class PostgresDatabase implements Database {
@@ -26,6 +28,14 @@ export class PostgresDatabase implements Database {
       max: options.poolSize ?? 10,
       statement_timeout: options.statementTimeoutMs ?? 15_000,
       idleTimeoutMillis: 30_000,
+    });
+    // pg emits pool errors for idle connections; an unhandled event would terminate the process.
+    this.pool.on('error', () => {
+      try {
+        options.onIdleConnectionError?.();
+      } catch {
+        // A monitoring callback must not turn an idle connection failure into an uncaught event.
+      }
     });
   }
 
@@ -45,32 +55,61 @@ export class PostgresDatabase implements Database {
 
   async transaction<T>(fn: (db: Database) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
+    let active = true;
+    let connectionError: Error | undefined;
+    let rejectConnection!: (error: Error) => void;
+    const connectionLost = new Promise<never>((_, reject) => {
+      rejectConnection = reject;
+    });
+    const onError = (error: Error) => {
+      connectionError = error;
+      active = false;
+      rejectConnection(error);
+    };
+    client.on('error', onError);
+    const assertActive = () => {
+      if (!active) throw new Error('Transaction-scoped database is no longer active.');
+    };
     try {
-      await client.query('BEGIN');
+      await Promise.race([client.query('BEGIN'), connectionLost]);
       const scoped: Database = {
         driver: this.driver,
         query: async <R = Record<string, unknown>>(sql: string, params: SqlParams = []) => {
+          assertActive();
           const result = await client.query(toPostgresPlaceholders(sql), params as never[]);
           return result.rows as R[];
         },
         one: async <R = Record<string, unknown>>(sql: string, params: SqlParams = []) => {
+          assertActive();
           const result = await client.query(toPostgresPlaceholders(sql), params as never[]);
           return (result.rows[0] as R | undefined) ?? null;
         },
         execute: async (sql: string, params: SqlParams = []) => {
+          assertActive();
           await client.query(toPostgresPlaceholders(sql), params as never[]);
         },
-        transaction: (inner) => inner(scoped),
-        close: async () => undefined,
+        transaction: (inner) => {
+          assertActive();
+          return inner(scoped);
+        },
+        close: async () => {
+          assertActive();
+        },
       };
-      const result = await fn(scoped);
-      await client.query('COMMIT');
+      const result = await Promise.race([Promise.resolve().then(() => fn(scoped)), connectionLost]);
+      assertActive();
+      active = false;
+      await Promise.race([client.query('COMMIT'), connectionLost]);
       return result;
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
+      active = false;
+      // Connection loss or commit failure may be ambiguous. Never treat rollback as proof of outcome.
+      if (!connectionError) await client.query('ROLLBACK').catch(() => undefined);
       throw error;
     } finally {
-      client.release();
+      active = false;
+      client.release(connectionError);
+      client.removeListener('error', onError);
     }
   }
 

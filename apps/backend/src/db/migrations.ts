@@ -6,6 +6,8 @@
  * Never edit a migration that has shipped — add a new one.
  */
 
+import type { Database } from './database';
+
 export type MigrationStatement =
   | string
   | {
@@ -558,41 +560,57 @@ export const MIGRATIONS: Migration[] = [
       )`,
     ],
   },
+  {
+    // Legacy runs have no trustworthy snapshot identity and cannot be backfilled safely.
+    id: '015_workflow_approval_snapshot',
+    sql: ['ALTER TABLE workflow_runs ADD COLUMN approval_snapshot TEXT'],
+  },
 ];
 
-export async function applyMigrations(db: {
-  readonly driver?: 'sqlite' | 'postgres';
-  execute(sql: string, params?: unknown[]): Promise<void>;
-  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
-}): Promise<string[]> {
-  await db.execute(
-    `CREATE TABLE IF NOT EXISTS schema_migrations (
-      id TEXT PRIMARY KEY,
-      applied_at TEXT NOT NULL
-    )`,
-  );
-  const rows = await db.query<{ id: string }>('SELECT id FROM schema_migrations ORDER BY id');
-  const applied = new Set(rows.map((row) => row.id));
-  const newlyApplied: string[] = [];
-
-  for (const migration of MIGRATIONS) {
-    if (applied.has(migration.id)) continue;
-    for (const entry of migration.sql) {
-      const statements =
-        typeof entry === 'string'
-          ? [entry]
-          : db.driver === 'postgres'
-            ? entry.postgres
-            : entry.sqlite;
-      for (const statement of statements) {
-        await db.execute(statement);
-      }
+export async function applyMigrations(db: Database): Promise<string[]> {
+  return db.transaction(async (tx) => {
+    if (tx.driver === 'postgres') {
+      // Read the ledger only after acquiring the per-schema lock. Force a fresh statement snapshot
+      // even when a deployment has changed the database's default transaction isolation.
+      await tx.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      const row = await tx.one<{ schema_name: string | null }>(
+        'SELECT current_schema() AS schema_name',
+      );
+      if (!row?.schema_name) throw new Error('No current schema for migrations.');
+      await tx.execute('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [
+        `idcp:schema-migrations:${row.schema_name}`,
+      ]);
     }
-    await db.execute('INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)', [
-      migration.id,
-      new Date().toISOString(),
-    ]);
-    newlyApplied.push(migration.id);
-  }
-  return newlyApplied;
+    // SQLite transactions begin IMMEDIATE, serializing current-version writers of the same file.
+    await tx.execute(
+      `CREATE TABLE IF NOT EXISTS schema_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      )`,
+    );
+    const rows = await tx.query<{ id: string }>('SELECT id FROM schema_migrations ORDER BY id');
+    const applied = new Set(rows.map((row) => row.id));
+    const newlyApplied: string[] = [];
+
+    for (const migration of MIGRATIONS) {
+      if (applied.has(migration.id)) continue;
+      for (const entry of migration.sql) {
+        const statements =
+          typeof entry === 'string'
+            ? [entry]
+            : tx.driver === 'postgres'
+              ? entry.postgres
+              : entry.sqlite;
+        for (const statement of statements) {
+          await tx.execute(statement);
+        }
+      }
+      await tx.execute('INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)', [
+        migration.id,
+        new Date().toISOString(),
+      ]);
+      newlyApplied.push(migration.id);
+    }
+    return newlyApplied;
+  });
 }

@@ -17,9 +17,11 @@ import { silentLogger } from '../src/logger';
 import { WorkflowRunsRepository } from '../src/repositories/workflow-repo';
 import { ConnectorProcess } from '../src/adapters/connector-process';
 import {
+  approveDocument,
   createHarness,
   openReview,
   registerAccount,
+  SAMPLE_INVOICE_TEXT,
   uploadDocument,
   type ApiResponse,
   type Harness,
@@ -659,11 +661,14 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     const account = await registerAccount(harness);
     const upload = await uploadDocument(harness, account);
     const documentId = upload.json<{ id: string }>().id;
+    harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+    await harness.services.worker.drain();
+    await approveDocument(harness, account, documentId);
     const workflow = await harness.api.json('POST', '/api/v1/workflows', {
       token: account.accessToken,
       body: {
         name: 'Approve delete',
-        trigger: 'document.extracted',
+        trigger: 'document.approved',
         conditions: [],
         actions: [{ type: 'delete_document' }],
       },
@@ -671,9 +676,12 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     expect(workflow.statusCode).toBe(201);
     const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
       token: account.accessToken,
-      body: { trigger: 'document.extracted', documentId },
+      body: { trigger: 'document.approved', documentId },
     });
-    const runId = evaluation.json<{ runs: Array<{ id: string; status: string }> }>().runs[0]!.id;
+    expect(evaluation.statusCode).toBe(200);
+    const run = evaluation.json<{ runs: Array<{ id: string; status: string }> }>().runs[0]!;
+    expect(run.status).toBe('awaiting_approval');
+    const runId = run.id;
     const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
     let approvals: Promise<ApiResponse[]> | undefined;
     try {
@@ -733,11 +741,14 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
     const account = await registerAccount(harness);
     const upload = await uploadDocument(harness, account);
     const documentId = upload.json<{ id: string }>().id;
+    harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+    await harness.services.worker.drain();
+    await approveDocument(harness, account, documentId);
     const workflow = await harness.api.json('POST', '/api/v1/workflows', {
       token: account.accessToken,
       body: {
         name: 'Auto delete',
-        trigger: 'document.extracted',
+        trigger: 'document.approved',
         conditions: [],
         approvalPolicy: 'auto_approve',
         actions: [{ type: 'delete_document' }],
@@ -763,7 +774,7 @@ postgresDescribe('PostgreSQL production-driver smoke test (MC-04)', () => {
       });
     const evaluation = harness.api.json('POST', '/api/v1/workflows/evaluate', {
       token: account.accessToken,
-      body: { trigger: 'document.extracted', documentId },
+      body: { trigger: 'document.approved', documentId },
     });
     const observer = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
     let cancellation: Promise<ApiResponse> | undefined;

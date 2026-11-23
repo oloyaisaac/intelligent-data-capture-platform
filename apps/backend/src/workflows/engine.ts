@@ -48,6 +48,9 @@ export const CONDITION_OPERATORS = [
 ] as const;
 export type ConditionOperator = (typeof CONDITION_OPERATORS)[number];
 
+/** Version carried by approved-trigger plans created using these missing-value and operand guards. */
+export const WORKFLOW_CONDITION_SEMANTICS_VERSION = 1 as const;
+
 export interface WorkflowCondition {
   /** A UDM field path, e.g. `total.amount` or `documentType`. */
   field: string;
@@ -130,10 +133,18 @@ export function evaluateCondition(
         ? context.fields[condition.field]
         : undefined;
   const present = value !== null && value !== undefined && value !== '';
+  // Missing values cannot establish a comparison, including not_equals and equality to null.
+  if (!present) return false;
+  // Absent operands previously made not_equals/contains/starts_with match arbitrary values.
+  if (
+    condition.operator !== 'exists' &&
+    (condition.value === undefined || condition.value === null)
+  )
+    return false;
 
   switch (condition.operator) {
     case 'exists':
-      return present;
+      return true;
     case 'equals':
       return compareEquals(value, condition.value);
     case 'not_equals':

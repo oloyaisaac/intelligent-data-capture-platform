@@ -7,6 +7,7 @@ import { applyMigrations } from '../src/db/migrations';
 import { OrganisationsRepository } from '../src/repositories/auth-repo';
 import { DocumentsRepository, ExtractionsRepository } from '../src/repositories/document-repo';
 import { AuditRepository } from '../src/repositories/system-repo';
+import { ReviewsRepository } from '../src/repositories/review-repo';
 import { WorkflowRunsRepository, WorkflowsRepository } from '../src/repositories/workflow-repo';
 import { WorkflowService } from '../src/services/workflow-service';
 import { silentLogger } from '../src/logger';
@@ -33,11 +34,30 @@ it('rolls back a killed SQLite workflow deletion and permits a safe approval ret
       status: 'queued',
     });
     if (!document) throw new Error('Could not create document');
+    // A real stored approval snapshot keeps this crash test on an executable path.
+    const extraction = await new ExtractionsRepository(db).create({
+      organisationId: org.id,
+      documentId: document.id,
+      udm: {},
+      udmVersion: '1',
+      provider: 'synthetic',
+      confidence: 1,
+      needsReview: false,
+    });
+    const reviews = new ReviewsRepository(db);
+    const review = await reviews.openOrResume({
+      organisationId: org.id,
+      documentId: document.id,
+      extractionId: extraction.id,
+      reviewerId: 'synthetic-user',
+    });
+    await reviews.complete(review.id, { status: 'approved', approvedUdm: {} });
+    await db.execute("UPDATE documents SET status = 'approved' WHERE id = ?", [document.id]);
     const workflows = new WorkflowsRepository(db);
     const workflow = await workflows.create({
       organisationId: org.id,
       name: 'Delete',
-      trigger: 'document.extracted',
+      trigger: 'document.approved',
       documentType: null,
       conditions: [],
       actions: [{ type: 'delete_document' }],
@@ -49,11 +69,16 @@ it('rolls back a killed SQLite workflow deletion and permits a safe approval ret
       organisationId: org.id,
       workflowId: workflow.id,
       documentId: document.id,
-      trigger: 'document.extracted',
+      trigger: 'document.approved',
       status: 'awaiting_approval',
       matched: true,
       explanation: 'synthetic',
       actions: [{ type: 'delete_document' }],
+      approvalSnapshot: {
+        reviewId: review.id,
+        extractionId: extraction.id,
+        conditionSemanticsVersion: 1,
+      },
     });
     child = spawn(
       process.execPath,
@@ -105,12 +130,15 @@ it('rolls back a killed SQLite workflow deletion and permits a safe approval ret
         runs,
         documents: new DocumentsRepository(db),
         extractions: new ExtractionsRepository(db),
+        reviews: new ReviewsRepository(db),
         audit: new AuditRepository(db),
         transaction: (execute) =>
           db.transaction((tx) =>
             execute({
+              workflows: new WorkflowsRepository(tx),
               runs: new WorkflowRunsRepository(tx),
               documents: new DocumentsRepository(tx),
+              reviews: new ReviewsRepository(tx),
               audit: new AuditRepository(tx),
             }),
           ),

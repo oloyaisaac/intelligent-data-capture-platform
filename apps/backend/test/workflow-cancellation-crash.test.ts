@@ -7,6 +7,7 @@ import { applyMigrations } from '../src/db/migrations';
 import { OrganisationsRepository } from '../src/repositories/auth-repo';
 import { DocumentsRepository, ExtractionsRepository } from '../src/repositories/document-repo';
 import { AuditRepository } from '../src/repositories/system-repo';
+import { ReviewsRepository } from '../src/repositories/review-repo';
 import { WorkflowRunsRepository, WorkflowsRepository } from '../src/repositories/workflow-repo';
 import { WorkflowService } from '../src/services/workflow-service';
 import { silentLogger } from '../src/logger';
@@ -110,12 +111,15 @@ it('rolls back a cancellation killed inside its transaction and permits a safe r
         runs,
         documents: new DocumentsRepository(db),
         extractions: new ExtractionsRepository(db),
+        reviews: new ReviewsRepository(db),
         audit: new AuditRepository(db),
         transaction: (execute) =>
           db.transaction((tx) =>
             execute({
+              workflows: new WorkflowsRepository(tx),
               runs: new WorkflowRunsRepository(tx),
               documents: new DocumentsRepository(tx),
+              reviews: new ReviewsRepository(tx),
               audit: new AuditRepository(tx),
             }),
           ),

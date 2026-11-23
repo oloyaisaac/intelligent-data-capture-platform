@@ -771,19 +771,27 @@ to a pending plan. No production execution is claimed.
 Current condition evaluation reads only own field properties, while preserving the special
 `documentType` behavior. Tests cover Object.prototype and custom inherited properties, genuine own
 properties (including `__proto__`), false and zero, plus API evaluations under both policies. The
-synthetic tests verify a skipped plan and no soft-delete for this specific `exists` case. This is a
-partial mitigation, not a universal fail-closed rule: existing `not_equals` semantics still allow a
-missing field to match a non-null value, and comparison to null has its own existing semantics.
+synthetic tests verify a skipped plan and no soft-delete for this specific `exists` case. Subsequent
+synthetic tests reproduced `not_equals` on a missing documented path matching an approved invoice
+and automatically deleting it. All condition operators now fail to match absent, undefined, null and
+empty-string values, while retaining false and zero as present. This is a compatibility change: rules
+that intentionally compared to null or empty values stop matching. A further synthetic regression
+showed an omitted `not_equals` operand could also delete an approved document. Except for `exists`,
+conditions with a missing or null operand now fail to match. These guards do not establish correct
+field paths or validate all operand values and comparison types.
 
-Previously created awaiting-approval or interrupted plans are not reevaluated or cancelled by this
-change, old binaries remain unsafe, and prior soft-deletions and downstream effects are unchanged.
+Approved-trigger deletion now also requires a supported condition-semantics version in the recorded
+approval snapshot. Otherwise-current older pending or automatic plans without that version fail closed;
+tests exercise both execution paths. Other triggers' deletion plans already fail closed. The marker
+is not an authenticated proof, and these plans are neither reevaluated nor proactively cancelled.
+Old binaries remain unsafe, and prior soft-deletions and downstream effects are unchanged.
 Authorized owners should review affected definitions, runs and records before approving, replaying
 or correcting anything; do not blindly retry or restore. Other authorization, trigger, snapshot,
 concurrent execution, field semantics and real deployment behavior require independent review.
-Local `npm run verify -- --runInBand` passed 127 suites / 994 tests, with 31 skipped. Six focused
-PostgreSQL 16.16-configured workflow and connector backend suites passed 32 tests; this is not a full
-PostgreSQL suite. Formatting, diff checks and the backend build passed. Owner: unassigned;
-workflow/product and data integrity.
+After these additional guards, `npm run verify -- --runInBand` passed 133 suites / 1047 tests, with
+39 skipped. Eight focused PostgreSQL 16.16-configured backend suites passed 76 tests; some tests
+use SQLite or doubles. This is not a full PostgreSQL suite. Formatting, diff checks and the backend
+build passed. Owner: unassigned; workflow/product and data integrity.
 
 ### ARC-040 — HIGH: documented workflow field paths do not match evaluation context
 
@@ -791,14 +799,14 @@ A regression using an approved sample invoice reproduced the API-documented `tot
 condition being skipped, even though the synthetic invoice's amount exceeds the threshold. The
 same test records that `fields.total.amount.value > 100` matches and waits for approval. This
 reflects the current implementation flattening the whole latest extraction, not a specification
-that the raw path is the intended long-term interface. With `not_equals`, a missing documented path
-can instead match. An incorrect match can lead to actions, including soft-deletion for an
-owner-configured auto-approve rule. The evaluate API accepts the caller's trigger and reads the
-latest extraction; trigger and approved-snapshot consistency need separate review.
+that the raw path is the intended long-term interface. Previously `not_equals` on a missing documented
+path instead matched and could cause soft-deletion for an owner-configured auto-approve rule. The
+missing-value mitigation described in ARC-039 prevents that specific false match but does not repair
+path resolution or other comparison semantics.
 
-No automatic path rewrite or silent behavior change is made here: activating previously nonmatching
-rules could itself execute destructive actions. An authorized product/workflow owner must define
-field, missing-value, trigger and snapshot semantics and a versioned, explicitly reviewed migration,
+No automatic path rewrite is made here: activating previously nonmatching rules could itself execute
+destructive actions. An authorized product/workflow owner must define the broader field, missing-value,
+trigger and snapshot semantics and a versioned, explicitly reviewed migration,
 assess existing definitions and runs, and test both databases and supported clients before enabling
 changed behavior. Tests characterize one path and do not exhaust all conditions. Historical effects,
 production rules and downstream records have not been investigated. Owner: unassigned;
@@ -847,3 +855,115 @@ repository doubles rather than PostgreSQL. An initial PostgreSQL attempt used a 
 role and did not exercise the integration tests; the corrected run passed. This is not a full
 PostgreSQL run. Formatting, diff checks and the backend build passed. Owner: unassigned; security
 and product.
+
+### ARC-042 — HIGH: supplied workflow triggers and stale plans can execute destructive actions
+
+Synthetic API tests reproduced an owner-configured `document.approved` automatic deletion against a
+`needs_review` document: the owner supplied the trigger even though no approval had occurred.
+Evaluation permits reviewer-level callers as well. A `batch.completed` trigger with an unrelated document likewise deleted that document
+without evidence of a batch event. A pending approval-trigger delete also executed after reprocessing
+was queued. These are synthetic demonstrations, not evidence of production abuse.
+
+As a partial mitigation, evaluation of `document.approved` now requires a currently approved,
+non-deleted document with an approval of its latest extraction and no active extraction job. It
+returns 409 before creating runs if this check fails. Planning reads the extraction and its review
+and extraction identities in one query and records those identities with each run. Before executing
+a database-local delete for that trigger, the service locks the document inside the run transaction
+and checks that the same review and extraction remain current; a failed check rolls back the action
+and causes the run to be marked failed. Tests inject reprocessing between planning and execution and
+confirm that a pending plan cannot delete after a newer extraction is approved. The check serializes
+against current-version review and reprocessing paths using the same document lock; it does not fence
+old binaries, direct database writers or independently enqueued jobs. The identifiers are not content
+hashes, and the evaluator reads the extraction, not the separately saved approved UDM.
+
+Migration 015 adds a nullable identity column, with no unsafe backfill; approved-trigger deletion of
+legacy, malformed or stale runs fails closed. Existing pending plans may therefore become permanently
+failed. Apply the migration before deploying and stop or fence old binaries, which do not enforce this
+protocol. New review/extraction identifiers persist in run history; assess retention, erasure and
+copies with the responsible data owner.
+
+Synthetic tests also showed `document.extracted` and `document.needs_review` could be supplied for a
+queued document and trigger automatic deletion. Matched plans containing deletion for those triggers
+or `batch.completed` now fail before any action under either approval policy. Execution also fails
+closed for existing pending or matched runs and unknown persisted triggers. Tests cover both policies,
+mixed plans, unmatched rules and legacy runs. This intentionally disables deletion under those triggers
+until a product-reviewed event and state-binding protocol exists. It does not authenticate events,
+remediate historical deletions, or constrain older binaries.
+
+Synthetic tests also reproduced pending and automatic deletions after their workflow was disabled or
+deleted. Before supported database-local execution, current code now locks the workflow row and marks
+the run failed in the same transaction if the definition is disabled or absent. SQLite tests exercise
+pending approvals and automatic plans changed between planning and execution. PostgreSQL tests observe
+both lock orderings: a committed disable makes waiting approval fail, while a disable waiting behind an
+already-executing approval cannot undo its committed deletion. This is a point-in-time check, not
+proactive cancellation or an emergency stop: disabling and re-enabling before an untouched pending
+run is attempted can still permit its deletion. Old binaries do not perform the check.
+
+**The finding remains open.** `document.approved` remains caller-supplied despite the current-state
+identity checks. Repeated evaluation is not deduplicated, pending plans can revive on re-enable,
+and no check here authenticates a historical event or guarantees external effects. Owners should
+restrict evaluation and pending-run approval for unsafe workflows, review existing pending and
+historical runs and effects, and avoid blind replay. A product/security-reviewed, versioned event
+and snapshot protocol must bind plans to authentic events and immutable state, define cancellation
+and re-evaluation semantics, handle mixed deployments and recovery, and be validated with concurrent
+writers on both supported databases. Do not interpret this mitigation as closing ARC-027, ARC-040 or
+ARC-042. Local `npm run verify -- --runInBand` passed 134 suites / 1052 tests, with 41 skipped.
+The PostgreSQL 16.16-configured backend suite passed 123 suites / 726 tests; some tests explicitly use
+SQLite or doubles. An initial PostgreSQL run failed because two smoke-test workflow fixtures still used
+the now-blocked extracted trigger; those failures also left queued jobs that affected later tests.
+The fixtures were changed to exercise approved documents, and the smoke suite and full backend suite
+were rerun successfully with fresh test schemas. A PostgreSQL test observed an approval waiting on the document
+lock while the real reprocessing transaction was held, then failing without deletion after it
+committed. This covers one lock ordering, not all races, mixed versions or external effects.
+Formatting, diff checks and the backend build passed. Owner: unassigned; workflow/product,
+security and backend reliability.
+
+### ARC-043 — HIGH: automatic schema migration could leave partial schema or race at startup
+
+`createDatabase` calls `applyMigrations` on process startup. Previously the runner executed migration
+statements and recorded their `schema_migrations` marker separately, without a transaction around
+both or a cross-process lock. A synthetic SQLite test injected a failure after migration 015 added
+its column but before its marker was written. The column remained, the marker was absent, and retry
+failed with a duplicate-column error. No production state or impact has been established.
+
+The current runner now applies all pending migration SQL and ledger entries in one transaction.
+SQLite uses `BEGIN IMMEDIATE`; PostgreSQL obtains a transaction-scoped advisory lock keyed by the
+current schema, then reads the ledger under `READ COMMITTED`. Current runners on the same file or
+same PostgreSQL database/schema serialize; a lock or statement timeout can instead fail startup.
+Tests exercise marker failures, rollback of an entire fresh migration sequence, real SIGKILL before
+the marker on each driver, two SQLite processes, and two PostgreSQL connections with an observed
+advisory-lock wait. The tests cover selected failure boundaries and current SQL, not all possible
+storage, network, schema, or database versions.
+
+This does not repair historical partial migrations, fence old binaries or direct database writers,
+or resolve an ambiguous commit. A verified backup, staged deployment, controlled migrator and
+fencing of older processes remain necessary. After a failed or ambiguous migration, an authorized
+database owner should inspect the actual schema and ledger against a release-specific recovery plan;
+do not blindly retry, insert markers, drop columns or restore. Future migrations must be compatible
+with transactions. Independent R03/database review, commit/network fault and mixed-version testing,
+production evidence and a documented recovery procedure remain necessary. Local verification
+(`npm run verify -- --runInBand`) passed 133 suites / 1020 tests, with 39 skipped; the full
+PostgreSQL 16.16-configured backend suite passed 121 suites / 692 tests, some of which explicitly
+use SQLite or doubles.
+Formatting, diff checks and the backend build passed. Owner: unassigned; database and deployment
+reliability.
+
+### ARC-044 — HIGH: PostgreSQL connection loss could crash the process and leave work uncertain
+
+A synthetic PostgreSQL test terminated the backend of a checked-out transaction while its callback
+was paused. Before the change, `pg` emitted an unhandled client error and the test process exited;
+an earlier in-process attempt also reported an unhandled error. Idle pool errors likewise lacked a
+pool listener. The current adapter handles idle pool error events with a fixed, non-secret production
+log, rejects a checked-out transaction on connection loss, discards the lost connection and
+invalidates its scoped handle. Synthetic PostgreSQL tests cover a terminated backend, a lost idle
+connection, replacement connections, and stale handle rejection.
+
+This is not ownership or side-effect fencing: JavaScript callbacks can resume after the transaction
+has rejected, and already-started filesystem, provider or external operations cannot be cancelled by
+this adapter. Commit or connection failure may be ambiguous; rollback is not proof of the outcome.
+Other database drivers, process and network failure boundaries, logging paths, supported database
+versions and mixed deployments require review. Do not blindly retry external effects; inspect durable
+state and use an independently reviewed idempotency and fencing protocol. No production incident or
+impact is asserted. The full local and PostgreSQL-configured verification results are recorded in
+ARC-043; connection-loss tests exercise the real PostgreSQL driver. Owner: unassigned; database and
+backend reliability.

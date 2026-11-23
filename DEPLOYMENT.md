@@ -156,11 +156,19 @@ Rotation: Before rotating `JWT_SECRET`, follow [the offline encryption-key migra
 
 ## 5. Database deployment
 
-1. Backup / confirm a recent restore point.
-2. Run migrations in a transaction where possible; verify with a dry run on staging first.
-3. Deploy the new application image.
-4. Verify health, logs and key metrics.
-5. Keep the previous image for rollback.
+1. Verify a backup and restore procedure; rehearse the release on staging.
+2. Stop or fence old API and worker processes. Migrations run automatically at startup; use one
+   controlled current-version migrator before starting the new application. The current runner uses
+   a transaction and a same-schema PostgreSQL advisory lock (or SQLite write lock), but old
+   binaries do not participate and lock contention can time out.
+3. Deploy the new application image and verify health, logs and key metrics.
+4. Keep the previous image, but do not assume it is safe to run against a migrated schema. Review
+   release-specific data and protocol compatibility before rollback.
+
+If migration or commit outcome is uncertain, stop and have the database owner inspect the schema and
+migration ledger against a recovery plan before retrying or changing markers. Historical partial
+migrations are not automatically repaired; the current locking protocol does not fence manual or
+older writers. See R01 ARC-043.
 
 **Backups.** For single-host SQLite and filesystem storage, use the [offline backup and restore
 runbook](docs/backup-restore.md). Stop all writers for the entire snapshot, and restore the database

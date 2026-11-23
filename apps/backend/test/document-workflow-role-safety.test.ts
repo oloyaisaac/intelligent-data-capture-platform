@@ -1,5 +1,7 @@
 import {
   acceptInvite,
+  approveDocument,
+  SAMPLE_INVOICE_TEXT,
   createHarness,
   fakePng,
   registerAccount,
@@ -91,11 +93,14 @@ describe('document and workflow write roles', () => {
       content: fakePng('role-workflow'),
     });
     const id = upload.json<{ id: string }>().id;
+    harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+    await harness.services.worker.drain();
+    await approveDocument(harness, owner, id);
     const workflow = await harness.api.json('POST', '/api/v1/workflows', {
       token: owner.accessToken,
       body: {
         name: 'Automatic delete',
-        trigger: 'document.extracted',
+        trigger: 'document.approved',
         conditions: [],
         approvalPolicy: 'auto_approve',
         actions: [{ type: 'delete_document' }],
@@ -105,7 +110,7 @@ describe('document and workflow write roles', () => {
     for (const auth of belowReviewer()) {
       const result = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
         headers: auth,
-        body: { trigger: 'document.extracted', documentId: id },
+        body: { trigger: 'document.approved', documentId: id },
       });
       expect(result.statusCode).toBe(403);
       expect(await harness.db.one('SELECT deleted_at FROM documents WHERE id = ?', [id])).toEqual({
@@ -119,7 +124,7 @@ describe('document and workflow write roles', () => {
     ).toHaveLength(0);
     const allowed = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
       headers: { 'x-api-key': writerKey },
-      body: { trigger: 'document.extracted', documentId: id },
+      body: { trigger: 'document.approved', documentId: id },
     });
     expect(allowed.statusCode).toBe(200);
     expect(

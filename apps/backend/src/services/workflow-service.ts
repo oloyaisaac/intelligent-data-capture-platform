@@ -1,6 +1,7 @@
 import { AppError, roleAtLeast, type DocumentType } from '@idcp/shared';
 import type { Logger } from '../logger';
 import type { DocumentsRepository, ExtractionsRepository } from '../repositories/document-repo';
+import type { ReviewsRepository } from '../repositories/review-repo';
 import type { AuditRepository } from '../repositories/system-repo';
 import type {
   WorkflowRunsRepository,
@@ -9,6 +10,7 @@ import type {
   WorkflowRunRow,
 } from '../repositories/workflow-repo';
 import {
+  WORKFLOW_CONDITION_SEMANTICS_VERSION,
   planWorkflow,
   validateWorkflow,
   type WorkflowDefinition,
@@ -21,17 +23,18 @@ import type { AuthenticatedActor } from './auth-service';
  * Workflow automation (AGENT-001).
  *
  * Two rules shape this service:
- *   1. Nothing destructive happens because a rule said so. A destructive action is planned, stored as
- *      `awaiting_approval`, and only runs when a person approves that specific run.
- *   2. Every evaluation is logged — including the ones that did not match — so "why did this not
- *      fire?" is answerable without reading code.
+ *   1. Destructive actions normally wait for per-run approval; owner-configured `auto_approve`
+ *      workflows can execute them during evaluation. Evaluation is not a safe preview.
+ *   2. Each evaluated workflow produces a run, including when its conditions did not match.
  */
 export interface WorkflowExecutionRepositories {
+  workflows: Pick<WorkflowsRepository, 'lockForExecution'>;
   runs: Pick<
     WorkflowRunsRepository,
     'lockForExecution' | 'completeExecution' | 'markFailedIfStatus'
   >;
-  documents: Pick<DocumentsRepository, 'softDelete'>;
+  documents: Pick<DocumentsRepository, 'softDelete' | 'lockForReprocess'>;
+  reviews: Pick<ReviewsRepository, 'findWorkflowApprovalSnapshot'>;
   audit: Pick<AuditRepository, 'record'>;
 }
 
@@ -43,6 +46,7 @@ export interface WorkflowServiceRepositories {
   runs: Pick<WorkflowRunsRepository, 'create' | 'findById' | 'list' | 'markFailedIfStatus'>;
   documents: Pick<DocumentsRepository, 'findById'>;
   extractions: Pick<ExtractionsRepository, 'findLatestForDocument'>;
+  reviews: Pick<ReviewsRepository, 'findWorkflowApprovalSnapshot'>;
   audit: Pick<AuditRepository, 'record'>;
   transaction<T>(run: (repositories: WorkflowExecutionRepositories) => Promise<T>): Promise<T>;
 }
@@ -52,6 +56,7 @@ export class WorkflowService {
   private readonly runs: WorkflowServiceRepositories['runs'];
   private readonly documents: WorkflowServiceRepositories['documents'];
   private readonly extractions: WorkflowServiceRepositories['extractions'];
+  private readonly reviews: WorkflowServiceRepositories['reviews'];
   private readonly audit: WorkflowServiceRepositories['audit'];
   private readonly transaction: WorkflowServiceRepositories['transaction'];
 
@@ -63,6 +68,7 @@ export class WorkflowService {
     this.runs = repositories.runs;
     this.documents = repositories.documents;
     this.extractions = repositories.extractions;
+    this.reviews = repositories.reviews;
     this.audit = repositories.audit;
     this.transaction = repositories.transaction;
   }
@@ -183,7 +189,27 @@ export class WorkflowService {
 
     let fields: Record<string, unknown> = {};
     let documentType: string | null = document?.document_type ?? null;
-    if (document) {
+    let approvalSnapshot: {
+      reviewId: string;
+      extractionId: string;
+      conditionSemanticsVersion: number;
+    } | null = null;
+    if (input.trigger === 'document.approved') {
+      const snapshot = document
+        ? await this.reviews.findWorkflowApprovalSnapshot(actor.organisationId, document.id)
+        : null;
+      if (!snapshot) {
+        throw new AppError('CONFLICT', 'This document has no current approved record to evaluate.');
+      }
+      approvalSnapshot = {
+        reviewId: snapshot.reviewId,
+        extractionId: snapshot.extractionId,
+        conditionSemanticsVersion: WORKFLOW_CONDITION_SEMANTICS_VERSION,
+      };
+      const udm = snapshot.extractionUdm;
+      if (typeof udm.documentType === 'string') documentType = udm.documentType;
+      fields = flattenFields(udm);
+    } else if (document) {
       const extraction = await this.extractions.findLatestForDocument(document.id);
       if (extraction) {
         const udm = JSON.parse(extraction.udm) as { documentType?: string; fields?: unknown };
@@ -207,14 +233,19 @@ export class WorkflowService {
 
       // Validate the whole plan before executing anything. In particular, never report placeholder
       // delivery as success or delete a document before discovering a later unsupported action.
+      const triggerUnavailable = plan.matched
+        ? unboundDeletionFailure(input.trigger, plan.actions)
+        : null;
       const unavailable = plan.matched ? unsupportedActionFailure(plan.actions) : null;
       const status = !plan.matched
         ? 'skipped'
-        : plan.needsApproval
-          ? 'awaiting_approval'
-          : unavailable
-            ? 'failed'
-            : 'matched';
+        : triggerUnavailable
+          ? 'failed'
+          : plan.needsApproval
+            ? 'awaiting_approval'
+            : unavailable
+              ? 'failed'
+              : 'matched';
 
       let run = await this.runs.create({
         organisationId: actor.organisationId,
@@ -226,7 +257,8 @@ export class WorkflowService {
         explanation: plan.explanation,
         actions: plan.actions,
         outputs: [],
-        failure: status === 'failed' ? unavailable : null,
+        failure: status === 'failed' ? (triggerUnavailable ?? unavailable) : null,
+        approvalSnapshot,
         // Only runs created under this version's transactional execution protocol are eligible
         // for owner-directed cancellation. Older and unknown runs remain operator-only cases.
         executionProtocol: status === 'matched' ? 1 : 0,
@@ -390,7 +422,8 @@ export class WorkflowService {
       if (!run) throw new WorkflowRunNotFound();
       if (run.status !== expectedStatus) throw new WorkflowRunUnavailable();
       const actions = JSON.parse(run.actions) as WorkflowPlan['actions'];
-      const unavailable = unsupportedActionFailure(actions);
+      const unavailable =
+        unboundDeletionFailure(run.trigger_event, actions) ?? unsupportedActionFailure(actions);
       if (unavailable) {
         const failed = await repositories.runs.markFailedIfStatus(
           actor.organisationId,
@@ -400,6 +433,50 @@ export class WorkflowService {
         );
         if (!failed) throw new WorkflowRunUnavailable();
         return failed;
+      }
+      // Serialize execution with current-version disable and deletion of the definition. This is
+      // a point-in-time check: re-enabling a rule can make an untouched pending plan eligible again.
+      const workflow = await repositories.workflows.lockForExecution(
+        run.organisation_id,
+        run.workflow_id,
+      );
+      if (!workflow || Number(workflow.enabled) !== 1) {
+        const failed = await repositories.runs.markFailedIfStatus(
+          actor.organisationId,
+          run.id,
+          expectedStatus,
+          'The workflow is disabled or no longer exists; no actions were executed.',
+        );
+        if (!failed) throw new WorkflowRunUnavailable();
+        return failed;
+      }
+      if (run.trigger_event === 'document.approved') {
+        if (!run.document_id) {
+          throw new WorkflowActionFailure('The workflow run has no approved document.');
+        }
+        // Serialize this check and the database-local deletion with current-version reprocessing
+        // and review writes. Legacy runs have no trustworthy snapshot and fail closed.
+        const document = await repositories.documents.lockForReprocess(
+          run.organisation_id,
+          run.document_id,
+        );
+        const approved = document
+          ? await repositories.reviews.findWorkflowApprovalSnapshot(
+              run.organisation_id,
+              document.id,
+            )
+          : null;
+        const planned = parseApprovalSnapshot(run.approval_snapshot);
+        if (
+          !approved ||
+          !planned ||
+          approved.reviewId !== planned.reviewId ||
+          approved.extractionId !== planned.extractionId
+        ) {
+          throw new WorkflowActionFailure(
+            'The workflow approval snapshot or condition semantics are not current.',
+          );
+        }
       }
       const outputs: string[] = [];
       for (const action of actions) {
@@ -445,9 +522,48 @@ export class WorkflowService {
   }
 }
 
+function parseApprovalSnapshot(
+  raw: string | null,
+): { reviewId: string; extractionId: string; conditionSemanticsVersion: number } | null {
+  if (!raw) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const snapshot = value as Record<string, unknown>;
+    if (
+      typeof snapshot.reviewId !== 'string' ||
+      !snapshot.reviewId ||
+      typeof snapshot.extractionId !== 'string' ||
+      !snapshot.extractionId ||
+      snapshot.conditionSemanticsVersion !== WORKFLOW_CONDITION_SEMANTICS_VERSION
+    )
+      return null;
+    return {
+      reviewId: snapshot.reviewId,
+      extractionId: snapshot.extractionId,
+      conditionSemanticsVersion: WORKFLOW_CONDITION_SEMANTICS_VERSION,
+    };
+  } catch {
+    return null;
+  }
+}
+
 class WorkflowActionFailure extends Error {}
 class WorkflowRunNotFound extends Error {}
 class WorkflowRunUnavailable extends Error {}
+
+/** Only approved-trigger deletion has a current-state identity check; events remain unverified. */
+function unboundDeletionFailure(trigger: string, actions: WorkflowPlan['actions']): string | null {
+  if (
+    trigger === 'document.approved' ||
+    !Array.isArray(actions) ||
+    !actions.some((action) => action?.type === 'delete_document')
+  )
+    return null;
+  return trigger === 'batch.completed'
+    ? 'Batch-trigger document deletion is unavailable until the event and document link are verified.'
+    : 'Document deletion is unavailable for this trigger until its event and document state are bound.';
+}
 
 /** Fail the whole plan before any action if a delivery action has no implementation. */
 function unsupportedActionFailure(actions: WorkflowPlan['actions']): string | null {
@@ -496,6 +612,7 @@ function toRun(row: WorkflowRunRow) {
     workflowId: row.workflow_id,
     documentId: row.document_id,
     trigger: row.trigger_event,
+    approvalSnapshot: parseApprovalSnapshot(row.approval_snapshot),
     status: row.status,
     matched: Number(row.matched) === 1,
     explanation: row.explanation,

@@ -321,12 +321,15 @@ export function buildServices(options: BuildServicesOptions): Services {
       runs: new WorkflowRunsRepository(db),
       documents: new DocumentsRepository(db),
       extractions: new ExtractionsRepository(db),
+      reviews: new ReviewsRepository(db),
       audit: new AuditRepository(db),
       transaction: (run) =>
         db.transaction((tx) =>
           run({
+            workflows: new WorkflowsRepository(tx),
             runs: new WorkflowRunsRepository(tx),
             documents: new DocumentsRepository(tx),
+            reviews: new ReviewsRepository(tx),
             audit: new AuditRepository(tx),
           }),
         ),
