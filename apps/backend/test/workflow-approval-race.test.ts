@@ -1,15 +1,25 @@
 import { DocumentsRepository } from '../src/repositories/document-repo';
 import { AuditRepository } from '../src/repositories/system-repo';
-import { createHarness, registerAccount, type Harness, type TestAccount } from './helpers';
+import {
+  approveDocument,
+  SAMPLE_INVOICE_TEXT,
+  createHarness,
+  registerAccount,
+  type Harness,
+  type TestAccount,
+} from './helpers';
 
 async function pendingDelete(harness: Harness, account: TestAccount) {
   const upload = await harness.api.upload(account.accessToken);
   const documentId = upload.json<{ id: string }>().id;
+  harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+  await harness.services.worker.drain();
+  await approveDocument(harness, account, documentId);
   const created = await harness.api.json('POST', '/api/v1/workflows', {
     token: account.accessToken,
     body: {
       name: 'Delete after approval',
-      trigger: 'document.extracted',
+      trigger: 'document.approved',
       conditions: [],
       actions: [{ type: 'delete_document', config: {} }],
     },
@@ -17,7 +27,7 @@ async function pendingDelete(harness: Harness, account: TestAccount) {
   expect(created.statusCode).toBe(201);
   const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
     token: account.accessToken,
-    body: { trigger: 'document.extracted', documentId },
+    body: { trigger: 'document.approved', documentId },
   });
   const run = evaluation.json<{ runs: Array<{ id: string; status: string }> }>().runs[0]!;
   expect(run.status).toBe('awaiting_approval');

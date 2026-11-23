@@ -14,6 +14,7 @@ import {
   evaluateCondition,
   planWorkflow,
   validateWorkflow,
+  type WorkflowCondition,
   type WorkflowDefinition,
 } from '../src/workflows/engine';
 
@@ -120,13 +121,12 @@ describe('workflow automation (AGENT-001)', () => {
           { ...context, fields: inherited },
         ),
       ).toBe(false);
-      // Preserve existing missing-value comparison behavior; it is not a presence check.
       expect(
         evaluateCondition(
           { field: 'secret', operator: 'not_equals', value: 'value' },
           { ...context, fields: inherited },
         ),
-      ).toBe(true);
+      ).toBe(false);
       const fields = Object.fromEntries([
         ['toString', 'real'],
         ['__proto__', 'own value'],
@@ -157,6 +157,70 @@ describe('workflow automation (AGENT-001)', () => {
           { ...context, fields },
         ),
       ).toBe(true);
+    });
+
+    it('does not match any operator against absent, undefined, null or empty fields', () => {
+      const conditions: WorkflowCondition[] = [
+        { field: 'field', operator: 'exists' },
+        { field: 'field', operator: 'equals', value: 'null' },
+        { field: 'field', operator: 'equals', value: '' },
+        { field: 'field', operator: 'not_equals', value: 'anything' },
+        { field: 'field', operator: 'contains', value: '' },
+        { field: 'field', operator: 'starts_with', value: '' },
+        { field: 'field', operator: 'greater_than', value: 0 },
+        { field: 'field', operator: 'less_than', value: 0 },
+        { field: 'field', operator: 'in', value: ['null', ''] },
+      ];
+      for (const fields of [{}, { field: undefined }, { field: null }, { field: '' }]) {
+        for (const condition of conditions) {
+          expect(evaluateCondition(condition, { ...context, fields })).toBe(false);
+        }
+      }
+      for (const documentType of [undefined, null, '']) {
+        expect(
+          evaluateCondition(
+            { field: 'documentType', operator: 'not_equals', value: 'invoice' },
+            { ...context, documentType },
+          ),
+        ).toBe(false);
+        expect(
+          evaluateCondition(
+            { field: 'documentType', operator: 'equals', value: 'null' },
+            { ...context, documentType },
+          ),
+        ).toBe(false);
+      }
+      expect(
+        evaluateCondition(
+          { field: 'zero', operator: 'not_equals', value: 1 },
+          { ...context, fields: { zero: 0 } },
+        ),
+      ).toBe(true);
+      expect(
+        evaluateCondition(
+          { field: 'paid', operator: 'equals', value: false },
+          { ...context, fields: { paid: false } },
+        ),
+      ).toBe(true);
+    });
+
+    it('does not match comparisons when the operand is absent or null', () => {
+      for (const operator of [
+        'equals',
+        'not_equals',
+        'contains',
+        'starts_with',
+        'greater_than',
+        'less_than',
+        'in',
+      ] as const) {
+        for (const value of [undefined, null]) {
+          expect(
+            evaluateCondition({ field: 'vendor', operator, value: value as never }, context),
+          ).toBe(false);
+        }
+      }
+      expect(evaluateCondition({ field: 'vendor', operator: 'exists' }, context)).toBe(true);
     });
 
     it('rejects a definition that could never work', () => {
@@ -373,6 +437,61 @@ describe('workflow automation (AGENT-001)', () => {
       },
     );
 
+    it.each(['auto_approve', 'always_ask'])(
+      'does not delete for an absent documented path under %s',
+      async (policy) => {
+        const account = await registerAccount(harness);
+        const created = await createWorkflow(account, {
+          name: 'Documented absent path',
+          conditions: [{ field: 'total.amount', operator: 'not_equals', value: 0 }],
+          approvalPolicy: policy,
+          actions: [{ type: 'delete_document' }],
+        });
+        expect(created.statusCode).toBe(201);
+        const documentId = await approvedInvoice(account);
+        const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
+          token: account.accessToken,
+          body: { trigger: 'document.approved', documentId },
+        });
+        expect(evaluation.statusCode).toBe(200);
+        const run = evaluation.json<{ runs: Array<{ status: string; matched: boolean }> }>()
+          .runs[0]!;
+        expect(run).toMatchObject({ status: 'skipped', matched: false });
+        expect(
+          await harness.db.one('SELECT deleted_at FROM documents WHERE id = ?', [documentId]),
+        ).toEqual({ deleted_at: null });
+        expect(
+          await harness.db.query('SELECT id FROM audit_logs WHERE action = ? AND target_id = ?', [
+            'document.deleted',
+            documentId,
+          ]),
+        ).toHaveLength(0);
+      },
+    );
+
+    it('does not delete when a comparison operand was omitted', async () => {
+      const account = await registerAccount(harness);
+      const created = await createWorkflow(account, {
+        name: 'Missing operand',
+        conditions: [{ field: 'documentType', operator: 'not_equals' }],
+        approvalPolicy: 'auto_approve',
+        actions: [{ type: 'delete_document' }],
+      });
+      expect(created.statusCode).toBe(201);
+      const documentId = await approvedInvoice(account);
+      const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
+        token: account.accessToken,
+        body: { trigger: 'document.approved', documentId },
+      });
+      expect(evaluation.statusCode).toBe(200);
+      expect(evaluation.json<{ runs: Array<{ status: string }> }>().runs[0]!.status).toBe(
+        'skipped',
+      );
+      expect(
+        await harness.db.one('SELECT deleted_at FROM documents WHERE id = ?', [documentId]),
+      ).toEqual({ deleted_at: null });
+    });
+
     it('characterizes the unresolved flat UDM path mismatch without executing the destructive action', async () => {
       const account = await registerAccount(harness);
       const documented = await createWorkflow(account, {
@@ -429,7 +548,7 @@ describe('workflow automation (AGENT-001)', () => {
       }>().runs[0]!;
       expect(run.status).toBe('failed');
       expect(run.outputs).toEqual([]);
-      expect(run.failure).toMatch(/no document/);
+      expect(run.failure).toMatch(/Batch-trigger document deletion is unavailable/);
     });
 
     it('logs the workflows that did not match, with the reason', async () => {

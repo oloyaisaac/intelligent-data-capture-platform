@@ -15,6 +15,7 @@ export async function createDatabase(config: Config, logger: Logger): Promise<Da
     const db = new PostgresDatabase({
       connectionString: config.DATABASE_URL as string,
       poolSize: config.DATABASE_POOL_SIZE,
+      onIdleConnectionError: () => logger.error('PostgreSQL idle connection lost.'),
     });
     const applied = await applyMigrations(db);
     if (applied.length > 0) logger.info('database migrations applied', { migrations: applied });

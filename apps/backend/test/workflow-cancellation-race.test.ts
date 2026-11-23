@@ -1,6 +1,6 @@
 import { AuditRepository } from '../src/repositories/system-repo';
 import { WorkflowRunsRepository } from '../src/repositories/workflow-repo';
-import { createHarness, registerAccount } from './helpers';
+import { approveDocument, SAMPLE_INVOICE_TEXT, createHarness, registerAccount } from './helpers';
 
 it('prevents a paused original execution from acting after its run is cancelled', async () => {
   const harness = await createHarness();
@@ -16,11 +16,14 @@ it('prevents a paused original execution from acting after its run is cancelled'
     const account = await registerAccount(harness);
     const document = await harness.api.upload(account.accessToken);
     const documentId = document.json<{ id: string }>().id;
+    harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+    await harness.services.worker.drain();
+    await approveDocument(harness, account, documentId);
     const workflow = await harness.api.json('POST', '/api/v1/workflows', {
       token: account.accessToken,
       body: {
         name: 'Auto delete',
-        trigger: 'document.extracted',
+        trigger: 'document.approved',
         conditions: [],
         approvalPolicy: 'auto_approve',
         actions: [{ type: 'delete_document' }],
@@ -38,7 +41,7 @@ it('prevents a paused original execution from acting after its run is cancelled'
       });
     const evaluation = harness.api.json('POST', '/api/v1/workflows/evaluate', {
       token: account.accessToken,
-      body: { trigger: 'document.extracted', documentId },
+      body: { trigger: 'document.approved', documentId },
     });
     try {
       const runId = await runCreated;
@@ -87,11 +90,14 @@ it('does not overwrite or duplicate a committed cancellation after lost acknowle
     const account = await registerAccount(harness);
     const document = await harness.api.upload(account.accessToken);
     const documentId = document.json<{ id: string }>().id;
+    harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+    await harness.services.worker.drain();
+    await approveDocument(harness, account, documentId);
     const workflow = await harness.api.json('POST', '/api/v1/workflows', {
       token: account.accessToken,
       body: {
         name: 'Auto delete',
-        trigger: 'document.extracted',
+        trigger: 'document.approved',
         conditions: [],
         approvalPolicy: 'auto_approve',
         actions: [{ type: 'delete_document' }],
@@ -110,7 +116,7 @@ it('does not overwrite or duplicate a committed cancellation after lost acknowle
         (
           await harness.api.json('POST', '/api/v1/workflows/evaluate', {
             token: account.accessToken,
-            body: { trigger: 'document.extracted', documentId },
+            body: { trigger: 'document.approved', documentId },
           })
         ).statusCode,
       ).toBe(500);

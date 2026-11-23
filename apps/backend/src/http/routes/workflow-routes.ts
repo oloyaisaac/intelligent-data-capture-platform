@@ -14,8 +14,8 @@ import {
 /**
  * AGENT-001 — workflow rules and their run log.
  *
- * Evaluation is explicit (`POST /workflows/evaluate`) rather than hidden behind document approval:
- * the review screen asks "what would happen", sees the answer, and the same call can be replayed.
+ * Evaluation is explicit (`POST /workflows/evaluate`) rather than hidden behind document approval.
+ * It records runs and may execute owner-configured automatic actions; it is not a dry run.
  */
 export function registerWorkflowRoutes(
   app: FastifyInstance,

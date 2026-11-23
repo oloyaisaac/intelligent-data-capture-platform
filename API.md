@@ -396,15 +396,41 @@ packages stay listed with `revokedReason` but cannot be installed.
 
 **Workflow condition caution:** The example's `total.amount` path does not currently resolve to
 the extracted UDM field: evaluation flattens the latest extraction under paths such as
-`fields.total.amount.value`. Conditions can therefore match or skip unexpectedly, and `not_equals`
-can match a missing field. Evaluation can execute actions, not just preview them. Do not rely on
-this example for destructive rules; review and test existing rules with an authorized owner. The
-field-path semantics and migration are unresolved (R01 ARC-039/ARC-040).
+`fields.total.amount.value`. Conditions can therefore match or skip unexpectedly. Conditions now
+fail to match when the field value is absent, null, undefined or an empty string, including comparisons
+with `null` and `not_equals`; zero and false remain present. Except for `exists`, conditions with an
+absent or null comparison operand also do not match. These compatibility changes can stop existing
+workflows that relied on such comparisons. They do not fix field paths or validate all operands. Evaluation can execute actions, not just preview them. Do not rely on this example for
+destructive rules; review and test existing rules with an authorized owner. The broader field-path
+semantics and migration are unresolved (R01 ARC-039/ARC-040).
 
 Triggers: `document.approved`, `document.extracted`, `document.needs_review`, `batch.completed`.
+The caller supplies the trigger; it is not a verified event. `document.approved` evaluation now
+requires a document with a current approved review of the latest extraction and no active extraction
+job. New runs record the review and extraction IDs and a condition-semantics version as
+`approvalSnapshot`; the evaluator reads that extraction, and deletion checks the identities and
+version under a document lock. A missing or stale approval returns 409 at evaluation; a pending
+deletion that fails the execution check is marked failed and approval returns 409. Older runs missing
+this identity or version fail closed if deletion is attempted, even when their document is still
+approved; they are not backfilled or automatically reevaluated. The version is a compatibility guard,
+not proof of authenticity. Run migration 015 before new code and stop or fence old binaries:
+they do not enforce this check. Matched plans containing `delete_document` for `batch.completed`,
+`document.extracted` or `document.needs_review` now fail without executing any actions, including
+plans that would otherwise await approval. Existing pending or matched runs with those triggers
+also fail if execution is attempted. Unknown stored triggers are likewise denied. This is a
+compatibility change, not event authentication; `document.approved` is still caller-supplied and
+repeated evaluation is not deduplicated. The recorded identifiers do not prove an authentic event or
+immutable contents. Do not rely on these triggers or pending plans to authorize destructive actions.
+Disable unsafe automation and restrict both evaluation and pending-run approval until owners assess
+them. Before executing a supported plan, current code locks its workflow and fails the run if the
+workflow is disabled or deleted. This does not proactively cancel pending runs: if a workflow is
+re-enabled before a pending run is attempted, that run can still execute. A disable that waits behind
+an already-running execution cannot undo its committed effects. Direct writers and old binaries are
+outside these protections. See R01 ARC-042.
+
 Actions: `notify`, `send_to_connector`, `create_export`, `delete_document` — the last three are
-destructive, so their run is held as `awaiting_approval` until a person approves that specific run,
-unless an owner has set `auto_approve`. `notify`, `send_to_connector` and `create_export` are not
+destructive, so their run normally waits as `awaiting_approval` until a person approves that specific
+run, unless an owner has set `auto_approve` or the trigger-deletion restriction above fails the plan. `notify`, `send_to_connector` and `create_export` are not
 implemented: a matched plan containing any of them fails without executing any actions, including a
 preceding delete. Approval-required plans remain pending until approval, which returns 409 and marks
 the run failed. Historical completed runs may have contained placeholder outputs; they do not prove

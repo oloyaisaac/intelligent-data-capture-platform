@@ -1,5 +1,5 @@
 import { AuditRepository } from '../src/repositories/system-repo';
-import { createHarness, registerAccount } from './helpers';
+import { approveDocument, SAMPLE_INVOICE_TEXT, createHarness, registerAccount } from './helpers';
 
 it('rolls back earlier actions and audits when a later delete fails', async () => {
   const harness = await createHarness();
@@ -7,11 +7,14 @@ it('rolls back earlier actions and audits when a later delete fails', async () =
     const account = await registerAccount(harness);
     const upload = await harness.api.upload(account.accessToken);
     const documentId = upload.json<{ id: string }>().id;
+    harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+    await harness.services.worker.drain();
+    await approveDocument(harness, account, documentId);
     const created = await harness.api.json('POST', '/api/v1/workflows', {
       token: account.accessToken,
       body: {
         name: 'Two deletes',
-        trigger: 'document.extracted',
+        trigger: 'document.approved',
         conditions: [],
         actions: [{ type: 'delete_document' }, { type: 'delete_document' }],
       },
@@ -19,7 +22,7 @@ it('rolls back earlier actions and audits when a later delete fails', async () =
     expect(created.statusCode).toBe(201);
     const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
       token: account.accessToken,
-      body: { trigger: 'document.extracted', documentId },
+      body: { trigger: 'document.approved', documentId },
     });
     const runId = evaluation.json<{ runs: Array<{ id: string }> }>().runs[0]!.id;
     const response = await harness.api.json('POST', `/api/v1/workflows/runs/${runId}/approve`, {
@@ -49,11 +52,14 @@ it('commits an automatic deletion and both audits with its completed result', as
     const account = await registerAccount(harness);
     const upload = await harness.api.upload(account.accessToken);
     const documentId = upload.json<{ id: string }>().id;
+    harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+    await harness.services.worker.drain();
+    await approveDocument(harness, account, documentId);
     const created = await harness.api.json('POST', '/api/v1/workflows', {
       token: account.accessToken,
       body: {
         name: 'Automatic delete',
-        trigger: 'document.extracted',
+        trigger: 'document.approved',
         conditions: [],
         approvalPolicy: 'auto_approve',
         actions: [{ type: 'delete_document' }],
@@ -62,7 +68,7 @@ it('commits an automatic deletion and both audits with its completed result', as
     const workflowId = created.json<{ id: string }>().id;
     const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
       token: account.accessToken,
-      body: { trigger: 'document.extracted', documentId },
+      body: { trigger: 'document.approved', documentId },
     });
     expect(evaluation.statusCode).toBe(200);
     const run = evaluation.json<{ runs: Array<{ status: string; outputs: string[] }> }>().runs[0]!;
@@ -91,11 +97,14 @@ it('does not report an automatic run completed when its audit fails', async () =
     const account = await registerAccount(harness);
     const upload = await harness.api.upload(account.accessToken);
     const documentId = upload.json<{ id: string }>().id;
+    harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+    await harness.services.worker.drain();
+    await approveDocument(harness, account, documentId);
     const created = await harness.api.json('POST', '/api/v1/workflows', {
       token: account.accessToken,
       body: {
         name: 'Automatic delete',
-        trigger: 'document.extracted',
+        trigger: 'document.approved',
         conditions: [],
         approvalPolicy: 'auto_approve',
         actions: [{ type: 'delete_document' }],
@@ -114,7 +123,7 @@ it('does not report an automatic run completed when its audit fails', async () =
     try {
       const response = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
         token: account.accessToken,
-        body: { trigger: 'document.extracted', documentId },
+        body: { trigger: 'document.approved', documentId },
       });
       expect(response.statusCode).toBe(500);
       expect(response.body).not.toContain('secret synthetic failure');
@@ -146,18 +155,21 @@ it('does not overwrite committed approval if the commit acknowledgement is lost'
     const account = await registerAccount(harness);
     const upload = await harness.api.upload(account.accessToken);
     const documentId = upload.json<{ id: string }>().id;
+    harness.ocr.setText(SAMPLE_INVOICE_TEXT);
+    await harness.services.worker.drain();
+    await approveDocument(harness, account, documentId);
     const created = await harness.api.json('POST', '/api/v1/workflows', {
       token: account.accessToken,
       body: {
         name: 'Delete',
-        trigger: 'document.extracted',
+        trigger: 'document.approved',
         conditions: [],
         actions: [{ type: 'delete_document' }],
       },
     });
     const evaluation = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
       token: account.accessToken,
-      body: { trigger: 'document.extracted', documentId },
+      body: { trigger: 'document.approved', documentId },
     });
     const runId = evaluation.json<{ runs: Array<{ id: string }> }>().runs[0]!.id;
     const workflowId = created.json<{ id: string }>().id;

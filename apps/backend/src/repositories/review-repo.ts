@@ -97,6 +97,62 @@ export class ReviewsRepository {
     );
   }
 
+  /** Read approval identity and its extraction together for workflow planning and revalidation. */
+  async findWorkflowApprovalSnapshot(
+    organisationId: string,
+    documentId: string,
+  ): Promise<{
+    reviewId: string;
+    extractionId: string;
+    extractionUdm: Record<string, unknown>;
+  } | null> {
+    const row = await this.db.one<{
+      review_id: string;
+      extraction_id: string;
+      extraction_udm: string;
+      approved_udm: string | null;
+    }>(
+      `SELECT r.id AS review_id, e.id AS extraction_id, e.udm AS extraction_udm, r.approved_udm
+       FROM reviews r
+       JOIN documents d ON d.id = r.document_id AND d.organisation_id = r.organisation_id
+       JOIN extractions e ON e.id = r.extraction_id AND e.document_id = d.id
+                         AND e.organisation_id = d.organisation_id
+       WHERE d.organisation_id = ? AND d.id = ? AND r.status = 'approved'
+         AND d.status = 'approved' AND d.deleted_at IS NULL
+         AND e.id = (
+           SELECT latest.id FROM extractions latest WHERE latest.document_id = d.id
+             AND latest.organisation_id = d.organisation_id ORDER BY latest.attempt DESC LIMIT 1
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM jobs j WHERE j.document_id = d.id AND j.organisation_id = d.organisation_id
+             AND j.type = 'extract_document' AND j.status IN ('queued', 'running')
+         )
+       ORDER BY r.completed_at DESC, r.id DESC LIMIT 1`,
+      [organisationId, documentId],
+    );
+    if (!row?.approved_udm) return null;
+    try {
+      const approved: unknown = JSON.parse(row.approved_udm);
+      const extraction: unknown = JSON.parse(row.extraction_udm);
+      if (
+        !approved ||
+        typeof approved !== 'object' ||
+        Array.isArray(approved) ||
+        !extraction ||
+        typeof extraction !== 'object' ||
+        Array.isArray(extraction)
+      )
+        return null;
+      return {
+        reviewId: row.review_id,
+        extractionId: row.extraction_id,
+        extractionUdm: extraction as Record<string, unknown>,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /** Return only an approval of the latest extraction of a currently approved, idle document. */
   async findApprovedUdm(documentId: string): Promise<unknown | null> {
     const row = await this.db.one<ReviewRow>(
