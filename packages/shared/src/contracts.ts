@@ -720,7 +720,7 @@ export type TemplateDetail = z.infer<typeof TemplateDetailSchema>;
 
 // --- API keys (DEVAPI-001) -----------------------------------------------
 
-/** Scopes map to the narrowest role that already implies them. */
+/** HTTP API key scope policy is documented in docs/api-key-scopes.md. */
 export const API_KEY_SCOPES = [
   'documents:read',
   'documents:write',

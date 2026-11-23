@@ -47,7 +47,7 @@ components:
       type: apiKey
       in: header
       name: X-API-Key
-      description: Developer API key (DEVAPI-001). Scopes map to the role ladder.
+      description: Developer API key (DEVAPI-001). Access is restricted to the explicit method/route scope matrix in docs/api-key-scopes.md; unlisted operations are denied, including for admin keys.
   schemas:
     Error:
       type: object

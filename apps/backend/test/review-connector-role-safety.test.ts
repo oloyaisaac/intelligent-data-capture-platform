@@ -16,6 +16,8 @@ describe('review, send, and batch role safety', () => {
   let owner: TestAccount;
   let readKey: string;
   let writeKey: string;
+  let connectorKey: string;
+  let documentWriterKey: string;
   const create = jest.fn().mockResolvedValue({ created: 1, updated: 0, skipped: 0, summary: 'ok' });
 
   beforeAll(async () => {
@@ -40,6 +42,8 @@ describe('review, send, and batch role safety', () => {
     };
     readKey = await key('documents:read');
     writeKey = await key('review:write');
+    connectorKey = await key('connectors:write');
+    documentWriterKey = await key('documents:write');
   });
   afterAll(async () => {
     await harness.close();
@@ -151,6 +155,15 @@ describe('review, send, and batch role safety', () => {
           body: { connectorId, mappingProfileId },
         })
       ).statusCode,
+    ).toBe(403);
+    expect(create).not.toHaveBeenCalled();
+    expect(
+      (
+        await harness.api.json('POST', path, {
+          headers: { 'x-api-key': connectorKey },
+          body: { connectorId, mappingProfileId },
+        })
+      ).statusCode,
     ).toBe(202);
     expect(create).toHaveBeenCalledTimes(1);
   });
@@ -229,7 +242,8 @@ describe('review, send, and batch role safety', () => {
       [owner.organisationId],
     );
     expect(Number(after!.n)).toBe(Number(before!.n));
-    expect((await post(writeKey)).status).toBe(201);
+    expect((await post(writeKey)).status).toBe(403);
+    expect((await post(documentWriterKey)).status).toBe(201);
 
     const invite = await harness.api.json('POST', '/api/v1/users/invite', {
       token: owner.accessToken,

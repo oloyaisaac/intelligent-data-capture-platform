@@ -122,8 +122,13 @@ describe('document and workflow write roles', () => {
         workflow.json<{ id: string }>().id,
       ]),
     ).toHaveLength(0);
-    const allowed = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
+    const denied = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
       headers: { 'x-api-key': writerKey },
+      body: { trigger: 'document.approved', documentId: id },
+    });
+    expect(denied.statusCode).toBe(403);
+    const allowed = await harness.api.json('POST', '/api/v1/workflows/evaluate', {
+      token: owner.accessToken,
       body: { trigger: 'document.approved', documentId: id },
     });
     expect(allowed.statusCode).toBe(200);

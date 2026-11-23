@@ -1,5 +1,7 @@
 import {
   AppError,
+  ROLES,
+  roleAtLeast,
   type ApiKey,
   type ApiKeyScope,
   type CreatedApiKey,
@@ -17,8 +19,9 @@ import type { AuthenticatedActor } from './auth-service';
  * Developer API keys (DEVAPI-001).
  *
  * The secret is generated once, returned once, and stored only as a SHA-256 hash with a short
- * prefix for display. Scopes currently map to a broad role ladder, not per-operation permissions;
- * key management separately requires a signed-in owner or admin.
+ * prefix for display. The HTTP boundary checks scopes per route and narrows the effective role;
+ * direct service calls are not protected by that HTTP policy. Key management separately requires a
+ * signed-in owner or admin.
  */
 
 const KEY_PREFIX = 'idcp_';
@@ -37,6 +40,7 @@ export function roleForScopes(scopes: string[]): Role | null {
   let highest: Role | null = null;
   const ladder: Role[] = ['viewer', 'reviewer', 'admin', 'owner'];
   for (const scope of scopes) {
+    if (!Object.hasOwn(SCOPE_ROLE, scope)) continue;
     const role = SCOPE_ROLE[scope as ApiKeyScope];
     if (!role) continue;
     if (!highest || ladder.indexOf(role) > ladder.indexOf(highest)) highest = role;
@@ -157,7 +161,7 @@ export class ApiKeyService {
       row.created_by,
       row.organisation_id,
     );
-    if (!membership) return null;
+    if (!membership || !ROLES.includes(membership.role as Role)) return null;
 
     await this.keys.touch(row.key_hash);
     return {
@@ -186,8 +190,7 @@ function isUnexpired(value: unknown): boolean {
 
 /** A key can never exceed the role of the person who created it, even after a role change. */
 function roleAtMost(scopeRole: Role, actualRole: Role): Role {
-  const ladder: Role[] = ['viewer', 'reviewer', 'admin', 'owner'];
-  return ladder.indexOf(scopeRole) < ladder.indexOf(actualRole) ? scopeRole : actualRole;
+  return roleAtLeast(actualRole, scopeRole) ? scopeRole : actualRole;
 }
 
 function parseScopes(raw: string): ApiKeyScope[] {

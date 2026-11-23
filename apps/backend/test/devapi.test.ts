@@ -80,12 +80,17 @@ describe('developer API keys', () => {
     });
     expect(template.statusCode).toBe(403);
 
-    // The same request works with a key that carries a reviewer scope.
+    // Review permission does not grant unrelated template management.
     const writer = (await create({ name: 'Writer', scopes: ['review:write'] })).json<{
       key: string;
     }>();
-    const allowed = await harness.api.json('POST', '/api/v1/templates', {
+    const denied = await harness.api.json('POST', '/api/v1/templates', {
       headers: { 'x-api-key': writer.key },
+      body: { name: 'Denied', documentType: 'invoice', fields: [{ path: 'a', label: 'A' }] },
+    });
+    expect(denied.statusCode).toBe(403);
+    const allowed = await harness.api.json('POST', '/api/v1/templates', {
+      token: owner.accessToken,
       body: { name: 'Allowed', documentType: 'invoice', fields: [{ path: 'a', label: 'A' }] },
     });
     expect(allowed.statusCode).toBe(201);

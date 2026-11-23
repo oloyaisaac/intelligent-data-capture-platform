@@ -187,6 +187,12 @@ require a signed-in owner or admin, which breaks automation using API keys or de
 Record rollout, rotation and verification in an appropriately protected operational record. No
 production inventory, rotation or migration is claimed here. See R01 ARC-045.
 
+API keys now use a default-deny HTTP method/route scope policy: see `docs/api-key-scopes.md`. This
+intentionally breaks integrations that relied on a scope's former broad role, including unlisted routes
+even with `admin`. Inventory clients and test their necessary operations before rollout, use least
+privilege, and fence older API binaries that do not enforce the policy. This does not authorize or
+repair historical actions and is not a complete service/device authorization solution (ARC-041).
+
 **Backups.** For single-host SQLite and filesystem storage, use the [offline backup and restore
 runbook](docs/backup-restore.md). Stop all writers for the entire snapshot, and restore the database
 and files together. The tool includes committed WAL data, checks hashes and SQLite integrity, and

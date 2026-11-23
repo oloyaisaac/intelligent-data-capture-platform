@@ -841,10 +841,20 @@ and an operator session creating a batch with a non-failed item. These changes a
 review and send operations they may previously have used. They do not undo prior external writes,
 review changes or batch records and are not a complete authorization review.
 
-API-key scopes are currently converted to the highest broad role rather than independently enforced
-per operation. For example, `review:write` and `documents:write` both map to reviewer; neither is
-proof of exact scope isolation. Other routes, direct services, device actors, credentials and effects
-remain unaudited; the `document.approved` workflow trigger still requires a separate current-approval
+Further synthetic regressions reproduced a `review:write` key deleting a document and a
+`connectors:write` key reading exports because scopes were converted to the highest broad role.
+Current HTTP code now applies a default-deny, exact method/route scope allowlist before body parsing,
+including on public routes when a key is supplied. It derives the route role only from the applicable
+scope or `admin`, capped by the creator's live membership. The previous cap omitted `operator` from its
+role ladder; this is corrected. The policy and intentional compatibility restrictions are documented
+in `docs/api-key-scopes.md`. Synthetic tests cover route policy against registered templates and unrelated
+scopes, API denial, allowed combinations, tenant isolation and membership changes. The full local
+verification passed 138 suites / 1081 tests with 42 skipped; the PostgreSQL 16.16-configured backend
+suite passed 127 suites / 756 tests (some use SQLite or doubles). Backend build, selected formatting
+and diff checks passed. This does not enforce scope at direct service boundaries or protect old
+binaries, device actors, historical effects or unreviewed route semantics. Product/security review and
+integration rollout are still needed. Other routes, credentials and effects remain unaudited; the
+`document.approved` workflow trigger still requires a separate current-approval
 and race-safety design. Previous soft-deletes, requests, cloud costs, copies, logs and old binaries
 are unchanged. An authorized owner should assess exposure, logs, existing keys and possible
 credential rotation or record recovery without blind replay. Independent security review and a
@@ -986,8 +996,8 @@ elapsed non-null timestamps, including at the exact boundary. New key creation, 
 require an authenticated user with owner/admin role; API keys and device credentials are denied even
 if their role is elevated. This deliberately breaks automated key management. Admins cannot issue
 `admin` scope, as before. Tests cover service and HTTP boundaries, expiry, non-expiring keys, and
-transactional migration rollback and retry. The role ladder remains broad for other operations;
-ARC-041 scope isolation is not resolved.
+transactional migration rollback and retry. ARC-041 describes subsequent HTTP scope isolation and
+its remaining limitations.
 
 Existing key rows do not record whether expiry was requested, so migration 017 leaves them with null
 expiry and they continue to authenticate. Authorized security owners must inventory, assess and
