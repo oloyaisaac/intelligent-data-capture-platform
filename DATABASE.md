@@ -3,7 +3,7 @@
 Data model reference for the shipped schema. The authoritative DDL is
 `apps/backend/src/db/migrations.ts` — this document explains it and lists what each table is for.
 
-> **Status:** implemented. Forward-only migrations through `015_workflow_approval_snapshot` run
+> **Status:** implemented. Forward-only migrations through `017_api_key_expiry` run
 > on SQLite (`node:sqlite`, the local path) or PostgreSQL (the production path). There is no ORM:
 > repositories hold the SQL, and
 > one schema serves both drivers (DEC-013). Types below are written in PostgreSQL terms; on SQLite
@@ -299,34 +299,39 @@ can change (AGENT-001).
 | actions               | jsonb/text  | `[{type, config}]`                                                                          |
 | approval_policy       | text        | `always_ask` (default) or `auto_approve`                                                    |
 | enabled               | integer     | 0 pauses without deleting the rule                                                          |
+| revision              | bigint      | starts at 0; current enable/disable requests increment it even when state is unchanged      |
 | created_by            | uuid FK     | admin who created it                                                                        |
 | created_at/updated_at | timestamptz |                                                                                             |
 
-| `workflow_runs` column | Type        | Notes                                                                           |
-| ---------------------- | ----------- | ------------------------------------------------------------------------------- |
-| id                     | uuid PK     |                                                                                 |
-| organisation_id        | uuid FK     |                                                                                 |
-| workflow_id            | uuid        | kept after the rule is deleted                                                  |
-| document_id            | uuid        | null for document-less triggers                                                 |
-| trigger_event          | text        | caller-supplied trigger, not proof of an event                                  |
-| status                 | text        | `matched` \| `skipped` \| `awaiting_approval` \| `completed` \| `failed`        |
-| matched                | integer     | 0 when a condition or the type did not match                                    |
-| explanation            | text        | the sentence shown in the UI                                                    |
-| actions                | jsonb/text  | the plan, including `requiresApproval` and `reason`                             |
-| outputs                | jsonb/text  | what each action actually did                                                   |
-| failure                | text        | the message when an action threw                                                |
-| approved_by            | uuid FK     | the person who approved the run                                                 |
-| approved_at            | timestamptz |                                                                                 |
-| created_at             | timestamptz |                                                                                 |
-| execution_protocol     | integer     | 1 for newly created transactional automatic runs, 0 for legacy/other runs       |
-| approval_snapshot      | text / null | JSON review/extraction IDs and condition-semantics version; null on legacy runs |
+| `workflow_runs` column | Type        | Notes                                                                                              |
+| ---------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
+| id                     | uuid PK     |                                                                                                    |
+| organisation_id        | uuid FK     |                                                                                                    |
+| workflow_id            | uuid        | kept after the rule is deleted                                                                     |
+| document_id            | uuid        | null for document-less triggers                                                                    |
+| trigger_event          | text        | caller-supplied trigger, not proof of an event                                                     |
+| status                 | text        | `matched` \| `skipped` \| `awaiting_approval` \| `completed` \| `failed`                           |
+| matched                | integer     | 0 when a condition or the type did not match                                                       |
+| explanation            | text        | the sentence shown in the UI                                                                       |
+| actions                | jsonb/text  | the plan, including `requiresApproval` and `reason`                                                |
+| outputs                | jsonb/text  | what each action actually did                                                                      |
+| failure                | text        | the message when an action threw                                                                   |
+| approved_by            | uuid FK     | the person who approved the run                                                                    |
+| approved_at            | timestamptz |                                                                                                    |
+| created_at             | timestamptz |                                                                                                    |
+| execution_protocol     | integer     | 1 for newly created transactional automatic runs, 0 for legacy/other runs                          |
+| approval_snapshot      | text / null | JSON review/extraction IDs, condition-semantics version and workflow revision; null on legacy runs |
 
-Migration 015 does not backfill historical runs: their planning snapshots cannot be inferred safely.
-Current code refuses approved-trigger deletion when the stored identity is missing or no longer
-current, or when the condition-semantics version is missing or unsupported. Older plans are not
-backfilled or automatically reevaluated. These identifiers remain in run history; assess retention,
-erasure and copies with the data owner. The snapshot is not an authenticated event or an immutable
-content hash; see R01 ARC-042.
+Migrations 015 and 016 do not backfill historical run snapshots: their planning identities and
+workflow revision cannot be inferred safely. Migration 016 initializes existing workflow revisions to
+zero, not their past change count. Current code refuses approved-trigger deletion when the stored
+identity, condition-semantics version or workflow revision is missing, unsupported or no longer
+current. Older plans are not automatically reevaluated. The revision is incremented by current
+`setEnabled` writers, not old binaries or arbitrary database writes; fence old versions and direct
+writers during deployment. Revisions outside JavaScript's non-negative safe-integer range fail closed;
+future definition writers must also increment the revision. These identifiers remain in run history; assess retention, erasure and
+copies with the data owner. The snapshot is not an authenticated event or an immutable content hash;
+see R01 ARC-042.
 
 Indexes: `(organisation_id, created_at DESC)` on both, plus `(status, created_at DESC)` on runs so
 the approval queue is a cheap query.
@@ -506,7 +511,10 @@ person can recognise a key in the list without the secret being recoverable.
 
 `id`, `organisation_id`, `name`, `key_hash` (unique), `key_prefix`, `scopes` (JSON array of
 `documents:read`, `documents:write`, `exports:read`, …), `created_by`, `last_used_at`, `revoked_at`,
-`created_at`.
+`created_at`, `expires_at` (nullable ISO UTC text). Migration 017 leaves existing rows null because
+previous requested expiries were never stored; null does not prove an old key was intended to be
+non-expiring. Current authentication denies elapsed or malformed non-null expiry values. Old binaries
+ignore this column, so mixed-version operation does not enforce expiration. See R01 ARC-045.
 
 ### 3.28 `webhooks` and `webhook_deliveries` _(DEVAPI-001)_
 
@@ -633,7 +641,8 @@ Deletion must remove the storage object and the database rows, and must be recor
   `007_workflows`, `008_password_resets`, `010_mfa`, `009_terms_acceptance`,
   `011_erasure_file_deletions`, `012_workflow_execution_protocol`, and
   `013_remote_ocr_invocation_count` (a nonnegative counter added to existing documents), and
-  `014_remote_ocr_organisation_count` (durable per-organisation remote reservations). The migration
+  `014_remote_ocr_organisation_count` (durable per-organisation remote reservations),
+  `015_workflow_approval_snapshot`, `016_workflow_revision` and `017_api_key_expiry`. The migration
   array is the authoritative order, including the `010`/`009` ordering.
 - `npm run db:migrate` applies pending migrations and is safe to re-run; `npm run db:seed` creates one
   demo organisation, one owner and a sample export without duplicating them on a second run.

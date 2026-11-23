@@ -565,6 +565,18 @@ export const MIGRATIONS: Migration[] = [
     id: '015_workflow_approval_snapshot',
     sql: ['ALTER TABLE workflow_runs ADD COLUMN approval_snapshot TEXT'],
   },
+  {
+    // Existing plans cannot be bound to the enablement history that preceded this migration.
+    id: '016_workflow_revision',
+    sql: [
+      'ALTER TABLE workflows ADD COLUMN revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0)',
+    ],
+  },
+  {
+    // Earlier requests did not persist an expiry, so existing keys have an unknown history.
+    id: '017_api_key_expiry',
+    sql: ['ALTER TABLE api_keys ADD COLUMN expires_at TEXT'],
+  },
 ];
 
 export async function applyMigrations(db: Database): Promise<string[]> {

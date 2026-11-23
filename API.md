@@ -407,13 +407,14 @@ semantics and migration are unresolved (R01 ARC-039/ARC-040).
 Triggers: `document.approved`, `document.extracted`, `document.needs_review`, `batch.completed`.
 The caller supplies the trigger; it is not a verified event. `document.approved` evaluation now
 requires a document with a current approved review of the latest extraction and no active extraction
-job. New runs record the review and extraction IDs and a condition-semantics version as
-`approvalSnapshot`; the evaluator reads that extraction, and deletion checks the identities and
-version under a document lock. A missing or stale approval returns 409 at evaluation; a pending
-deletion that fails the execution check is marked failed and approval returns 409. Older runs missing
-this identity or version fail closed if deletion is attempted, even when their document is still
-approved; they are not backfilled or automatically reevaluated. The version is a compatibility guard,
-not proof of authenticity. Run migration 015 before new code and stop or fence old binaries:
+job. New runs record the review and extraction IDs, condition-semantics version and workflow revision
+as `approvalSnapshot`; deletion checks the revision under the workflow lock and the identities under a
+document lock. A missing or stale approval returns 409 at evaluation; a pending deletion that fails the
+execution check is marked failed and approval returns 409. Older runs missing an identity or revision
+fail closed if deletion is attempted, even when their document is still approved; they are not
+backfilled or automatically reevaluated. Run responses expose `approvalSnapshot` as null when the
+stored snapshot is legacy or invalid; this does not erase the stored historical value. These markers
+are compatibility guards, not proof of authenticity. Run migrations 015 and 016 before new code and stop or fence old binaries:
 they do not enforce this check. Matched plans containing `delete_document` for `batch.completed`,
 `document.extracted` or `document.needs_review` now fail without executing any actions, including
 plans that would otherwise await approval. Existing pending or matched runs with those triggers
@@ -423,10 +424,12 @@ repeated evaluation is not deduplicated. The recorded identifiers do not prove a
 immutable contents. Do not rely on these triggers or pending plans to authorize destructive actions.
 Disable unsafe automation and restrict both evaluation and pending-run approval until owners assess
 them. Before executing a supported plan, current code locks its workflow and fails the run if the
-workflow is disabled or deleted. This does not proactively cancel pending runs: if a workflow is
-re-enabled before a pending run is attempted, that run can still execute. A disable that waits behind
-an already-running execution cannot undo its committed effects. Direct writers and old binaries are
-outside these protections. See R01 ARC-042.
+workflow is disabled, deleted or has a different revision from the planned one. Every enable/disable
+request increments the revision, even if it repeats the current state. This invalidates older plans
+on execution, including after re-enable, but does not proactively cancel them. Evaluating again can
+create new plans and perform actions; do not blindly replay. A disable that waits behind an
+already-running execution cannot undo its committed effects. Old binaries and direct writers may
+change workflows without incrementing the revision and are outside these protections. See R01 ARC-042.
 
 Actions: `notify`, `send_to_connector`, `create_export`, `delete_document` — the last three are
 destructive, so their run normally waits as `awaiting_approval` until a person approves that specific
@@ -475,6 +478,16 @@ files, repair historical runs, or fence older application versions. The response
 | POST   | `/api-keys`                  | Create a key — the secret is returned in this response only                              |
 | DELETE | `/api-keys/:id`              | Revoke a key                                                                             |
 | GET    | `/events`                    | Server-sent events for the desktop (see §9)                                              |
+
+Key listing, creation and revocation require a signed-in owner or admin; API keys and device
+credentials cannot manage keys, even with an admin-equivalent role. Only an owner may issue the
+`admin` scope. Creation accepts optional `expiresInDays` (integer 1–730); the response and key
+list expose `expiresAt` in UTC, or null when no expiry was supplied. New code rejects a key at or
+after that time and rejects malformed stored expiries. This is checked at authentication, not a
+cancellation mechanism for requests already in flight. Apply migration 017 and fence older binaries,
+which ignore expiry. Before this release the expiry input was silently ignored: existing keys have
+unknown expiry history and remain usable unless revoked. Authorized owners should inventory and
+revoke/replace affected keys rather than assume they expired. See R01 ARC-045.
 
 Non-append sends require a usable duplicate lookup and unique, non-empty keys with mapped values;
 incomplete checks return `409` instead of silently creating. Updates and merges also reject

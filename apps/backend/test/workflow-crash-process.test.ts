@@ -78,6 +78,7 @@ it('rolls back a killed SQLite workflow deletion and permits a safe approval ret
         reviewId: review.id,
         extractionId: extraction.id,
         conditionSemanticsVersion: 1,
+        workflowRevision: 0,
       },
     });
     child = spawn(

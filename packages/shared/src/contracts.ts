@@ -750,6 +750,7 @@ export const ApiKeySchema = z.object({
   createdAt: z.string(),
   lastUsedAt: z.string().nullable().optional(),
   revokedAt: z.string().nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
 });
 export type ApiKey = z.infer<typeof ApiKeySchema>;
 

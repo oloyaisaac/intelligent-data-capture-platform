@@ -170,6 +170,23 @@ migration ledger against a recovery plan before retrying or changing markers. Hi
 migrations are not automatically repaired; the current locking protocol does not fence manual or
 older writers. See R01 ARC-043.
 
+Migration 016 adds workflow revisions. Apply it before deploying this version and fence old binaries
+and direct workflow writers: they do not increment revisions. Existing approved-trigger deletion plans
+lack a revision and will fail if executed, not be automatically replayed. Every enable/disable request,
+including a no-op, invalidates earlier plans. Owners must assess pending runs and prior effects before
+any reevaluation; evaluation can itself execute actions. A disable cannot undo an already committed
+execution. This is not event authentication or a substitute for an incident response plan.
+
+Migration 017 adds API key expiry. Earlier releases accepted `expiresInDays` but did not persist or
+honor it; existing null expiry values are unknown, not proof that no expiry was requested. Have
+an authorized security owner inventory keys, assess exposure and revoke/replace affected keys; no
+historical expiry can be reconstructed from the key rows. Apply migration 017 and stop or fence all
+old binaries before relying on expiry. Ensure application clocks are synchronized and monitor skew;
+expiry and revocation do not cancel requests already authenticated. Key creation/list/revocation now
+require a signed-in owner or admin, which breaks automation using API keys or device credentials.
+Record rollout, rotation and verification in an appropriately protected operational record. No
+production inventory, rotation or migration is claimed here. See R01 ARC-045.
+
 **Backups.** For single-host SQLite and filesystem storage, use the [offline backup and restore
 runbook](docs/backup-restore.md). Stop all writers for the entire snapshot, and restore the database
 and files together. The tool includes committed WAL data, checks hashes and SQLite integrity, and

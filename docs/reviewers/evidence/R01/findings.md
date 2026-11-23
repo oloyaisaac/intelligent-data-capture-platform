@@ -895,25 +895,31 @@ deleted. Before supported database-local execution, current code now locks the w
 the run failed in the same transaction if the definition is disabled or absent. SQLite tests exercise
 pending approvals and automatic plans changed between planning and execution. PostgreSQL tests observe
 both lock orderings: a committed disable makes waiting approval fail, while a disable waiting behind an
-already-executing approval cannot undo its committed deletion. This is a point-in-time check, not
-proactive cancellation or an emergency stop: disabling and re-enabling before an untouched pending
-run is attempted can still permit its deletion. Old binaries do not perform the check.
+already-executing approval cannot undo its committed deletion. Subsequent synthetic tests reproduced
+revival of an untouched pending plan after disable and re-enable. Migration 016 adds a workflow revision;
+current enable/disable requests increment it atomically, including no-op requests. New approved plans
+record the candidate revision and execution checks it under the workflow lock. Missing, malformed or
+mismatched revisions fail closed, including for plans created before the migration and for a rule
+changed between planning and run creation. Concurrent current-version changes cannot lose increments.
+Pending runs are not proactively cancelled; reevaluation creates new plans and can execute actions.
+Old binaries and direct writers can change workflow state without bumping the revision, and the guard
+cannot undo already committed execution or authenticate an event.
 
 **The finding remains open.** `document.approved` remains caller-supplied despite the current-state
-identity checks. Repeated evaluation is not deduplicated, pending plans can revive on re-enable,
-and no check here authenticates a historical event or guarantees external effects. Owners should
-restrict evaluation and pending-run approval for unsafe workflows, review existing pending and
+identity checks. Repeated evaluation is not deduplicated, and no check here authenticates a historical
+event or guarantees external effects. Owners should restrict evaluation and pending-run approval for
+unsafe workflows, review existing pending and
 historical runs and effects, and avoid blind replay. A product/security-reviewed, versioned event
 and snapshot protocol must bind plans to authentic events and immutable state, define cancellation
 and re-evaluation semantics, handle mixed deployments and recovery, and be validated with concurrent
 writers on both supported databases. Do not interpret this mitigation as closing ARC-027, ARC-040 or
-ARC-042. Local `npm run verify -- --runInBand` passed 134 suites / 1052 tests, with 41 skipped.
-The PostgreSQL 16.16-configured backend suite passed 123 suites / 726 tests; some tests explicitly use
-SQLite or doubles. An initial PostgreSQL run failed because two smoke-test workflow fixtures still used
-the now-blocked extracted trigger; those failures also left queued jobs that affected later tests.
-The fixtures were changed to exercise approved documents, and the smoke suite and full backend suite
-were rerun successfully with fresh test schemas. A PostgreSQL test observed an approval waiting on the document
-lock while the real reprocessing transaction was held, then failing without deletion after it
+ARC-042. After revision binding, local `npm run verify -- --runInBand` passed 135 suites / 1064 tests,
+with 42 skipped. The PostgreSQL 16.16-configured backend suite passed 124 suites / 739 tests; some
+tests explicitly use SQLite or doubles. The migration regression covers marker-failure rollback and
+legacy snapshot preservation on both configured drivers. A PostgreSQL race test observed an approval
+waiting while a disable and re-enable committed, then failing without deletion. A separate test
+observed an approval waiting on the document lock while the real reprocessing transaction was held,
+then failing without deletion after it
 committed. This covers one lock ordering, not all races, mixed versions or external effects.
 Formatting, diff checks and the backend build passed. Owner: unassigned; workflow/product,
 security and backend reliability.
@@ -967,3 +973,32 @@ state and use an independently reviewed idempotency and fencing protocol. No pro
 impact is asserted. The full local and PostgreSQL-configured verification results are recorded in
 ARC-043; connection-loss tests exercise the real PostgreSQL driver. Owner: unassigned; database and
 backend reliability.
+
+### ARC-045 — HIGH: API key expiry was ignored and machine credentials could manage keys
+
+Synthetic tests reproduced key creation with `expiresInDays` returning no expiry: prior code accepted
+the value but neither stored nor enforced it. A key with `admin` or `connectors:write` obtained an
+admin-equivalent role and could issue other keys, and a viewer could list key metadata. This is not
+evidence of production abuse or proof that any particular historical key was meant to expire.
+
+Migration 017 stores new optional expiry timestamps; current authentication rejects malformed and
+elapsed non-null timestamps, including at the exact boundary. New key creation, listing and revocation
+require an authenticated user with owner/admin role; API keys and device credentials are denied even
+if their role is elevated. This deliberately breaks automated key management. Admins cannot issue
+`admin` scope, as before. Tests cover service and HTTP boundaries, expiry, non-expiring keys, and
+transactional migration rollback and retry. The role ladder remains broad for other operations;
+ARC-041 scope isolation is not resolved.
+
+Existing key rows do not record whether expiry was requested, so migration 017 leaves them with null
+expiry and they continue to authenticate. Authorized security owners must inventory, assess and
+revoke or replace affected keys; a null expiry is not proof of historical intent. The change cannot
+undo exposure or revoke already-created delegated keys automatically. Older binaries ignore expiry
+and the new authorization policy; fence them and apply migration 017 before relying on this control.
+Expiry uses the API process clock; validate clock synchronization. A request already authenticated
+can continue after expiry or revocation, and direct database writers remain outside these checks.
+Independent security review, historical audit/credential assessment, rotation and deployment evidence
+remain required. Local `npm run verify -- --runInBand` passed 137 suites / 1074 tests with 42 skipped;
+the PostgreSQL 16.16-configured backend run passed 126 suites / 749 tests, some using SQLite or
+doubles. The expiry and migration tests ran on both configured drivers. Backend build, formatting and
+diff checks passed. No production action or owner sign-off is claimed. Owner: unassigned; security
+and deployment.
