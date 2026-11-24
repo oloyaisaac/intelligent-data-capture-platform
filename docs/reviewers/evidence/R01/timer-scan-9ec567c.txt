@@ -1,0 +1,12 @@
+$ setInterval/setTimeout across backend src (non-test)
+apps/backend/src/services/worker.ts:127:        this.timer = setTimeout(tick, this.config.WORKER_POLL_INTERVAL_MS);
+apps/backend/src/services/worker.ts:131:    this.timer = setTimeout(tick, this.config.WORKER_POLL_INTERVAL_MS);
+apps/backend/src/services/maintenance-service.ts:202:        this.timer = setTimeout(tick, this.config.MAINTENANCE_INTERVAL_MS);
+apps/backend/src/services/maintenance-service.ts:206:    this.timer = setTimeout(tick, bootDelayMs);
+apps/backend/src/http/routes/realtime-routes.ts:73:    const heartbeat = setInterval(() => reply.raw.write(': ping\n\n'), 25_000);
+apps/backend/src/ai/providers/cloud.ts:40:    const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 45_000);
+apps/backend/src/adapters/connector-process.ts:85:      const timer = setTimeout(fail, this.limits.timeoutMs);
+
+$ module-scope `let`/mutable declarations
+apps/backend/src/adapters/connector-runner.ts:70:let total = 0;
+apps/backend/src/adapters/connector-runner.ts:71:let ended = false;

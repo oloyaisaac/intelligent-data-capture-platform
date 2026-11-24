@@ -1,0 +1,7 @@
+(node:1632) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+Synthetic one-process SQLite HTTP probe; instrumented barrier after both unrevoked session reads.
+Same original refresh token submitted twice: HTTP 200, 200; distinct refresh tokens and session IDs.
+Both successor session IDs differ from the original session ID.
+After removing barrier: original token HTTP 401; each distinct successor HTTP 200.
+No tokens or identifiers printed; no production data, real users or external services used.

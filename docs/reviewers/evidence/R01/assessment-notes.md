@@ -1,4 +1,9 @@
-# R01 assessment notes — working draft
+# R01 assessment notes — superseded working draft
+
+> **Superseded by `architecture-assessment.md`.** Kept for the audit trail: these answers were written
+> before this session's probes, and two of the §7 rows below are now refuted by direct reading (R-18's
+> eviction claim) or sharpened with measured evidence (R-25's residue, R-04's CI configuration). Read
+> the newer file; use this one only to see what changed and why.
 
 These answers are interim technical analysis, not independent reviewer sign-off, an owner exception,
 or a G1/G8 gate result. They refer to the current branch; the other R01 evidence and runtime replay

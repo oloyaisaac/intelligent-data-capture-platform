@@ -1012,3 +1012,436 @@ the PostgreSQL 16.16-configured backend run passed 126 suites / 749 tests, some 
 doubles. The expiry and migration tests ran on both configured drivers. Backend build, formatting and
 diff checks passed. No production action or owner sign-off is claimed. Owner: unassigned; security
 and deployment.
+
+### ARC-046 — MEDIUM: PostgreSQL placeholder rewriting does not parse all SQL quoting
+
+`apps/backend/src/db/database.ts:26-40` toggles an in-single-quote flag while rewriting every
+other `?`; `apps/backend/src/db/postgres.ts:43,53,79-89` applies it to queries. The existing
+`apps/backend/test/security.test.ts:254-261` checks an ordinary single-quoted literal only. A
+local, isolated probe of the actual helper (`node docs/reviewers/evidence/R01/placeholder-probe.cjs`)
+produced `SELECT $$$1$$ AS q, $2 AS arg` from `SELECT $$?$$ AS q, ? AS arg`, and rewrote the
+question mark in a SQL comment while numbering the real placeholder `$2`. Results are saved in
+`placeholder-probe-9ec567c.txt`. Both examples are synthetic; no query was sent to a database.
+
+This can alter SQL or parameter numbering when such syntax is used; it does not establish that a
+current production query is affected. PostgreSQL migration SQL already uses a dollar-quoted body
+(`migrations.ts:292-296`), though that particular body contains no question mark. PostgreSQL quoted
+identifiers, escaped strings, operators and other lexical forms also require a contract-specific
+review, not an assumption of blanket support. R03 should inventory actual queries and decide and
+document the supported SQL subset or design a correctly bounded rewriter, with regression tests and
+real PostgreSQL validation as appropriate. R02 should review callers, and R16 test coverage. Owner:
+unassigned; proposed review R03/R02. No production incident, remediation, deadline, owner acceptance
+or exception is asserted.
+
+### ARC-047 — MEDIUM: shared TypeScript paths do not enforce declared workspace boundaries
+
+`tsconfig.base.json:19-23` maps `@idcp/connectors` globally, and desktop, mobile and shared inherit
+that mapping despite not declaring `@idcp/connectors` in their workspace manifests. The TypeScript
+resolver resolves the alias to connector source for those projects. This fails the literal
+ARC-AC-10 expectation that no path points outside declared dependencies. `workspace-alias-scan.cjs`
+checks seven current tsconfigs and their inherited aliases; the saved output
+`workspace-alias-scan-9ec567c.txt` shows 114 cross-workspace literal occurrences among 195 tracked
+source files and no resolved undeclared edge within that scope. The existing base aliases therefore
+permit an undeclared edge at type-check time; this is not evidence that such an edge currently
+exists, that a build would bundle it, or that production behavior is affected. The scripts do not
+cover runtime/native bundling, tests/config source imports or nonliteral modules.
+
+R01 should specify whether project-specific aliases or an independent import-boundary check should
+be the enforcement mechanism; R02/R09/R11/R16 should evaluate compatibility, actual build tooling
+and regression tests. Avoid treating an alias as a security boundary. Owner: unassigned; proposed
+review R01/R02 with client and QA specialists. No change, production incident or exception is claimed.
+
+### ARC-048 — MEDIUM: job retry policy is embedded in a persistence repository
+
+`apps/backend/src/repositories/system-repo.ts:184-207` decides whether an attempt is exhausted,
+sets `dead` versus `queued`, and calculates exponential retry delay capped at 60 seconds before the
+conditional row update. `:9-27` also supplies the default maximum attempts. These are behavior
+policy as well as persistence, so the brief's strict ARC-AC-04 criterion (repositories contain only
+persistence and row mapping) is not met. `layer-policy-review.md` identifies other policy and
+transactional invariants, including atomic job claiming and safe erasure bounds. This is an
+architectural seam finding, not a demonstration of a retry defect or an operational incident.
+
+R01 and R02 should decide whether to document an explicit repository-policy exception or separate
+policy from persistence while preserving the guarded update, transaction and concurrency semantics;
+R03/R18/R16 should review changes and relevant tests. Do not remove storage-level safety predicates
+or infer exactly-once work from a refactor. Owner: unassigned; proposed R01/R02. No owner acceptance,
+implementation, date or exception is claimed.
+
+### ARC-049 — HIGH: process-wide cloud OCR ignores the organisation's provider setting
+
+DEC-007 (`DECISIONS.md:91-101`) says cloud providers are opt-in per organisation. New
+organisations are stored with `ai_provider = 'local'` (`repositories/auth-repo.ts:23`), the
+organisation service returns and updates the value (`organisation-service.ts:54-87`), and desktop
+settings display it (`apps/desktop/src/pages/SettingsPage.tsx:118-120`). However,
+`services/container.ts:116-136,363-380` selects one process-wide OCR provider from `AI_PROVIDER`
+and injects it into the worker. `services/worker.ts:256-328` reserves remote-call budgets when the
+injected provider is nonlocal, but does not check the organisation's `ai_provider` before sending
+the document buffer to the pipeline. Per-document and per-organisation call limits are not consent
+or provider-selection controls. Conversely, an organisation setting of `cloud` does not switch a
+process configured for local OCR to cloud.
+
+Reproduction after `npm ci`:
+
+```sh
+TSX_TSCONFIG_PATH=tsconfig.base.json node --import tsx docs/reviewers/evidence/R01/provider-selection-probe.ts
+```
+
+The synthetic SQLite harness registered a default-local organisation, uploaded a generated image, verified that the
+cloud-configured factory selects a nonlocal provider, and drained a worker with the real cloud
+adapter using an injected **in-memory fetch stub**. The stub observed one request containing the
+synthetic image. See `provider-selection-probe-9ec567c.txt`. The injected adapter isolates the
+transport for safety; no real remote call, production data, deployment configuration or actual
+customer exposure was observed. The counterexample establishes the architectural mismatch, not the
+legal status of an organisation's consent or the complete behavior of every provider.
+
+When a deployment enables global cloud OCR and remote-call limits permit it, this mismatch can send
+a local-marked organisation's document to the configured external service contrary to the recorded
+decision and displayed setting. Authorized privacy/security and operational owners should assess
+configuration and historical processing under their policies; no inventory or notification is
+asserted here. R02/R14 should design and independently test an explicit organisation-aware,
+fail-closed selection and policy protocol with R07/R08, including changes concurrent with queued or
+in-flight work, mixed versions, delivery/consent semantics, existing configuration and operational
+rollback. A zero call limit can block new reservations on current-version workers but cannot cancel
+calls already in flight, govern older versions or prove provider deletion; do not represent it as a
+complete remediation. Owner: unassigned; proposed R02/R14 with R07/R08/R19. No fix, exception,
+production action or reviewer approval is claimed.
+
+### ARC-050 — MEDIUM: extraction does not record the selected template version
+
+DEC-015 (`DECISIONS.md:229-249`) says template field-list changes are snapshotted so an extraction
+under an older layout can always be explained. `template-repo.ts:80-116,130-140` versions and
+stores field snapshots, and `worker.ts:280-289` obtains the active template's expected fields.
+However, `template-service.ts:175-183` returns the field list without its template ID or version;
+`worker.ts:342-355` stores the extraction without either. `documents` has a `template_id` column,
+but `document-repo.ts:40` initializes it to null and a source search finds no assignment to it;
+`extractions` has no template/version column in the current migrations. See
+`adr-architecture-review.md` for the bounded search and evidence.
+
+This means the stored extraction does not directly identify the exact template version that supplied
+its expected fields. Timestamp and history may help some investigations but do not establish the
+promised unambiguous provenance, particularly across concurrent edits and retries. This is a static
+architectural analysis, not proof that an actual customer record is unexplainable or that historical
+snapshots are absent. R02/R03/R14 should assess the provenance contract and safe version binding,
+including migration, concurrent edits, snapshot retention and legacy data; R20 should review the
+wording. No schema change, inferred historic version, owner exception or production action is
+claimed. Owner: unassigned; proposed R02/R03/R14.
+
+### ARC-051 — HIGH: the configured upload rate limit is applied to pairing instead
+
+`.env.example:82` describes `RATE_LIMIT_UPLOAD_PER_MIN` as uploads per organisation;
+`legal/PRIVACY.md:84` also lists rate limiting on uploads, and `REQUIREMENTS.md:169` asks for rate
+limiting on authentication, pairing, upload and export. In current application code,
+`services/container.ts:448-453` uses that setting for `pairingLimiter`, and
+`http/routes/pairing-routes.ts:12-16` keys it by user for pairing-session creation.
+`http/routes/document-routes.ts:27-69` authenticates and applies file-size limits, but does not use
+that limiter. Source references to `pairingLimiter` do not show a document upload use.
+
+Reproduce on the local synthetic harness with:
+
+```sh
+TSX_TSCONFIG_PATH=tsconfig.base.json node --import tsx docs/reviewers/evidence/R01/upload-rate-probe.ts
+```
+
+With rate limiting enabled and `RATE_LIMIT_UPLOAD_PER_MIN=1`, two uploads by one synthetic
+organisation within one minute both returned 201; two pairing-session creations returned 201 then 400. See `upload-rate-probe-9ec567c.txt`. The probe uses in-memory SQLite/storage and a local test
+listener; no external proxy, production traffic or real user was tested. An edge proxy might have
+its own controls; no statement is made about any particular deployment. Per-file/request size limits
+and authentication are separate controls and do not prove an upload request-rate limit. The probe
+covers the single-document route and pairing creation, not every batch/export/credential path.
+
+R02/R07/R17 should specify the intended keys, shared or per-replica scope, pre-body enforcement,
+retry semantics, batch treatment and resource limits; R19 must evaluate actual deployment controls
+and R21 the legal statement. Do not infer a tested fix, production incident, exploitable volume or
+legal conclusion from this synthetic reproduction. Owner: unassigned; proposed R02/R07 with
+R17/R19/R21. No implementation or exception is claimed.
+
+### ARC-052 — MEDIUM: optional realtime capability returns an undeclared error code
+
+The `RealtimeHub` port declares `subscribe` optional (`realtime/hub.ts:28-33`). When a supplied
+hub lacks that capability, `http/routes/realtime-routes.ts:43-51` constructs a 501 response with
+`error.code = 'NOT_IMPLEMENTED'` and tells the client to use a realtime socket. That code is not
+present in the shared `ERROR_CODES`/`ErrorCode` (`packages/shared/src/constants.ts:117-140`) or
+`ErrorEnvelope` type (`packages/shared/src/errors.ts:45-51`); the source says no Socket.IO adapter
+is shipped. `docs/openapi.yaml:1894-1911` documents a 200 event stream but not this 501 case.
+
+`apps/backend/test/devapi.test.ts:236-251` injects a hub without subscription support and confirms
+the 501/`NOT_IMPLEMENTED` response. This is a reachable port configuration exercised in a synthetic
+test, not proof that the default in-memory hub or any production deployment returns it. The JSON
+object retains the usual envelope shape, but its code is outside the shared type and the fallback
+advice is unsupported by the standard runtime. Health endpoint 503 uses a separate response by
+intent and is not asserted to be this finding. See `error-boundary-review.md`.
+
+R04/R02 should decide and document a consistent status/code and truthful client guidance, with
+R09/R11/R18 checking compatible client and stream behavior. No contract change, production impact,
+owner acceptance or exception is claimed. Owner: unassigned; proposed R04/R02.
+
+### ARC-053 — MEDIUM: neither client coordinates concurrent token refresh
+
+`apps/desktop/src/api/client.ts:236-247` and `apps/mobile/src/api/client.ts:160-175` retry a 401 by
+calling their own `refresh()`, and each `refresh()` re-reads the stored token immediately before
+exchanging it (`desktop:255-273`, `mobile:179-200`). Neither class keeps a shared in-flight promise
+or a mutex, so two requests that receive 401 in the same window both submit the same refresh token;
+the later responder overwrites the earlier pair in storage. In a fake-fetch probe the desktop client
+issued two `/auth/refresh` calls with the same token and then four document requests, while the
+mobile client under a single-use stub received 401 for the repeat, cleared its store and fired
+`onSessionExpired` once even though one request had already succeeded. See
+`client-refresh-probe-9ec567c.txt` and `client-boundary-comparison.md`.
+
+Reproduce with:
+
+```sh
+TSX_TSCONFIG_PATH=tsconfig.base.json node --import tsx docs/reviewers/evidence/R01/client-refresh-probe.ts
+```
+
+The probe uses stubbed HTTP only; no device, packaged app, real token, user or production traffic was
+involved. It does not prove a packaged-app sign-out, a leak or how often the interleaving occurs.
+Existing suites cover only the sequential refresh path. R09/R11 should decide on a shared refresh
+promise or serialised retry and the losing request's behaviour, with R05/R07 for the security
+consequences and R04 for any contract expectation. Owner: unassigned; proposed R09/R11 with R05/R07.
+
+### ARC-054 — MEDIUM: refresh rotation is not an atomic single-use claim
+
+`AuthService.refresh` (`services/auth-service.ts:561-572`) reads a session by token hash, checks it is
+unrevoked and unexpired, then calls `sessions.revoke(session.id)`
+(`repositories/auth-repo.ts:504-509`). That update is conditional on `revoked_at IS NULL`, but its
+affected-row count is discarded and the replacement session is created afterwards by `issueTokens`
+rather than derived from the revoke; the refresh path is not wrapped in `transaction()`
+(`services/container.ts:182-190` provides one). Two callers that both read an unrevoked row therefore
+both rotate.
+
+A synthetic probe inserts an artificial barrier between the two reads on the real service, routes,
+repository and HTTP stack: the same refresh token submitted twice returned `200` and `200` with two
+distinct refresh tokens and two new session IDs, neither equal to the original; afterwards the
+original token returned `401` but **both** successors remained usable. See
+`refresh-race-probe-9ec567c.txt` and `client-boundary-comparison.md`.
+
+```sh
+TSX_TSCONFIG_PATH=tsconfig.base.json node --import tsx docs/reviewers/evidence/R01/refresh-race-probe.ts
+```
+
+Limits: one process, in-memory SQLite, deliberately synchronised reads. PostgreSQL uses the same
+read-then-update shape but was not exercised for this race, and real network timing determines
+overlap frequency. This does not establish that any deployed token has been stolen or replayed, and
+no user-visible defect is claimed. The documented "single-use, rotating" promise (`SECURITY.md:64`,
+`API.md:135`) is therefore conditional on sequential use, and no reuse detection revokes a replayed
+family. R05 owns the token-lifecycle decision (atomic consumption, reuse detection, family
+revocation), R07 the security assessment, R03 cross-driver atomicity, and R09/R11 client coordination.
+Owner: unassigned; proposed R05/R07 with R03.
+
+### ARC-055 — HIGH: the "check for updates" call reports success without checking anything
+
+With auto-update enabled, the desktop main process answers the update-check IPC channel with a
+constant `{ status: 'up_to_date', version: app.getVersion() }` and performs no network request,
+no manifest comparison and no signature check (`apps/desktop/src/main/electron-main.ts:221-224`).
+The preload exposes it to the renderer as `checkForUpdates()` with the union
+`'disabled' | 'up_to_date' | 'available'` (`apps/desktop/src/main/preload.ts:42-60`), so the renderer's
+type system describes a capability the main process does not have. With auto-update disabled the
+same handler returns `{ status: 'disabled' }`, and `apps/desktop/test/shell.test.ts:302-324` asserts
+both responses — the test locks in the placeholder as if it were the contract.
+
+Why it matters: "up_to_date" is a positive assurance about security patches and release currency. An
+operator or a person reading the app receives that assurance at a moment when no check has happened,
+and `ARCHITECTURE.md` §2.2 describes this only as a "stub, not a functional update service", which
+does not say that the stub reports the affirmative result. Nothing in the packaged app currently
+calls the channel (no renderer reference exists), so the exposure is a contract-level and
+operator-guidance problem today rather than a shipped button that lies; it would become a direct
+user-facing false statement the moment any UI surfaces it.
+
+Reproduce by reading the handler and the two assertions; no packaged build, network or release feed
+is involved, and no claim is made about any deployed update pipeline. Suggested fix belongs to
+R09/R10: either implement a real signed check and return `available`/`error` truthfully, or remove
+the channel and the union so no caller can obtain a false assurance; R19 should correct any operator
+guidance that cites the update check as a control.
+
+Owner: unassigned; proposed R09/R10 with R19 and R20.
+
+### ARC-056 — MEDIUM: the "last owner" rule is a read outside the transaction that acts on it
+
+Two ownership rules are enforced by a read followed by a separate write:
+
+- `privacy-service.ts:153-161` lists the organisations the caller owns and refuses erasure if any has
+  more than one owner; the erasure transaction opens afterwards at `:164`.
+- `organisation-service.ts:122` reads `memberships.countOwners(...)` and refuses a demotion or removal
+  when the count is `<= 1`, in a separate statement from the `updateRole`/`remove` call that follows.
+
+`countOwners` itself is `SELECT COUNT(*) … role = 'owner'` (`repositories/auth-repo.ts:452-458`) and
+`ownersForOrganisation` is the same predicate in a second repository
+(`repositories/privacy-repo.ts:62-66`). Neither read takes a lock, and neither is repeated inside the
+transaction that performs the change. Two owners who remove or demote each other, or one owner who
+erases while another is being demoted, can therefore each observe "someone else remains" and commit,
+leaving the organisation with no owner — the exact state both rules exist to prevent.
+
+Why it matters: an organisation with no owner has no one who can administer members, connectors or
+retention; recovering it requires an operator with database access, which the product does not
+offer. The window is concurrent administrator actions, not a routine path, and nothing here shows it
+happening in practice.
+
+Reproduce by reading the two call sites and their transactions; no probe was written, because
+demonstrating it needs a controlled interleaving of two authenticated requests and the result would
+still be a synthesised schedule rather than observed use. Suggested fix belongs to R06 with R03: take
+the ownership decision inside the same transaction as the change, under a row lock or a conditional
+`UPDATE … WHERE (SELECT COUNT(*) …) > 1`, and collapse the two literal predicates into one. R08 owns
+the erasure variant.
+
+Limits: static reading of the current source; no concurrency test, no production incident and no
+data loss is claimed. The same read-then-act shape is the one already recorded for refresh rotation
+(ARC-054), which is why R03 is asked for a cross-driver answer rather than a per-site patch.
+
+Owner: unassigned; proposed R06 with R03 and R08.
+
+### ARC-057 — MEDIUM: the offline read-only guarantee is re-derived per tool, with no shared test
+
+Ten operator CLIs under `apps/backend/src/db/*-cli.ts` each construct their own database connection
+instead of using `createDatabase()` (`db/index.ts:11-31`), because they need a pool of one, no
+migration application and — for inspection modes — a read-only connection. The first two are
+uncontroversial. The third is a **safety property of operator tooling** and it is implemented six
+times:
+
+- `batch-error-remediation-cli.ts:43-59`, `connector-error-remediation-cli.ts:43-59`,
+  `export-inventory-cli.ts:30-42`, `storage-inventory-cli.ts:45-56` and
+  `worker-error-remediation-cli.ts:43-59` open PostgreSQL with
+  `SET default_transaction_read_only = on` and SQLite through `ReadOnlySqliteDatabase`;
+- `worker-recovery-cli.ts:44-78` opens a **writable** PostgreSQL connection and instead wraps only the
+  listing branch in `SET TRANSACTION READ ONLY`.
+
+Both mechanisms are defensible; the per-transaction one is arguably stronger. The gap is that nothing
+states which is the contract, no shared helper expresses it, and no test asserts that every
+inspection mode is read-only on both drivers. An operator who points `worker-recovery-cli --list` at a
+production database is relying on a property that is asserted nowhere: if a later edit moved the
+listing code outside that transaction, or added a `--check` mode that queries before opening it, the
+tool would write and no test would notice. `read-only-sqlite.ts` is likewise reachable only from these
+CLIs, so its own `execute()`/`transaction()` guards are untested by any shared suite.
+
+Why this is MEDIUM rather than higher: the current code does read only, on both drivers, for every
+mode that claims to. This is missing enforcement and evidence for an operator safety property, not a
+demonstrated write or an incident.
+
+Suggested fix belongs to R02 with R19/R03: one offline-access factory taking
+`{ readOnly, applyMigrations: false, poolSize: 1 }`, with a shared test that drives every `--list` and
+`--check` mode against both drivers and asserts a write is refused. R16 owns the test design; R03 owns
+the PostgreSQL behaviour.
+
+Limits: static reading plus per-file grep of the read-only mechanisms; no CLI was executed against a
+database in this review, and no claim is made about any deployed operator practice.
+
+Owner: unassigned; proposed R02 with R03/R16/R19.
+
+### ARC-058 — HIGH: one open SSE stream blocks shutdown until the client leaves
+
+`http/routes/realtime-routes.ts:76-82` registers `request.raw.on('close', close)` but never registers a
+`reply.raw.on('close')`/`socket.on('close')` cleanup, and `buildApp` sets no
+`forceCloseConnections` (`http/app.ts:30-36`). `index.ts:33-44` closes in the order
+`maintenance.stop()` → `worker.stop()` → `app.close()` → `db.close()`, so shutdown blocks in
+`app.close()` waiting for the long-lived stream to end. The server never ends the stream, and the
+stream's `close()` only runs when the client goes away.
+
+A synthetic probe over loopback HTTP with in-memory SQLite, a synthetic user and no external service
+records four cases (`shutdown-probe-9ec567c.txt`):
+
+```sh
+TSX_TSCONFIG_PATH=tsconfig.base.json node --import tsx docs/reviewers/evidence/R01/shutdown-probe.ts
+```
+
+- **A.** No client connected: boot 1063 ms, `SIGTERM` → exit code 0 after **10 ms**.
+- **B.** One authenticated SSE stream open: `SIGTERM` → **still running after 8000 ms**, killed by the
+  probe; the client saw a transport error only when the probe killed the process.
+- **C.** Same as B with `MAINTENANCE_ENABLED=false`: **still running after 8000 ms**. The cause is the
+  open stream, not the maintenance scheduler.
+- **D.** `SIGTERM` with a live stream, client disconnects 2 s later: still running at the disconnect,
+  then exit code 0 after a further 2013 ms.
+
+Why it matters: `DEPLOYMENT.md` tells operators to run the service under a supervisor that forwards
+`SIGTERM` and to "configure the supervisor's grace period accordingly", stating there is no
+application shutdown deadline. Because shutdown now waits on remote clients, the effective deadline is
+the slowest client's session: Docker's default 10 s grace expires first, which means `SIGKILL` during
+whatever `maintenance.stop()`/`worker.stop()` were still finishing, and a torn HTTP close rather than a
+clean one. Every connected desktop window holds an SSE stream open for as long as it is open, so the
+blocking case is the normal state of a running deployment, not an edge case.
+
+This is not a crash or data loss on its own — the idle path still exits in 10 ms, and D shows the
+process does finish once clients leave. It is a HIGH because the documented shutdown and recovery
+behaviour does not hold under ordinary use, and because the operator guidance that was supposed to
+cover it ("configure the grace period") cannot bound a wait on remote clients.
+
+Reproduce requires nothing but the probe. No production incident is claimed, and no supervisor,
+container or systemd configuration was tested here.
+
+Suggested fix belongs to R18 with R02/R04: track live SSE responses and end them during shutdown (or
+register `reply.raw.on('close')` and a server-level `closeAllConnections`-style drain), then add a
+bounded shutdown deadline so `app.close()` cannot wait indefinitely. R09/R11 must confirm the desktop
+and mobile clients reconnect correctly after a server-initiated stream end — the clients already
+implement reconnect, but that path is not covered by this probe. R19 should correct the deployment
+guidance.
+
+Owner: unassigned; proposed R18 with R02/R04/R19.
+
+### ARC-059 — MEDIUM: a historical extraction can fail to deserialise after a UDM schema change
+
+Storage of an extraction is a validated UDM, but the _read_ path re-parses whatever is stored with the
+**current** schema. `ai/pipeline.ts:105` validates on the way in; `worker.ts:427` calls `parseUdm(udm)`
+on the way out, and `review-service.ts` does the same at six read/patch sites (`:99, :125, :150, :237, :301`) — including the patch and approval paths. `parseUdm`
+throws on any mismatch (`packages/shared/src/udm/schema.ts:166-176`).
+
+So the guarantee is one-directional: nothing unvalidated gets _written_, but a row written under an
+older `UDM_VERSION` is not guaranteed to be readable by a newer binary. There is a version field
+(`udmVersion`) and the reader ignores it — it does not dispatch on version, migrate, or degrade.
+
+Why it matters for an architecture review: the UDM is the interchange contract every connector and
+export depends on (DEC-004), and the product stores documents that must remain reviewable and
+exportable for the retention period. A schema change that tightens a field type would make older,
+already-approved documents fail at read time with `Invalid UDM payload` — an upgrade hazard rather
+than a present defect, and one that only appears once there are historical rows written by a previous
+version.
+
+What is _not_ claimed: no such incompatible change has been made at this baseline, no failing upgrade
+was observed, and the parser's error surfaces as a safe message rather than leaking data. The
+versioned schema exists and the code has not yet needed to exercise it.
+
+Reproduce by reading the two call sites; no probe was written, because demonstrating it requires
+crafting an old-schema row and asserting the reader's behaviour, which is R03's job against the real
+migration policy. Suggested owner: R03 with R02/R04 — decide whether historical rows are migrated on
+write, read through a version-dispatching decoder, or explicitly invalidated, and test the upgrade path
+with fixture rows from the previous version. R08 should confirm the retention interaction, since an
+unreadable row is still customer data.
+
+Owner: unassigned; proposed R03 with R02/R04/R08.
+
+### ARC-060 — LOW: recovery requires correlating a job id the product never surfaces
+
+A worker killed mid-extraction leaves its job `running`; startup deliberately does not requeue by age,
+so an operator must review and requeue or abandon it. The blocking predicate is
+`claimNext`'s refusal to claim any `extract_document` job while another job for the same document is
+`running` (`repositories/system-repo.ts:103-113`). A probe with two real backend subprocesses and one
+synthetic SQLite file records what that means in practice (`claim-block-probe-9ec567c.txt`):
+
+```sh
+TSX_TSCONFIG_PATH=tsconfig.base.json node --import tsx docs/reviewers/evidence/R01/claim-block-probe.ts
+```
+
+- **A.** Worker killed inside OCR: 1 job left `running`.
+- **B.** A second extraction job is enqueued directly for that document: `queued`, new id.
+- **C/D.** A healthy worker drains once and leaves both the orphan `running` and the new job `queued`.
+- **E/F.** Abandoning the orphan through the offline tool (`abandonWithAudit`) lets the new job run to
+  `succeeded` on its first attempt.
+
+**This is narrower than it first appears.** The product's own reprocess path does _not_ have this
+problem: `document-service.ts:344-347` calls `jobs.hasActiveExtraction`, which counts jobs in
+`queued` **or** `running`, and returns a clear 409 ("This document already has an extraction queued or
+in progress"). So a reviewer using the UI is told to wait, and their request is refused rather than
+silently parked — correct behaviour. The probe reached the stuck state only by enqueuing directly
+through the repository, which no service does. An earlier draft of this finding called the state
+silent and HIGH; that was wrong, and the correction is recorded here rather than quietly dropped.
+
+What remains true and worth recording: the operator's recovery loop is job-id-oriented, and the
+product never shows a job id. `GET /documents/:id` does not expose the interrupted claim, the offline
+`worker-recovery-cli --list` is the only way to discover it, and the reprocess 409 tells the person to
+wait for something that will never progress. Recovering a crashed job therefore requires database-level
+knowledge (or the offline CLI) plus the recovery runbook — which `docs/worker-recovery.md` does
+describe, but the in-product message points at waiting instead.
+
+Severity LOW: no silent loss, no wrong data, a documented operator path exists, and the misleading
+message is a wording/UX gap rather than a correctness defect. R02/R18 should decide whether the 409
+should name the stale claim and R04 whether the document representation should expose it; R19 owns the
+runbook wording. P6 remains unmet for the separate, larger reasons in ARC-013.
+
+Owner: unassigned; proposed R02/R04 with R18/R19.

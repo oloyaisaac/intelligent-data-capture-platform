@@ -1,9 +1,9 @@
 # R01 layer map — working inventory
 
 **Status: interim, not G1 approval or reviewer sign-off.** This inventory covers tracked first-party
-TypeScript/JavaScript source modules under the five workspace `src/` directories at the current
-worktree; tests, styles, native projects, configuration and generated build outputs are outside its
-scope. Listing a module does not certify that its imports follow the desired layer rule.
+TypeScript/JavaScript source modules under the five workspace `src/` directories at base commit
+`9ec567c988888024a32d6e820b0c9f0ec262076b`. Tests, styles, native projects, configuration and
+generated build outputs are outside its scope. Listing a module does not certify that its imports follow the desired layer rule.
 
 ## Intended dependency direction
 
@@ -63,6 +63,12 @@ The filesystem layout is not itself proof of dependency direction.
 ### `apps/backend/src/db/`
 
 - `apps/backend/src/db/database.ts`
+- `apps/backend/src/db/batch-error-remediation-cli.ts`
+- `apps/backend/src/db/connector-error-remediation-cli.ts`
+- `apps/backend/src/db/export-inventory-cli.ts`
+- `apps/backend/src/db/read-only-sqlite.ts`
+- `apps/backend/src/db/storage-inventory-cli.ts`
+- `apps/backend/src/db/worker-error-remediation-cli.ts`
 - `apps/backend/src/db/connector-config-migration-cli.ts`
 - `apps/backend/src/db/encryption-migration-cli.ts`
 - `apps/backend/src/db/health.ts`
@@ -74,8 +80,15 @@ The filesystem layout is not itself proof of dependency direction.
 - `apps/backend/src/db/sqlite.ts`
 - `apps/backend/src/db/worker-recovery-cli.ts` — offline operator CLI composing a database and jobs repository.
 
+### `apps/backend/src/domain/`
+
+- `apps/backend/src/domain/batch-errors.ts`
+- `apps/backend/src/domain/connector-errors.ts`
+- `apps/backend/src/domain/worker-errors.ts`
+
 ### `apps/backend/src/http/`
 
+- `apps/backend/src/http/api-key-policy.ts` — HTTP API-key route/scope policy; not a service-wide authorization boundary.
 - `apps/backend/src/http/app.ts`
 - `apps/backend/src/http/guards.ts`
 - `apps/backend/src/http/routes/api-key-routes.ts`
@@ -108,6 +121,14 @@ The filesystem layout is not itself proof of dependency direction.
 ### `apps/backend/src/repositories/`
 
 - `apps/backend/src/repositories/apikey-repo.ts`
+- `apps/backend/src/repositories/batch-error-remediation-repo.ts`
+- `apps/backend/src/repositories/connector-error-remediation-repo.ts`
+- `apps/backend/src/repositories/export-inventory-repo.ts`
+- `apps/backend/src/repositories/remote-ocr-budget-repo.ts`
+- `apps/backend/src/repositories/storage-inventory-repo.ts`
+- `apps/backend/src/repositories/storage-references.ts`
+- `apps/backend/src/repositories/worker-error-remediation-repo.ts`
+- `apps/backend/src/repositories/worker-recovery-repo.ts`
 - `apps/backend/src/repositories/auth-repo.ts`
 - `apps/backend/src/repositories/batch-repo.ts`
 - `apps/backend/src/repositories/connector-config-migration-repo.ts`
@@ -142,6 +163,8 @@ The filesystem layout is not itself proof of dependency direction.
 - `apps/backend/src/services/encryption-migration.ts`
 - `apps/backend/src/services/erasure-files.ts`
 - `apps/backend/src/services/export-service.ts`
+- `apps/backend/src/services/export-inventory.ts`
+- `apps/backend/src/services/storage-inventory.ts`
 - `apps/backend/src/services/mailer.ts`
 - `apps/backend/src/services/maintenance-service.ts`
 - `apps/backend/src/services/marketplace-service.ts`

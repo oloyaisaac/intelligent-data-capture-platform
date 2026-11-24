@@ -1,0 +1,4 @@
+PostgreSQL 16.16; disposable schema; no production data
+Uploaded synthetic document and round-tripped validated UDM JSON containing ? through parameterized repository insert.
+Ordinary single-quoted ? and a parameter containing ? were preserved in a real PostgreSQL query.
+This does not establish general SQL lexical correctness; see ARC-046.

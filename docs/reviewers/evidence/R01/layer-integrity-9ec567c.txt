@@ -1,0 +1,42 @@
+$ process.env anywhere in backend src
+apps/backend/src/config.ts:5: * `process.env` anywhere else. A bad value must fail fast with an actionable message.
+apps/backend/src/config.ts:120:export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+apps/backend/src/config.ts:212:export function loadSeedConfig(env: NodeJS.ProcessEnv = process.env): {
+apps/backend/src/config.ts:225:export function loadEncryptionMigrationConfig(env: NodeJS.ProcessEnv = process.env): {
+
+$ process.env in packages/*/src
+(none)
+
+$ Fastify types in services
+apps/backend/src/services/pairing-service.ts:210:  /** Used by the auth guard on every device-authenticated request. */
+apps/backend/src/services/export-service.ts:84:        format: request.format,
+apps/backend/src/services/export-service.ts:96:      const extension = request.format;
+apps/backend/src/services/export-service.ts:104:        request.format === 'csv'
+apps/backend/src/services/export-service.ts:107:                delimiter: request.delimiter ?? ',',
+apps/backend/src/services/export-service.ts:108:                bom: request.bom ?? false,
+apps/backend/src/services/export-service.ts:143:        metadata: { format: request.format, rows: table.rows.length },
+apps/backend/src/services/export-service.ts:223:      documentType: request.documentType,
+apps/backend/src/services/export-service.ts:224:      from: request.from,
+apps/backend/src/services/export-service.ts:225:      to: request.to,
+apps/backend/src/services/export-service.ts:238:    const selected = request.columns?.length ? request.columns : [...fieldPaths].sort();
+$ await new Promise / sleep / tick in services
+
+$ Date.now / new Date inside services (count per file)
+apps/backend/src/services/auth-service.ts:6
+apps/backend/src/services/organisation-service.ts:4
+apps/backend/src/services/export-service.ts:4
+apps/backend/src/services/maintenance-service.ts:3
+apps/backend/src/services/connector-service.ts:3
+apps/backend/src/services/pairing-service.ts:2
+apps/backend/src/services/container.ts:2
+apps/backend/src/services/api-key-service.ts:2
+apps/backend/src/services/batch-service.ts:1
+
+$ Math.random / randomUUID / randomBytes outside auth+ids
+apps/backend/src/services/privacy-service.ts:2:import { randomUUID } from 'node:crypto';
+apps/backend/src/services/privacy-service.ts:176:        await records.enqueueFileDeletion(randomUUID(), actor.userId, key, anonymisedAt);
+apps/backend/src/services/document-service.ts:146:    const documentId = crypto.randomUUID();
+apps/backend/src/services/crypto.ts:1:import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
+apps/backend/src/services/crypto.ts:43:      const iv = randomBytes(12);
+apps/backend/src/services/auth-service.ts:19:import { randomBytes } from 'node:crypto';
+apps/backend/src/services/auth-service.ts:550:    const bytes = randomBytes(count * 8);

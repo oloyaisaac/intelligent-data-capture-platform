@@ -1,0 +1,10 @@
+(node:1708) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+Synthetic worker probe: two real backend subprocesses, one SQLite file, fake OCR, no external service.
+A. Worker killed inside OCR: 1 job(s) still 'running' (expected 1).
+B. Fresh job enqueued directly through the repository (no service does this): status=queued, id differs=true.
+B2. The service-level guard hasActiveExtraction (queued or running) would refuse reprocess here: true.
+C. Healthy worker drained 1 time(s); orphan running claims now 1; queued jobs remaining 1.
+D. The fresh job's recorded status after the drain: queued.
+E. Abandon the orphan claim: abandoned=true.
+F. After abandoning the orphan, the fresh job is succeeded (attempts 1).

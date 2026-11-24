@@ -1,0 +1,3 @@
+"SELECT '?' AS q, ? AS arg" -> "SELECT '?' AS q, $1 AS arg"
+"SELECT $$?$$ AS q, ? AS arg" -> "SELECT $$$1$$ AS q, $2 AS arg"
+"SELECT 1 -- ? in comment\nWHERE id = ?" -> "SELECT 1 -- $1 in comment\nWHERE id = $2"

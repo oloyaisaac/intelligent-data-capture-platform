@@ -1,0 +1,5 @@
+Synthetic lifecycle probe: loopback HTTP, in-memory SQLite, synthetic users, no external service.
+A. No client connected: boot 1066 ms; SIGTERM -> exit code=0 after 11 ms.
+B. One authenticated SSE stream open: boot 1018 ms; SIGTERM with the stream live -> still running after 8000 ms (killed by the probe); client saw a transport error (TypeError).
+C. One SSE stream open, maintenance disabled: SIGTERM -> still running after 8000 ms (killed by the probe).
+D. SIGTERM with a live stream, client disconnects 2 s later: still running at the disconnect; then exit code=0 after 2013 ms.

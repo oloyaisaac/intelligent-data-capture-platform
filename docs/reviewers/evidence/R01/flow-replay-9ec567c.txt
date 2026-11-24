@@ -1,0 +1,19 @@
+
+> idcp@0.1.0 test
+> jest --config jest.config.cjs --runInBand --selectProjects backend --runTestsByPath apps/backend/test/architecture-flow.test.ts apps/backend/test/devapi.test.ts apps/backend/test/membership-scope.test.ts
+
+Running one project: backend
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /home/user/intelligent-data-capture-platform/apps/backend/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+(node:1664) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS backend apps/backend/test/devapi.test.ts
+PASS backend apps/backend/test/membership-scope.test.ts
+PASS backend apps/backend/test/architecture-flow.test.ts
+
+Test Suites: 3 passed, 3 total
+Tests:       18 passed, 18 total
+Snapshots:   0 total
+Time:        5.6 s, estimated 12 s
+Ran all test suites within paths "apps/backend/test/architecture-flow.test.ts", "apps/backend/test/devapi.test.ts", "apps/backend/test/membership-scope.test.ts".

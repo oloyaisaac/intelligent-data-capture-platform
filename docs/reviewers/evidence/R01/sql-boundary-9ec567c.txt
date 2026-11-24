@@ -1,0 +1,19 @@
+$ grep -rnE "SELECT |INSERT |UPDATE |DELETE FROM " apps/backend/src --include=*.ts | grep -v "/repositories/" | grep -v "/db/"
+(no matches)
+
+$ dynamic SQL: .execute/.query with a template containing ${
+(no matches outside repositories/db)
+
+$ all dynamic SQL sites (incl. repositories)
+apps/backend/src/repositories/connector-error-remediation-repo.ts:19
+apps/backend/src/repositories/worker-error-remediation-repo.ts:9
+apps/backend/src/repositories/storage-references.ts:9
+apps/backend/src/repositories/system-repo.ts:8
+apps/backend/src/repositories/batch-error-remediation-repo.ts:6
+apps/backend/src/repositories/auth-repo.ts:5
+apps/backend/src/repositories/storage-inventory-repo.ts:3
+apps/backend/src/repositories/document-repo.ts:3
+apps/backend/src/repositories/workflow-repo.ts:2
+apps/backend/src/repositories/maintenance-repo.ts:2
+apps/backend/src/repositories/erasure-files-repo.ts:2
+apps/backend/src/repositories/worker-recovery-repo.ts:1
