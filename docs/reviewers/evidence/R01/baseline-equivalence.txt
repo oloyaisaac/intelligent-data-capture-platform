@@ -1,0 +1,6 @@
+=== Baseline equivalence check, 2026-11-24T08:13Z
+9ec567c  = baseline the evidence was gathered against
+44f87df  = merge of PR #60 (this review's evidence only)
+code paths changed between them: 0
+non-doc paths in merge: 0
+files added by the merge: 66 (all under docs/reviewers/evidence/R01)

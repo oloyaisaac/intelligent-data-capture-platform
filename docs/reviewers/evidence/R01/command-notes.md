@@ -373,3 +373,27 @@ and CI configuration; it does **not** execute the PostgreSQL path and is not a s
 Three rewrites of this small probe failed before it ran (a top-level `await` rejected by the CJS
 transform, then two patch attempts that left unbalanced braces). The lesson is the same as the
 connector probe: rewrite the file rather than patching a file that has already been patched twice.
+
+## Two-worker audit rows and crash recovery (ARC-AC-17)
+
+`two-worker-audit-probe.ts` runs real backend processes against one SQLite file with a fake OCR binary
+(`TESSERACT_BIN`), so no external service or real document is involved. Two modes:
+
+```sh
+TSX_TSCONFIG_PATH=tsconfig.base.json node --import tsx docs/reviewers/evidence/R01/two-worker-audit-probe.ts
+TSX_TSCONFIG_PATH=tsconfig.base.json node --import tsx docs/reviewers/evidence/R01/two-worker-audit-probe.ts crash
+```
+
+`clean`: 12/12 extracted, no duplicate audit rows, no duplicate job rows, no crash.
+`crash`: the only worker is SIGKILLed after the database shows `running > 0`, then a fresh process
+starts on the same file — 11/12 completed, one document stranded in `processing`, nothing requeued.
+Transcript `two-worker-audit-9ec567c.txt`; analysis `two-worker-audit-evidence.md`.
+
+Note on the earlier `two-replica-probe.ts`: I claimed its health check was wrong. It is not — `/api/v1/health`
+exists at `http/app.ts:105`. The real bug was using a deliberately invalid token for the SSE stream,
+which produced a 401 instead of a stream. Corrected claim.
+
+## Baseline equivalence after the merge
+
+The code tree is byte-identical between `9ec567c` (the baseline all evidence was gathered against) and
+the merged `main`: 0 non-document paths changed. `baseline-equivalence.txt`.
