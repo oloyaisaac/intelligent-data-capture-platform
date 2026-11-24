@@ -385,3 +385,32 @@ think recovery is unfenced" with a measurement.
 One correction worth carrying: I had recorded that `two-replica-probe.ts` used a non-existent health
 route. It does exist (`http/app.ts:105`). The real defect was using an invalid token for the SSE
 stream. Corrected in both the evidence file and `command-notes.md` rather than left standing.
+
+### Final sweeps and the last two unswept documents
+
+The brief asks for the T-01/T-02/T-08 sweeps to be rerun on the final commit. Done, at `1cf29cf`
+(content merged as `main` d1ef256): zero SQL outside db/repositories, zero process.env outside config,
+zero fastify imports in services, zero cross-workspace leaks, madge clean over 355 files, ADR citations
+34/34 both ways. `final-sweep-1cf29cf.txt`.
+
+The remaining documentation gap was two files never read in full: `AGENT_STATE.md` and `DEPLOYMENT.md`.
+Reading them changed the inherited picture again:
+
+- `AGENT_STATE.md` now opens with a dated historical warning, so it no longer contradicts the code.
+  R-21's "three documents contradict the code" is refuted for it.
+- `DEPLOYMENT.md` §2 explicitly labels its scale-out diagram aspirational — the same admission this
+  review reached by measurement. It does not oversell.
+
+But `DEPLOYMENT.md`/`ENVIRONMENT.md`/`.env.example` reproduce ARC-051, and the sweep showed the defect
+**originates in the documentation**: `RATE_LIMIT_UPLOAD_PER_MIN` is documented as "uploads per
+organisation", while the code applies it to pairing creation keyed by user and uploads have no rate
+limit at all. The variable was named after an intent nobody implemented, and the operator-facing files
+still promise it.
+
+I did not fix it. Renaming the key would silently stop reading an existing environment variable in any
+real deployment, and implementing the intended per-organisation upload limit is a design decision. Both
+belong to R04/R15/R19, with R20 on the environment reference.
+
+What is left for R01 is genuinely not assessable from inside this repository: accountable owners for 49
+findings, production execution of the connector and encryption migrations, and the gate decision
+itself.
