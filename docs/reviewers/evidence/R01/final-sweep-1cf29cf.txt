@@ -1,0 +1,13 @@
+=== T-01/T-02/T-08 rerun after the merge, 2026-11-24T18:20Z
+commit: 1cf29cf  (the branch tip whose content is merged as main d1ef256)
+code paths differing from baseline 9ec567c: 0
+
+--- SQL outside db/ and repositories/: 0
+--- process.env outside config.ts: 0
+--- request./reply./FastifyRequest in services/: 11 (all in export-service.ts as a DTO parameter named 'request', plus one comment in pairing-service.ts)
+--- fastify imports in services/: 0
+--- apps/ references inside packages: 0
+--- deep ../../../../apps imports: 0
+
+--- madge: 355 files processed, 'No circular dependency found', exit 0
+--- ADR: cited=34 defined=34; cited-not-defined=[none]; defined-not-cited=[none]

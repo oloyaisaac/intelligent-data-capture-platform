@@ -53,3 +53,15 @@ explain the current implementation without silently changing the original decisi
 
 This sweep is not a complete documentation sign-off, validation of production operations, or a
 substitute for R19/R20 review.
+
+## Final sweep: AGENT_STATE.md and DEPLOYMENT.md
+
+Both remaining unswept documents have now been read in full; see `doc-drift-final-sweep.md` and
+`final-sweep-1cf29cf.txt`.
+
+| Document         | Claim                                                                            | Code reality                                                           | Where                                                                  | Status                    |
+| ---------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------- |
+| `AGENT_STATE.md` | "Phase: M1 and M2 complete; Phase 3 in progress" and Oct-2026 branch/test counts | Predates remediation                                                   | `AGENT_STATE.md:3-9` (dated historical warning)                        | Refuted as current drift  |
+| `DEPLOYMENT.md`  | Scale-out diagram with Redis and distributed workers                             | Not implemented                                                        | `DEPLOYMENT.md:23-25` says so explicitly                               | Accurate, no drift        |
+| `.env.example`   | `RATE_LIMIT_UPLOAD_PER_MIN` = "uploads per organisation"                         | Applied to pairing creation, keyed by user; uploads have no rate limit | `container.ts:449`, `pairing-routes.ts:14`, `document-routes.ts:28-40` | **Live defect (ARC-051)** |
+| `ENVIRONMENT.md` | Lists the same key under "Limits"                                                | Same                                                                   | `ENVIRONMENT.md:113`                                                   | Propagates ARC-051        |

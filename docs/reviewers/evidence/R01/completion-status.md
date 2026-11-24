@@ -100,7 +100,10 @@ chairs must determine whether fixes or permitted, written and dated exceptions s
 
 ## Required runtime and operational evidence
 
-- T-01/T-02: rerun the complete boundary sweep and cycle checks on the final clean commit.
+- T-01/T-02: **rerun after the merge at `1cf29cf`** — SQL outside `db/`+`repositories/` 0, `process.env`
+  outside `config.ts` 0, `fastify` imports in `services/` 0, `apps/` refs in `packages/` 0, deep apps
+  imports 0, madge 355 files with no cycle. The 11 `request.` hits in `services/` are the known
+  DTO-parameter artefact, recorded so they are not re-opened. `final-sweep-1cf29cf.txt`.
 - T-03: demonstrate the required two-worker workload without duplicate work and include claim,
   live pause, crash, recovery, stale resume, publication and external-effect failure boundaries.
 - T-04: **observed on two live replicas** over one database (`two-replica-evidence.md`). Sign-in,
@@ -113,7 +116,10 @@ chairs must determine whether fixes or permitted, written and dated exceptions s
   deployment, including parent signalling, escaped descendants, resource limits and egress.
 - T-06: a synthetic PostgreSQL 16.16 question-mark round trip passed on the source baseline; independent R03 review, general lexer limitations (ARC-046), other versions and final-commit verification remain.
 - T-07: synthetic pairing, capture/review and CSV paths passed on the baseline; `flow-replay.md` maps their limits. Replay all documented flows including real mobile/desktop, OCR and representative destination paths.
-- T-08: **passed at `9ec567c`** — the brief's `comm` check is empty in both directions (34 cited, 34
+- T-08: **passed again at `1cf29cf`** — the brief's `comm` check is empty in both directions (34 cited,
+  34 defined). Covers citation integrity only; whether each decision is _honoured by code_ is the
+  separate register assessment (34/34: 24 partial, 6 honoured variants, 3 not honoured, 1 superseded).
+  `final-sweep-1cf29cf.txt`, `adr-register.md`.
   defined, no orphan citations, no uncited decision). Covers citation integrity only; whether each
   decision is _honoured by code_ is the separate register assessment (34/34 assessed: 24 partial, 6
   honoured variants, 3 not honoured, 1 superseded). `adr-integrity-9ec567c.txt`, `adr-register.md`.
