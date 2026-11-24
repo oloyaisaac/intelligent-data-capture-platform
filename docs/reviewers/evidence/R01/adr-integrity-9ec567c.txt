@@ -1,0 +1,4 @@
+=== T-08 ADR citation integrity at 9ec567c (2026-11-23T20:45Z)
+cited=34 defined=34
+cited-but-not-defined: 
+defined-but-never-cited: 

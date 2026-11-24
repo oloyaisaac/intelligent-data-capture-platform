@@ -1,0 +1,6 @@
+Synthetic connector-isolation probe: disposable host using the real ConnectorProcess, adversarial child scripts, no external service.
+1. Child signals its host: host exited code=null signal=SIGTERM after 182 ms.
+2. Child exits after spawning an unref'd descendant: host exited code=0 signal=null after 161 ms; the descendant did not survive.
+3. Child writes outside its own directory: host exited code=0 signal=null after 152 ms; the file was created ("child wrote this").
+4. Child never answers (transport timeout 3 s): host exited code=0 signal=null after 3124 ms.
+5. Child emits 1 MiB against a 4 KiB cap: host exited code=0 signal=null after 194 ms.

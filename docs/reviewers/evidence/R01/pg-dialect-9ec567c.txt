@@ -1,0 +1,4 @@
+migrations.ts: 34 CREATE TABLE statement(s); per-dialect branches: true; tx.driver switches: 2.
+PostgreSQL advisory lock (pg_advisory_xact_lock) present: true.
+SQLite-only keywords in migrations.ts: none.
+PostgreSQL reachable from this sandbox: no server (ECONNREFUSED).

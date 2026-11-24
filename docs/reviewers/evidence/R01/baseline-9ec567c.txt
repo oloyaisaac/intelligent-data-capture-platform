@@ -1,0 +1,389 @@
+R01 scoped static baseline; base commit 9ec567c988888024a32d6e820b0c9f0ec262076b
+These are literal searches, not proofs of absence or independent sign-off.
+
+### SQL literals — INVALID exclusion attempt (globs did not exclude nested directories)
+$ rg -n -i -e 'SELECT |INSERT |UPDATE |DELETE FROM ' apps/backend/src -g '*.ts' -g '!repositories/**' -g '!db/**'
+apps/backend/src/services/maintenance-service.ts:142:          // Lock before checking the selected snapshot or removing bytes. A concurrent update to
+apps/backend/src/services/connector-service.ts:435:              `The ${connectorRow.type} connector cannot update existing rows. Change the duplicate policy to skip or append.`,
+apps/backend/src/repositories/workflow-repo.ts:46:      'SELECT * FROM workflows WHERE organisation_id = ? ORDER BY created_at DESC',
+apps/backend/src/repositories/workflow-repo.ts:53:      'SELECT * FROM workflows WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/workflow-repo.ts:62:      `SELECT * FROM workflows WHERE organisation_id = ? AND id = ?${lock}`,
+apps/backend/src/repositories/workflow-repo.ts:70:      `SELECT * FROM workflows
+apps/backend/src/repositories/workflow-repo.ts:105:      `INSERT INTO workflows (id, organisation_id, name, trigger_event, document_type, conditions,
+apps/backend/src/repositories/workflow-repo.ts:132:      'UPDATE workflows SET enabled = ?, revision = revision + 1, updated_at = ? WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/workflow-repo.ts:139:    await this.db.execute('DELETE FROM workflows WHERE organisation_id = ? AND id = ?', [
+apps/backend/src/repositories/workflow-repo.ts:189:      `INSERT INTO workflow_runs (id, organisation_id, workflow_id, document_id, trigger_event,
+apps/backend/src/repositories/workflow-repo.ts:217:      'SELECT * FROM workflow_runs WHERE organisation_id = ? ORDER BY created_at DESC LIMIT ?',
+apps/backend/src/repositories/workflow-repo.ts:224:      'SELECT * FROM workflow_runs WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/workflow-repo.ts:233:      `SELECT * FROM workflow_runs WHERE organisation_id = ? AND id = ?${lock}`,
+apps/backend/src/repositories/workflow-repo.ts:246:      `UPDATE workflow_runs SET status = 'completed', outputs = ?, failure = NULL,
+apps/backend/src/repositories/workflow-repo.ts:268:      `UPDATE workflow_runs SET status = 'failed', failure = ?
+apps/backend/src/repositories/worker-recovery-repo.ts:30: * The guarded update and audit entry commit together; this is not a claim lease or a safety proof.
+apps/backend/src/repositories/worker-recovery-repo.ts:40:        `UPDATE jobs SET status = 'queued', run_after = ?, last_error = ?
+apps/backend/src/repositories/worker-recovery-repo.ts:47:        `INSERT INTO audit_logs (id, organisation_id, actor_type, actor_id, action, target_type, target_id, metadata, created_at)
+apps/backend/src/repositories/worker-recovery-repo.ts:79:      // The guarded UPDATE takes the job lock first, matching current worker lock order.
+apps/backend/src/repositories/worker-recovery-repo.ts:85:        `UPDATE jobs SET status = 'dead', finished_at = ?, run_after = NULL, last_error = ?
+apps/backend/src/repositories/worker-recovery-repo.ts:97:          `SELECT id FROM documents WHERE organisation_id = ? AND id = ?${lock}`,
+apps/backend/src/repositories/worker-recovery-repo.ts:104:            `UPDATE documents SET status = 'failed', updated_at = ?
+apps/backend/src/repositories/worker-recovery-repo.ts:107:               AND NOT EXISTS (SELECT 1 FROM jobs WHERE document_id = ?
+apps/backend/src/repositories/worker-recovery-repo.ts:116:        `INSERT INTO audit_logs (id, organisation_id, actor_type, actor_id, action, target_type, target_id, metadata, created_at)
+apps/backend/src/repositories/worker-error-remediation-repo.ts:44:      `SELECT id FROM jobs WHERE organisation_id COLLATE ${collation} = ?
+apps/backend/src/repositories/worker-error-remediation-repo.ts:61:      `SELECT CASE WHEN last_error IS NOT NULL AND last_error COLLATE ${collation} NOT IN (${placeholders})
+apps/backend/src/repositories/worker-error-remediation-repo.ts:74:        `SELECT id FROM jobs WHERE organisation_id COLLATE ${collation} = ? AND id COLLATE ${collation} = ?${lock}`,
+apps/backend/src/repositories/worker-error-remediation-repo.ts:79:        `UPDATE jobs SET last_error = ? WHERE organisation_id COLLATE ${collation} = ? AND id COLLATE ${collation} = ?
+apps/backend/src/repositories/worker-error-remediation-repo.ts:85:          `INSERT INTO audit_logs (id, organisation_id, actor_type, actor_id, action, target_type, target_id, metadata, created_at)
+apps/backend/src/repositories/template-repo.ts:31:      `INSERT INTO templates (id, organisation_id, name, document_type, fields, sample_storage_key, version, active, created_at, updated_at)
+apps/backend/src/repositories/template-repo.ts:53:        'SELECT * FROM templates WHERE organisation_id = ? AND document_type = ? ORDER BY name',
+apps/backend/src/repositories/template-repo.ts:58:      'SELECT * FROM templates WHERE organisation_id = ? ORDER BY document_type, name',
+apps/backend/src/repositories/template-repo.ts:65:      'SELECT * FROM templates WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/template-repo.ts:73:      `SELECT * FROM templates
+apps/backend/src/repositories/template-repo.ts:102:      `UPDATE templates SET name = ?, document_type = ?, fields = ?, active = ?, version = ?, updated_at = ?
+apps/backend/src/repositories/template-repo.ts:123:      'UPDATE templates SET active = 0, updated_at = ? WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/template-repo.ts:130:      'SELECT * FROM template_versions WHERE template_id = ? ORDER BY version DESC',
+apps/backend/src/repositories/template-repo.ts:137:      `INSERT INTO template_versions (id, template_id, organisation_id, version, fields, created_by, created_at)
+apps/backend/src/repositories/system-repo.ts:33:      `INSERT INTO jobs (id, organisation_id, type, document_id, payload, status, attempts, max_attempts, run_after, created_at)
+apps/backend/src/repositories/system-repo.ts:63:        `SELECT retention_days FROM organisations WHERE id = ?${lock}`,
+apps/backend/src/repositories/system-repo.ts:71:        `SELECT * FROM jobs WHERE organisation_id = ? AND type = 'retention_purge'
+apps/backend/src/repositories/system-repo.ts:95:      const candidateLock = tx.driver === 'postgres' ? ' FOR UPDATE OF j SKIP LOCKED' : '';
+apps/backend/src/repositories/system-repo.ts:97:        `SELECT j.* FROM jobs j
+apps/backend/src/repositories/system-repo.ts:100:             SELECT 1 FROM jobs active WHERE active.organisation_id = j.organisation_id
+apps/backend/src/repositories/system-repo.ts:105:             SELECT 1 FROM jobs active WHERE active.organisation_id = j.organisation_id
+apps/backend/src/repositories/system-repo.ts:116:        await tx.one(`SELECT id FROM documents WHERE organisation_id = ? AND id = ?${lock}`, [
+apps/backend/src/repositories/system-repo.ts:121:          `SELECT id FROM jobs WHERE organisation_id = ? AND document_id = ?
+apps/backend/src/repositories/system-repo.ts:130:        await tx.one(`SELECT id FROM organisations WHERE id = ?${lock}`, [
+apps/backend/src/repositories/system-repo.ts:134:          `SELECT id FROM jobs WHERE organisation_id = ? AND type = 'retention_purge'
+apps/backend/src/repositories/system-repo.ts:141:        `UPDATE jobs SET status = 'running', started_at = ?, attempts = attempts + 1
+apps/backend/src/repositories/system-repo.ts:153:      `SELECT id FROM jobs WHERE id = ? AND status = 'running' AND attempts = ?${lock}`,
+apps/backend/src/repositories/system-repo.ts:167:      `SELECT id FROM jobs WHERE id = ? AND organisation_id = ? AND type = 'retention_purge'
+apps/backend/src/repositories/system-repo.ts:177:      `UPDATE jobs SET status = 'succeeded', finished_at = ?, last_error = NULL
+apps/backend/src/repositories/system-repo.ts:187:      `SELECT * FROM jobs WHERE id = ? AND status = 'running' AND attempts = ?`,
+apps/backend/src/repositories/system-repo.ts:193:    // The guarded update is essential even after the read: recovery or another worker may have
+apps/backend/src/repositories/system-repo.ts:196:      `UPDATE jobs SET status = ?, finished_at = ?, last_error = ?, run_after = ?
+apps/backend/src/repositories/system-repo.ts:211:    return this.db.one<JobRow>('SELECT * FROM jobs WHERE id = ?', [id]);
+apps/backend/src/repositories/system-repo.ts:216:      "SELECT COUNT(*) AS count FROM jobs WHERE status = 'running'",
+apps/backend/src/repositories/system-repo.ts:230:      `SELECT id, organisation_id, document_id, type, attempts, started_at
+apps/backend/src/repositories/system-repo.ts:240:      `SELECT id FROM jobs WHERE organisation_id = ? AND document_id = ?
+apps/backend/src/repositories/system-repo.ts:250:      `SELECT * FROM jobs WHERE organisation_id = ? AND document_id = ? AND type = 'extract_document'
+apps/backend/src/repositories/system-repo.ts:257:    return this.db.query<JobRow>('SELECT * FROM jobs WHERE document_id = ? ORDER BY created_at', [
+apps/backend/src/repositories/system-repo.ts:264:      'SELECT status, COUNT(*) AS count FROM jobs WHERE organisation_id = ? GROUP BY status',
+apps/backend/src/repositories/system-repo.ts:285:      `INSERT INTO audit_logs (id, organisation_id, actor_type, actor_id, action, target_type, target_id, ip_hash, metadata, created_at)
+apps/backend/src/repositories/system-repo.ts:327:      `SELECT * FROM audit_logs WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT ?`,
+apps/backend/src/repositories/storage-references.ts:47:    `SELECT id FROM documents WHERE storage_key = ?${documentFilter}
+apps/backend/src/repositories/storage-references.ts:48:     UNION ALL SELECT id FROM document_pages WHERE storage_key = ?${pageFilter}
+apps/backend/src/repositories/storage-references.ts:49:     UNION ALL SELECT id FROM exports WHERE storage_key = ?${exportFilter}
+apps/backend/src/repositories/storage-references.ts:50:     UNION ALL SELECT id FROM templates WHERE sample_storage_key = ? LIMIT 1`,
+apps/backend/src/repositories/storage-references.ts:98:        `SELECT id, ${source.keyColumn} AS key FROM ${source.table}
+apps/backend/src/repositories/storage-references.ts:133:      `SELECT id FROM erasure_file_deletions WHERE storage_key = ?${exclusion} LIMIT 1`,
+apps/backend/src/repositories/storage-references.ts:143:      `SELECT id, storage_key AS key FROM erasure_file_deletions
+apps/backend/src/repositories/storage-inventory-repo.ts:57:      `SELECT ${source.id} AS id, ${source.key} AS storage_key, ${source.deleted} AS deleted_at FROM ${source.from}
+apps/backend/src/repositories/review-repo.ts:16:      `SELECT * FROM reviews WHERE document_id = ? AND extraction_id = ? AND status = 'in_progress'`,
+apps/backend/src/repositories/review-repo.ts:35:      `INSERT INTO reviews (id, organisation_id, document_id, extraction_id, reviewer_id, status, created_at, updated_at)
+apps/backend/src/repositories/review-repo.ts:52:    return this.db.one<ReviewRow>('SELECT * FROM reviews WHERE organisation_id = ? AND id = ?', [
+apps/backend/src/repositories/review-repo.ts:59:    return this.db.execute('UPDATE reviews SET extraction_id = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/review-repo.ts:70:      `UPDATE reviews SET status = 'superseded', completed_at = ?, updated_at = ?
+apps/backend/src/repositories/review-repo.ts:78:      "SELECT * FROM reviews WHERE document_id = ? AND status = 'in_progress' ORDER BY created_at DESC LIMIT 1",
+apps/backend/src/repositories/review-repo.ts:88:      `UPDATE reviews SET status = ?, approved_udm = ?, notes = ?, completed_at = ?, updated_at = ? WHERE id = ?`,
+apps/backend/src/repositories/review-repo.ts:115:      `SELECT r.id AS review_id, e.id AS extraction_id, e.udm AS extraction_udm, r.approved_udm
+apps/backend/src/repositories/review-repo.ts:123:           SELECT latest.id FROM extractions latest WHERE latest.document_id = d.id
+apps/backend/src/repositories/review-repo.ts:127:           SELECT 1 FROM jobs j WHERE j.document_id = d.id AND j.organisation_id = d.organisation_id
+apps/backend/src/repositories/review-repo.ts:159:      `SELECT r.* FROM reviews r
+apps/backend/src/repositories/review-repo.ts:164:           SELECT e.id FROM extractions e WHERE e.document_id = d.id
+apps/backend/src/repositories/review-repo.ts:168:           SELECT 1 FROM jobs j WHERE j.document_id = d.id AND j.organisation_id = d.organisation_id
+apps/backend/src/repositories/review-repo.ts:214:      `INSERT INTO review_changes (id, review_id, field_path, original_value, corrected_value,
+apps/backend/src/repositories/review-repo.ts:234:      'SELECT * FROM review_changes WHERE review_id = ? ORDER BY created_at',
+apps/backend/src/repositories/review-repo.ts:250:      `SELECT rc.field_path,
+apps/backend/src/repositories/review-repo.ts:278:      `SELECT rc.document_type,
+apps/backend/src/repositories/review-repo.ts:313:      `SELECT rc.document_type, rc.field_path, rc.original_value, rc.corrected_value,
+apps/backend/src/repositories/remote-ocr-budget-repo.ts:12:      `INSERT INTO remote_ocr_organisation_counts (organisation_id, invocations)
+apps/backend/src/repositories/remote-ocr-budget-repo.ts:13:       SELECT ?, 1 WHERE ? > 0
+apps/backend/src/repositories/remote-ocr-budget-repo.ts:14:       ON CONFLICT (organisation_id) DO UPDATE SET invocations = remote_ocr_organisation_counts.invocations + 1
+apps/backend/src/repositories/project-repo.ts:27:      `INSERT INTO projects (id, organisation_id, name, key, created_by, created_at, updated_at)
+apps/backend/src/repositories/project-repo.ts:45:        ? 'SELECT * FROM projects WHERE organisation_id = ? ORDER BY created_at DESC'
+apps/backend/src/repositories/project-repo.ts:46:        : 'SELECT * FROM projects WHERE organisation_id = ? AND archived_at IS NULL ORDER BY created_at DESC',
+apps/backend/src/repositories/project-repo.ts:52:    return this.db.one<ProjectRow>('SELECT * FROM projects WHERE organisation_id = ? AND id = ?', [
+apps/backend/src/repositories/project-repo.ts:59:    return this.db.one<ProjectRow>('SELECT * FROM projects WHERE organisation_id = ? AND key = ?', [
+apps/backend/src/repositories/project-repo.ts:84:      'UPDATE projects SET name = ?, archived_at = ?, updated_at = ? WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/project-repo.ts:116:      `INSERT INTO invitations (id, organisation_id, user_id, email, role, token_hash, invited_by, expires_at, created_at)
+apps/backend/src/repositories/project-repo.ts:134:    return this.db.one<InvitationRow>('SELECT * FROM invitations WHERE token_hash = ?', [
+apps/backend/src/repositories/project-repo.ts:141:      'SELECT * FROM invitations WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/project-repo.ts:148:      'SELECT * FROM invitations WHERE organisation_id = ? ORDER BY created_at DESC LIMIT 100',
+apps/backend/src/repositories/project-repo.ts:156:      'UPDATE invitations SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ? RETURNING id',
+apps/backend/src/repositories/project-repo.ts:164:      'UPDATE invitations SET expires_at = ? WHERE id = ? AND used_at IS NULL',
+apps/backend/src/repositories/privacy-repo.ts:11:      `SELECT o.id, o.name, m.role, m.created_at
+apps/backend/src/repositories/privacy-repo.ts:29:      `SELECT id, document_type, mime_type, status, created_at FROM documents
+apps/backend/src/repositories/privacy-repo.ts:39:      `SELECT id, document_id, status, created_at FROM reviews
+apps/backend/src/repositories/privacy-repo.ts:49:      `SELECT action, target_type, created_at FROM audit_logs
+apps/backend/src/repositories/privacy-repo.ts:57:      `SELECT organisation_id FROM memberships WHERE user_id = ? AND role = 'owner'`,
+apps/backend/src/repositories/privacy-repo.ts:64:      `SELECT user_id FROM memberships WHERE organisation_id = ? AND role = 'owner'`,
+apps/backend/src/repositories/privacy-repo.ts:71:      `SELECT id, storage_key FROM documents
+apps/backend/src/repositories/privacy-repo.ts:79:    return this.db.query('SELECT storage_key FROM document_pages WHERE document_id = ?', [
+apps/backend/src/repositories/privacy-repo.ts:86:      `INSERT INTO erasure_file_deletions (id, user_id, storage_key, created_at)
+apps/backend/src/repositories/privacy-repo.ts:94:      'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL',
+apps/backend/src/repositories/privacy-repo.ts:101:      'UPDATE devices SET revoked_at = ?, updated_at = ? WHERE user_id = ? AND revoked_at IS NULL',
+apps/backend/src/repositories/privacy-repo.ts:107:    return this.db.execute('DELETE FROM password_resets WHERE user_id = ?', [userId]);
+apps/backend/src/repositories/privacy-repo.ts:112:      'UPDATE api_keys SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL',
+apps/backend/src/repositories/privacy-repo.ts:119:      "UPDATE pairing_sessions SET status = 'expired' WHERE created_by = ? AND status = 'pending'",
+apps/backend/src/repositories/privacy-repo.ts:126:      'UPDATE invitations SET email = ?, used_at = COALESCE(used_at, ?) WHERE user_id = ?',
+apps/backend/src/repositories/privacy-repo.ts:132:    return this.db.execute('DELETE FROM documents WHERE id = ? AND uploaded_by = ?', [id, userId]);
+apps/backend/src/repositories/privacy-repo.ts:143:      'UPDATE users SET email = ?, display_name = ?, password_hash = NULL, mfa_secret_enc = NULL, mfa_enabled_at = NULL, mfa_recovery_hashes = NULL, disabled_at = ?, updated_at = ? WHERE id = ?',
+apps/backend/src/repositories/privacy-repo.ts:149:    return this.db.execute('UPDATE organisations SET name = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/marketplace-repo.ts:27:      'SELECT * FROM marketplace_installs WHERE organisation_id = ? ORDER BY install_seq DESC',
+apps/backend/src/repositories/marketplace-repo.ts:34:      'SELECT * FROM marketplace_installs WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/marketplace-repo.ts:44:      `SELECT * FROM marketplace_installs
+apps/backend/src/repositories/marketplace-repo.ts:61:      'SELECT MAX(install_seq) AS last FROM marketplace_installs WHERE organisation_id = ?',
+apps/backend/src/repositories/marketplace-repo.ts:80:      `INSERT INTO marketplace_installs (id, organisation_id, package_id, package_version,
+apps/backend/src/repositories/marketplace-repo.ts:104:      "UPDATE marketplace_installs SET status = 'rolled_back', rolled_back_at = ? WHERE id = ?",
+apps/backend/src/repositories/marketplace-repo.ts:111:      "UPDATE marketplace_installs SET status = 'active', rolled_back_at = NULL WHERE id = ?",
+apps/backend/src/repositories/maintenance-repo.ts:9:    return this.db.query<{ id: string }>('SELECT id FROM organisations WHERE retention_days > 0');
+apps/backend/src/repositories/maintenance-repo.ts:18:      `SELECT id, storage_key, status, expires_at FROM exports
+apps/backend/src/repositories/maintenance-repo.ts:33:      `SELECT id, storage_key, status, expires_at FROM exports WHERE id = ?${lock}`,
+apps/backend/src/repositories/maintenance-repo.ts:55:      `UPDATE exports SET status = 'expired', storage_key = NULL
+apps/backend/src/repositories/maintenance-repo.ts:64:      `SELECT id FROM pairing_sessions WHERE status = 'pending' AND expires_at <= ?`,
+apps/backend/src/repositories/maintenance-repo.ts:69:      `UPDATE pairing_sessions SET status = 'expired' WHERE status = 'pending' AND expires_at <= ?`,
+apps/backend/src/repositories/maintenance-repo.ts:77:      'SELECT id FROM sessions WHERE expires_at < ?',
+apps/backend/src/repositories/maintenance-repo.ts:81:    await this.db.execute('DELETE FROM sessions WHERE expires_at < ?', [cutoff]);
+apps/backend/src/repositories/maintenance-repo.ts:87:      'SELECT id FROM password_resets WHERE used_at IS NOT NULL AND used_at < ?',
+apps/backend/src/repositories/maintenance-repo.ts:91:    await this.db.execute('DELETE FROM password_resets WHERE used_at IS NOT NULL AND used_at < ?', [
+apps/backend/src/repositories/export-inventory-repo.ts:20:      `SELECT id, organisation_id, format, status, created_at, expires_at, storage_key FROM exports
+apps/backend/src/repositories/export-inventory-repo.ts:28:      'SELECT id, organisation_id, format, status, created_at, expires_at, storage_key FROM exports WHERE id = ?',
+apps/backend/src/repositories/erasure-files-repo.ts:25:      `SELECT id, storage_key FROM erasure_file_deletions
+apps/backend/src/repositories/erasure-files-repo.ts:45:        `SELECT id, storage_key FROM erasure_file_deletions WHERE id = ?${lock}`,
+apps/backend/src/repositories/erasure-files-repo.ts:63:    return this.db.execute('DELETE FROM erasure_file_deletions WHERE id = ?', [id]);
+apps/backend/src/repositories/erasure-files-repo.ts:68:      'UPDATE erasure_file_deletions SET attempts = attempts + 1, last_attempt_at = ? WHERE id = ? AND storage_key = ?',
+apps/backend/src/repositories/erasure-files-repo.ts:75:      'SELECT COUNT(*) AS count FROM erasure_file_deletions WHERE user_id = ?',
+apps/backend/src/repositories/encryption-migration-repo.ts:25:    return this.tx.one<{ count: number | string }>('SELECT COUNT(*) AS count FROM webhooks');
+apps/backend/src/repositories/encryption-migration-repo.ts:30:      'SELECT COUNT(*) AS count FROM users WHERE mfa_enabled_at IS NOT NULL AND mfa_secret_enc IS NULL',
+apps/backend/src/repositories/encryption-migration-repo.ts:36:      'SELECT id, organisation_id, credentials_encrypted FROM connectors WHERE credentials_encrypted IS NOT NULL ORDER BY id',
+apps/backend/src/repositories/encryption-migration-repo.ts:42:      'SELECT id, mfa_secret_enc FROM users WHERE mfa_secret_enc IS NOT NULL ORDER BY id',
+apps/backend/src/repositories/encryption-migration-repo.ts:47:    return this.tx.execute('UPDATE connectors SET credentials_encrypted = ? WHERE id = ?', [
+apps/backend/src/repositories/encryption-migration-repo.ts:54:    return this.tx.execute('UPDATE users SET mfa_secret_enc = ? WHERE id = ?', [encrypted, id]);
+apps/backend/src/repositories/document-repo.ts:11:  /** Insert unless another upload already claimed the organisation's idempotency key. */
+apps/backend/src/repositories/document-repo.ts:47:      `INSERT INTO documents (id, organisation_id, uploaded_by, device_id, idempotency_key, storage_key,
+apps/backend/src/repositories/document-repo.ts:74:      'SELECT * FROM documents WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/document-repo.ts:81:      'SELECT * FROM documents WHERE organisation_id = ? AND idempotency_key = ?',
+apps/backend/src/repositories/document-repo.ts:123:      `SELECT * FROM documents WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT ?`,
+apps/backend/src/repositories/document-repo.ts:135:        'UPDATE documents SET status = ?, document_type = ?, updated_at = ? WHERE id = ?',
+apps/backend/src/repositories/document-repo.ts:140:    await this.db.execute('UPDATE documents SET status = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/document-repo.ts:151:      `SELECT * FROM documents WHERE organisation_id = ? AND id = ?${lock}`,
+apps/backend/src/repositories/document-repo.ts:159:      `UPDATE documents SET status = 'queued', updated_at = ?
+apps/backend/src/repositories/document-repo.ts:168:      `UPDATE documents SET status = 'processing', updated_at = ?
+apps/backend/src/repositories/document-repo.ts:185:      `UPDATE documents SET remote_ocr_invocations = remote_ocr_invocations + 1
+apps/backend/src/repositories/document-repo.ts:201:      `UPDATE documents SET status = ?, document_type = ?, updated_at = ?
+apps/backend/src/repositories/document-repo.ts:212:      `UPDATE documents SET status = 'failed', updated_at = ?
+apps/backend/src/repositories/document-repo.ts:222:    await this.db.execute('UPDATE documents SET document_type = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/document-repo.ts:232:      `UPDATE documents SET status = 'deleted', deleted_at = ?, updated_at = ?
+apps/backend/src/repositories/document-repo.ts:258:      `SELECT * FROM documents
+apps/backend/src/repositories/document-repo.ts:284:      `SELECT * FROM documents WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT ?`,
+apps/backend/src/repositories/document-repo.ts:314:      `INSERT INTO document_pages (id, document_id, page_number, storage_key, width, height, ocr_text, ocr_words, created_at)
+apps/backend/src/repositories/document-repo.ts:333:      'SELECT * FROM document_pages WHERE document_id = ? ORDER BY page_number',
+apps/backend/src/repositories/document-repo.ts:345:      'SELECT * FROM document_pages WHERE document_id = ? AND page_number = ?',
+apps/backend/src/repositories/document-repo.ts:350:      'UPDATE document_pages SET ocr_text = ?, ocr_words = ? WHERE document_id = ? AND page_number = ?',
+apps/backend/src/repositories/document-repo.ts:372:      'SELECT MAX(attempt) AS attempt FROM extractions WHERE document_id = ?',
+apps/backend/src/repositories/document-repo.ts:391:      `INSERT INTO extractions (id, document_id, organisation_id, attempt, udm, udm_version, provider,
+apps/backend/src/repositories/document-repo.ts:415:      'SELECT * FROM extractions WHERE document_id = ? ORDER BY attempt DESC LIMIT 1',
+apps/backend/src/repositories/document-repo.ts:422:      'SELECT * FROM extractions WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/document-repo.ts:440:    await this.db.execute('DELETE FROM extraction_fields WHERE extraction_id = ?', [extractionId]);
+apps/backend/src/repositories/document-repo.ts:443:        `INSERT INTO extraction_fields (id, extraction_id, field_path, field_label, value_text,
+apps/backend/src/repositories/document-repo.ts:467:      'SELECT field_path, confidence FROM extraction_fields WHERE extraction_id = ? AND needs_review = 1 ORDER BY confidence',
+apps/backend/src/repositories/device-repo.ts:32:      `INSERT INTO devices (id, organisation_id, user_id, name, platform, app_version, credential_hash, last_seen_at, created_at, updated_at)
+apps/backend/src/repositories/device-repo.ts:52:      'SELECT * FROM devices WHERE organisation_id = ? ORDER BY created_at DESC',
+apps/backend/src/repositories/device-repo.ts:58:    return this.db.one<DeviceRow>('SELECT * FROM devices WHERE organisation_id = ? AND id = ?', [
+apps/backend/src/repositories/device-repo.ts:65:    return this.db.one<DeviceRow>('SELECT * FROM devices WHERE credential_hash = ?', [hash]);
+apps/backend/src/repositories/device-repo.ts:69:    await this.db.execute('UPDATE devices SET last_seen_at = ? WHERE id = ?', [nowIso(), id]);
+apps/backend/src/repositories/device-repo.ts:75:    await this.db.execute('UPDATE devices SET name = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/device-repo.ts:87:    await this.db.execute('UPDATE devices SET revoked_at = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/device-repo.ts:117:      `INSERT INTO pairing_sessions (id, organisation_id, created_by, token_hash, status, expires_at, created_at)
+apps/backend/src/repositories/device-repo.ts:135:      `SELECT * FROM pairing_sessions WHERE token_hash = ?${this.db.driver === 'postgres' ? ' FOR UPDATE' : ''}`,
+apps/backend/src/repositories/device-repo.ts:142:      'SELECT * FROM pairing_sessions WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/device-repo.ts:153:      `UPDATE pairing_sessions
+apps/backend/src/repositories/device-repo.ts:164:      "SELECT id FROM pairing_sessions WHERE status = 'pending' AND expires_at < ?",
+apps/backend/src/repositories/device-repo.ts:169:      "UPDATE pairing_sessions SET status = 'expired' WHERE status = 'pending' AND expires_at < ?",
+apps/backend/src/repositories/dashboard-repo.ts:9:      'SELECT status, COUNT(*) AS count FROM documents WHERE organisation_id = ? AND deleted_at IS NULL GROUP BY status',
+apps/backend/src/repositories/dashboard-repo.ts:18:      `SELECT document_type, COUNT(*) AS count FROM documents
+apps/backend/src/repositories/dashboard-repo.ts:30:      `SELECT SUBSTR(created_at, 1, 10) AS day, status, COUNT(*) AS count FROM documents
+apps/backend/src/repositories/dashboard-repo.ts:39:      `SELECT COUNT(*) AS total,
+apps/backend/src/repositories/dashboard-repo.ts:48:      `SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) AS ready
+apps/backend/src/repositories/connector-repo.ts:32:      `INSERT INTO connectors (id, organisation_id, type, name, config, credentials_encrypted, status, created_at, updated_at)
+apps/backend/src/repositories/connector-repo.ts:51:      'SELECT * FROM connectors WHERE organisation_id = ? ORDER BY created_at DESC',
+apps/backend/src/repositories/connector-repo.ts:58:      'SELECT * FROM connectors WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/connector-repo.ts:74:    // Only update supplied fields: a name/status change must not overwrite a concurrently
+apps/backend/src/repositories/connector-repo.ts:101:      `UPDATE connectors SET ${assignments.join(', ')} WHERE organisation_id = ? AND id = ?`,
+apps/backend/src/repositories/connector-repo.ts:109:      `UPDATE connectors SET last_health_check_at = ?, status = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+apps/backend/src/repositories/connector-repo.ts:123:    await this.db.execute('DELETE FROM connectors WHERE id = ?', [id]);
+apps/backend/src/repositories/connector-repo.ts:154:      `INSERT INTO mapping_profiles (id, organisation_id, connector_id, document_type, name, field_map,
+apps/backend/src/repositories/connector-repo.ts:175:      'SELECT * FROM mapping_profiles WHERE organisation_id = ? ORDER BY created_at DESC',
+apps/backend/src/repositories/connector-repo.ts:182:      'SELECT * FROM mapping_profiles WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/connector-repo.ts:200:      `UPDATE mapping_profiles SET name = ?, field_map = ?, duplicate_policy = ?, duplicate_keys = ?, updated_at = ? WHERE id = ?`,
+apps/backend/src/repositories/connector-repo.ts:248:      `INSERT INTO connector_runs (id, organisation_id, connector_id, mapping_profile_id, document_id,
+apps/backend/src/repositories/connector-repo.ts:271:      'SELECT * FROM connector_runs WHERE connector_id = ? ORDER BY created_at DESC LIMIT ?',
+apps/backend/src/repositories/connector-repo.ts:299:      `INSERT INTO exports (id, organisation_id, requested_by, format, filter, status, created_at)
+apps/backend/src/repositories/connector-repo.ts:315:    return this.db.one<ExportRow>('SELECT * FROM exports WHERE organisation_id = ? AND id = ?', [
+apps/backend/src/repositories/connector-repo.ts:323:      'SELECT * FROM exports WHERE organisation_id = ? ORDER BY created_at DESC LIMIT ?',
+apps/backend/src/repositories/connector-repo.ts:331:      `UPDATE exports SET storage_key = ?
+apps/backend/src/repositories/connector-repo.ts:346:      `UPDATE exports SET status = 'ready', row_count = ?, expires_at = ?
+apps/backend/src/repositories/connector-repo.ts:358:      `UPDATE exports SET status = 'failed',
+apps/backend/src/repositories/connector-error-remediation-repo.ts:55:      `SELECT c.id FROM connectors c WHERE c.organisation_id COLLATE ${collation} = ?
+apps/backend/src/repositories/connector-error-remediation-repo.ts:58:         OR EXISTS (SELECT 1 FROM connector_runs r WHERE r.organisation_id COLLATE ${collation} = c.organisation_id
+apps/backend/src/repositories/connector-error-remediation-repo.ts:82:      `SELECT CASE WHEN last_error IS NOT NULL AND last_error COLLATE ${collation} <> ? THEN 1 ELSE 0 END AS eligible
+apps/backend/src/repositories/connector-error-remediation-repo.ts:88:      `SELECT COUNT(*) AS count FROM connector_runs WHERE organisation_id COLLATE ${collation} = ? AND connector_id COLLATE ${collation} = ?
+apps/backend/src/repositories/connector-error-remediation-repo.ts:111:        `SELECT id FROM connectors WHERE organisation_id COLLATE ${collation} = ? AND id COLLATE ${collation} = ?${lock}`,
+apps/backend/src/repositories/connector-error-remediation-repo.ts:117:        `UPDATE connectors SET last_error = ? WHERE organisation_id COLLATE ${collation} = ? AND id COLLATE ${collation} = ?
+apps/backend/src/repositories/connector-error-remediation-repo.ts:127:        `SELECT id FROM connector_runs WHERE organisation_id COLLATE ${collation} = ? AND connector_id COLLATE ${collation} = ?
+apps/backend/src/repositories/connector-error-remediation-repo.ts:134:          `UPDATE connector_runs SET error = ? WHERE organisation_id COLLATE ${collation} = ? AND connector_id COLLATE ${collation} = ?
+apps/backend/src/repositories/connector-error-remediation-repo.ts:147:        `SELECT id FROM connector_runs WHERE organisation_id COLLATE ${collation} = ? AND connector_id COLLATE ${collation} = ?
+apps/backend/src/repositories/connector-error-remediation-repo.ts:153:          `INSERT INTO audit_logs (id, organisation_id, actor_type, actor_id, action, target_type, target_id, metadata, created_at)
+apps/backend/src/repositories/connector-config-migration-repo.ts:15:    return this.tx.query<ConnectorRow>('SELECT * FROM connectors ORDER BY id');
+apps/backend/src/repositories/connector-config-migration-repo.ts:20:      'UPDATE connectors SET config = ?, credentials_encrypted = ? WHERE id = ?',
+apps/backend/src/repositories/batch-repo.ts:24:      `INSERT INTO batches (id, organisation_id, name, project_id, created_by, created_at)
+apps/backend/src/repositories/batch-repo.ts:32:    return this.db.one<BatchRow>('SELECT * FROM batches WHERE organisation_id = ? AND id = ?', [
+apps/backend/src/repositories/batch-repo.ts:40:      'SELECT * FROM batches WHERE organisation_id = ? ORDER BY created_at DESC LIMIT ?',
+apps/backend/src/repositories/batch-repo.ts:62:      `INSERT INTO batch_items (id, batch_id, document_id, position, filename, error, created_at)
+apps/backend/src/repositories/batch-repo.ts:79:      'SELECT * FROM batch_items WHERE batch_id = ? ORDER BY position',
+apps/backend/src/repositories/batch-error-remediation-repo.ts:47:      `SELECT b.id AS batch_id, COUNT(*) AS count FROM batches b
+apps/backend/src/repositories/batch-error-remediation-repo.ts:67:      'SELECT id FROM batches WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/batch-error-remediation-repo.ts:72:      `SELECT COUNT(*) AS count FROM batch_items WHERE batch_id = ? AND ${eligible}`,
+apps/backend/src/repositories/batch-error-remediation-repo.ts:85:        `SELECT id FROM batches WHERE organisation_id = ? AND id = ?${lock}`,
+apps/backend/src/repositories/batch-error-remediation-repo.ts:90:        `SELECT id FROM batch_items WHERE batch_id = ? AND ${eligible} ORDER BY id LIMIT ?`,
+apps/backend/src/repositories/batch-error-remediation-repo.ts:96:          `UPDATE batch_items SET error = ? WHERE batch_id = ? AND id = ? AND ${eligible} RETURNING id`,
+apps/backend/src/repositories/batch-error-remediation-repo.ts:102:        `SELECT id FROM batch_items WHERE batch_id = ? AND ${eligible} LIMIT 1`,
+apps/backend/src/repositories/batch-error-remediation-repo.ts:107:          `INSERT INTO audit_logs (id, organisation_id, actor_type, actor_id, action, target_type, target_id, metadata, created_at)
+apps/backend/src/repositories/auth-repo.ts:30:      `INSERT INTO organisations (id, name, slug, plan, retention_days, ai_provider, learning_opt_in, settings, created_at, updated_at)
+apps/backend/src/repositories/auth-repo.ts:49:    return this.db.one<OrganisationRow>('SELECT * FROM organisations WHERE id = ?', [id]);
+apps/backend/src/repositories/auth-repo.ts:55:    return this.db.one(`SELECT retention_days FROM organisations WHERE id = ?${lock}`, [id]);
+apps/backend/src/repositories/auth-repo.ts:59:    return this.db.one<OrganisationRow>('SELECT * FROM organisations WHERE slug = ?', [slug]);
+apps/backend/src/repositories/auth-repo.ts:64:      'SELECT learning_opt_in FROM organisations WHERE id = ?',
+apps/backend/src/repositories/auth-repo.ts:79:      `UPDATE organisations SET name = ?, plan = ?, retention_days = ?, ai_provider = ?,
+apps/backend/src/repositories/auth-repo.ts:125:      `INSERT INTO users (id, email, password_hash, display_name, locale, terms_accepted_at, terms_version, created_at, updated_at)
+apps/backend/src/repositories/auth-repo.ts:143:    return this.db.one<UserRow>('SELECT * FROM users WHERE id = ?', [id]);
+apps/backend/src/repositories/auth-repo.ts:149:    return this.db.one<UserRow>(`SELECT * FROM users WHERE id = ?${lock}`, [id]);
+apps/backend/src/repositories/auth-repo.ts:153:    return this.db.one<UserRow>('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
+apps/backend/src/repositories/auth-repo.ts:157:    await this.db.execute('UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/auth-repo.ts:165:    await this.db.execute('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/auth-repo.ts:175:    await this.db.execute('UPDATE users SET mfa_secret_enc = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/auth-repo.ts:185:      'UPDATE users SET mfa_enabled_at = ?, mfa_recovery_hashes = ?, updated_at = ? WHERE id = ?',
+apps/backend/src/repositories/auth-repo.ts:194:      `UPDATE users SET mfa_secret_enc = NULL, mfa_enabled_at = NULL, mfa_recovery_hashes = NULL,
+apps/backend/src/repositories/auth-repo.ts:201:    await this.db.execute('UPDATE users SET mfa_recovery_hashes = ?, updated_at = ? WHERE id = ?', [
+apps/backend/src/repositories/auth-repo.ts:215:      'UPDATE users SET mfa_recovery_hashes = ?, updated_at = ? WHERE id = ? AND mfa_recovery_hashes = ? AND mfa_enabled_at IS NOT NULL AND disabled_at IS NULL RETURNING id',
+apps/backend/src/repositories/auth-repo.ts:225:      'UPDATE users SET terms_accepted_at = ?, terms_version = ?, updated_at = ? WHERE id = ?',
+apps/backend/src/repositories/auth-repo.ts:239:      `UPDATE users
+apps/backend/src/repositories/auth-repo.ts:265:      `INSERT INTO password_resets (id, user_id, token_hash, expires_at, created_at)
+apps/backend/src/repositories/auth-repo.ts:273:    return this.db.one<PasswordResetRow>('SELECT * FROM password_resets WHERE token_hash = ?', [
+apps/backend/src/repositories/auth-repo.ts:284:      'SELECT used_at FROM password_resets WHERE id = ?',
+apps/backend/src/repositories/auth-repo.ts:289:      'UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL',
+apps/backend/src/repositories/auth-repo.ts:293:      'SELECT used_at FROM password_resets WHERE id = ?',
+apps/backend/src/repositories/auth-repo.ts:302:      'UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL',
+apps/backend/src/repositories/auth-repo.ts:309:      'SELECT id FROM password_resets WHERE used_at IS NOT NULL AND used_at < ?',
+apps/backend/src/repositories/auth-repo.ts:313:    await this.db.execute('DELETE FROM password_resets WHERE used_at IS NOT NULL AND used_at < ?', [
+apps/backend/src/repositories/auth-repo.ts:347:      `INSERT INTO memberships (id, organisation_id, user_id, role, invited_by, accepted_at, created_at, updated_at)
+apps/backend/src/repositories/auth-repo.ts:369:      `SELECT id FROM memberships WHERE organisation_id = ? AND user_id = ?${acceptedOnly ? ' AND accepted_at IS NOT NULL' : ''}`,
+apps/backend/src/repositories/auth-repo.ts:381:      `SELECT organisation_id, role FROM memberships WHERE organisation_id = ? AND user_id = ?${lock}`,
+apps/backend/src/repositories/auth-repo.ts:393:      'UPDATE memberships SET accepted_at = ?, updated_at = ? WHERE organisation_id = ? AND user_id = ?',
+apps/backend/src/repositories/auth-repo.ts:400:      `SELECT m.* FROM memberships m JOIN users u ON u.id = m.user_id
+apps/backend/src/repositories/auth-repo.ts:409:      `SELECT m.* FROM memberships m JOIN users u ON u.id = m.user_id
+apps/backend/src/repositories/auth-repo.ts:418:      `SELECT m.*, u.display_name, u.email
+apps/backend/src/repositories/auth-repo.ts:428:      'SELECT * FROM memberships WHERE organisation_id = ? AND user_id = ?',
+apps/backend/src/repositories/auth-repo.ts:433:      'UPDATE memberships SET role = ?, updated_at = ? WHERE organisation_id = ? AND user_id = ?',
+apps/backend/src/repositories/auth-repo.ts:441:      'SELECT * FROM memberships WHERE organisation_id = ? AND user_id = ?',
+apps/backend/src/repositories/auth-repo.ts:445:    await this.db.execute('DELETE FROM memberships WHERE organisation_id = ? AND user_id = ?', [
+apps/backend/src/repositories/auth-repo.ts:454:      "SELECT COUNT(*) AS count FROM memberships WHERE organisation_id = ? AND role = 'owner'",
+apps/backend/src/repositories/auth-repo.ts:484:      `INSERT INTO sessions (id, user_id, organisation_id, refresh_token_hash, user_agent, ip_hash, expires_at, created_at)
+apps/backend/src/repositories/auth-repo.ts:501:    return this.db.one<SessionRow>('SELECT * FROM sessions WHERE refresh_token_hash = ?', [hash]);
+apps/backend/src/repositories/auth-repo.ts:506:      'UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL',
+apps/backend/src/repositories/auth-repo.ts:514:        ? 'SELECT id FROM sessions WHERE user_id = ? AND revoked_at IS NULL AND id <> ?'
+apps/backend/src/repositories/auth-repo.ts:515:        : 'SELECT id FROM sessions WHERE user_id = ? AND revoked_at IS NULL',
+apps/backend/src/repositories/auth-repo.ts:521:        ? 'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND id <> ?'
+apps/backend/src/repositories/auth-repo.ts:522:        : 'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL',
+apps/backend/src/repositories/auth-repo.ts:531:      `SELECT * FROM sessions
+apps/backend/src/repositories/auth-repo.ts:539:    return this.db.one<SessionRow>('SELECT * FROM sessions WHERE id = ? AND user_id = ?', [
+apps/backend/src/repositories/auth-repo.ts:548:      'SELECT id FROM sessions WHERE expires_at < ?',
+apps/backend/src/repositories/auth-repo.ts:552:    await this.db.execute('DELETE FROM sessions WHERE expires_at < ?', [cutoff]);
+apps/backend/src/repositories/apikey-repo.ts:32:      `INSERT INTO api_keys (id, organisation_id, name, key_hash, key_prefix, scopes, created_by, created_at, expires_at)
+apps/backend/src/repositories/apikey-repo.ts:51:      'SELECT * FROM api_keys WHERE organisation_id = ? ORDER BY created_at DESC',
+apps/backend/src/repositories/apikey-repo.ts:57:    return this.db.one<ApiKeyRow>('SELECT * FROM api_keys WHERE organisation_id = ? AND id = ?', [
+apps/backend/src/repositories/apikey-repo.ts:65:    return this.db.one<ApiKeyRow>('SELECT * FROM api_keys WHERE key_hash = ?', [keyHash]);
+apps/backend/src/repositories/apikey-repo.ts:73:      'UPDATE api_keys SET revoked_at = ? WHERE organisation_id = ? AND id = ?',
+apps/backend/src/repositories/apikey-repo.ts:80:    await this.db.execute('UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?', [
+apps/backend/src/marketplace/catalog.ts:87:    summary: 'Create and update HubSpot objects from approved documents.',
+apps/backend/src/http/routes/review-routes.ts:75:    if (!parsed.success) throw badRequest('Select the records to approve.');
+apps/backend/src/db/seed-cli.ts:20:  const existing = await db.one('SELECT id FROM users WHERE email = ?', [email]);
+apps/backend/src/db/migrations.ts:286:          `CREATE TRIGGER audit_logs_no_update BEFORE UPDATE ON audit_logs
+apps/backend/src/db/migrations.ts:287:            BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END`,
+apps/backend/src/db/migrations.ts:289:            BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END`,
+apps/backend/src/db/migrations.ts:297:          `CREATE TRIGGER audit_logs_no_update BEFORE UPDATE ON audit_logs
+apps/backend/src/db/migrations.ts:589:        'SELECT current_schema() AS schema_name',
+apps/backend/src/db/migrations.ts:592:      await tx.execute('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [
+apps/backend/src/db/migrations.ts:603:    const rows = await tx.query<{ id: string }>('SELECT id FROM schema_migrations ORDER BY id');
+apps/backend/src/db/migrations.ts:620:      await tx.execute('INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)', [
+apps/backend/src/db/migrate-cli.ts:11:    'SELECT id, applied_at FROM schema_migrations ORDER BY id',
+apps/backend/src/db/health.ts:5:  await db.one('SELECT 1 AS ok');
+apps/backend/src/adapters/process-connector-registry.ts:68:      connector.update = async (records, keys, config, context) =>
+apps/backend/src/adapters/connector-runner.ts:64:      if (!connector.update || !request.records || !request.keys)
+exit=0
+
+### Environment references
+$ rg -n 'process\.env' apps/backend/src -g '*.ts'
+apps/backend/src/config.ts:5: * `process.env` anywhere else. A bad value must fail fast with an actionable message.
+apps/backend/src/config.ts:120:export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+apps/backend/src/config.ts:212:export function loadSeedConfig(env: NodeJS.ProcessEnv = process.env): {
+apps/backend/src/config.ts:225:export function loadEncryptionMigrationConfig(env: NodeJS.ProcessEnv = process.env): {
+exit=0
+
+### HTTP references in services
+$ rg -n 'request\.|reply\.|FastifyRequest|FastifyReply' apps/backend/src/services -g '*.ts'
+apps/backend/src/services/pairing-service.ts:210:  /** Used by the auth guard on every device-authenticated request. */
+apps/backend/src/services/export-service.ts:84:        format: request.format,
+apps/backend/src/services/export-service.ts:96:      const extension = request.format;
+apps/backend/src/services/export-service.ts:104:        request.format === 'csv'
+apps/backend/src/services/export-service.ts:107:                delimiter: request.delimiter ?? ',',
+apps/backend/src/services/export-service.ts:108:                bom: request.bom ?? false,
+apps/backend/src/services/export-service.ts:143:        metadata: { format: request.format, rows: table.rows.length },
+apps/backend/src/services/export-service.ts:223:      documentType: request.documentType,
+apps/backend/src/services/export-service.ts:224:      from: request.from,
+apps/backend/src/services/export-service.ts:225:      to: request.to,
+apps/backend/src/services/export-service.ts:238:    const selected = request.columns?.length ? request.columns : [...fieldPaths].sort();
+exit=0
+
+### App imports mentioned by shared/connectors
+$ rg -n 'apps/' packages/shared/src packages/connectors/src -g '*.ts' -g '*.tsx'
+(no output)
+exit=1
+
+### Cross-app relative imports
+$ rg -n "from ['\"]\.\./\.\./\.\./\.\./apps" apps packages -g '*.ts' -g '*.tsx' -g '!node_modules/**'
+(no output)
+exit=1
+
+### ADR references in tracked Markdown
+tracked Markdown count: 116
+missing cited IDs: []
+apps/backend internal declared dependencies: {'@idcp/connectors': '*', '@idcp/shared': '*'}
+apps/desktop internal declared dependencies: {'@idcp/shared': '*'}
+apps/mobile internal declared dependencies: {'@idcp/shared': '*'}
+packages/connectors internal declared dependencies: {'@idcp/shared': '*'}
+packages/shared internal declared dependencies: {}
+
+### Source inventory path comparison
+source files=195; listed=195
+missing=[]
+stale=[]
+
+### Corrected SQL literal search
+$ rg -n -i -e 'SELECT |INSERT |UPDATE |DELETE FROM ' apps/backend/src -g '*.ts' -g '!**/repositories/**' -g '!**/db/**'
+apps/backend/src/services/maintenance-service.ts:142:          // Lock before checking the selected snapshot or removing bytes. A concurrent update to
+apps/backend/src/services/connector-service.ts:435:              `The ${connectorRow.type} connector cannot update existing rows. Change the duplicate policy to skip or append.`,
+apps/backend/src/marketplace/catalog.ts:87:    summary: 'Create and update HubSpot objects from approved documents.',
+apps/backend/src/http/routes/review-routes.ts:75:    if (!parsed.success) throw badRequest('Select the records to approve.');
+apps/backend/src/adapters/process-connector-registry.ts:68:      connector.update = async (records, keys, config, context) =>
+apps/backend/src/adapters/connector-runner.ts:64:      if (!connector.update || !request.records || !request.keys)
+exit=0
+
+### Static cycle scan (tool stdout/stderr)
+$ npx --yes madge@8 --circular --extensions ts,tsx --ts-config tsconfig.base.json --warning apps packages
+Processed 355 files (2.9s)
+- Finding files
+✔ No circular dependency found!
+exit=0
+
+### Versions
+node v22.22.3
+npm 10.9.8

@@ -1,0 +1,36 @@
+R01 TypeScript path mapping check; source baseline 9ec567c988888024a32d6e820b0c9f0ec262076b
+Inherited alias resolution in seven configs (self is not an external dependency):
+apps/backend/tsconfig.json:
+  @idcp/shared -> packages/shared/src/index.ts (declared)
+  @idcp/shared/ids -> packages/shared/src/ids.ts (declared)
+  @idcp/connectors -> packages/connectors/src/index.ts (declared)
+apps/desktop/tsconfig.json:
+  @idcp/shared -> packages/shared/src/index.ts (declared)
+  @idcp/shared/ids -> packages/shared/src/ids.ts (declared)
+  @idcp/connectors -> packages/connectors/src/index.ts (NOT DECLARED)
+apps/desktop/tsconfig.electron.json:
+  @idcp/shared -> packages/shared/src/index.ts (declared)
+  @idcp/shared/ids -> packages/shared/src/ids.ts (declared)
+  @idcp/connectors -> packages/connectors/src/index.ts (NOT DECLARED)
+apps/desktop/tsconfig.test.json:
+  @idcp/shared -> packages/shared/src/index.ts (declared)
+  @idcp/shared/ids -> packages/shared/src/ids.ts (declared)
+  @idcp/connectors -> packages/connectors/src/index.ts (NOT DECLARED)
+apps/mobile/tsconfig.json:
+  @idcp/shared -> packages/shared/src/index.ts (declared)
+  @idcp/shared/ids -> packages/shared/src/ids.ts (declared)
+  @idcp/connectors -> packages/connectors/src/index.ts (NOT DECLARED)
+packages/shared/tsconfig.json:
+  @idcp/shared -> packages/shared/src/index.ts (self)
+  @idcp/shared/ids -> packages/shared/src/ids.ts (self)
+  @idcp/connectors -> packages/connectors/src/index.ts (NOT DECLARED)
+packages/connectors/tsconfig.json:
+  @idcp/shared -> packages/shared/src/index.ts (declared)
+  @idcp/shared/ids -> packages/shared/src/ids.ts (declared)
+  @idcp/connectors -> packages/connectors/src/index.ts (self)
+
+Tracked workspace src files: 195; resolved cross-workspace literal import/export/require occurrences: 114
+Resolved cross-workspace occurrences without a manifest declaration (0):
+Unresolved or unknown @idcp literal specifiers (0):
+
+Primary workspace tsconfig used for source imports; alternate desktop configs shown above only. Nonliteral imports, imports outside tracked src, package export/runtime resolution, transitive dependencies and declaration correctness are not proven.

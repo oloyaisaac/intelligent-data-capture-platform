@@ -1,0 +1,4 @@
+RATE_LIMIT_ENABLED=true; RATE_LIMIT_UPLOAD_PER_MIN=1; one process, one synthetic organisation
+Two document uploads within one minute: HTTP 201, 201
+Two pairing-session creations: HTTP 201, 400
+No edge proxy, production data, external provider or real user was involved.

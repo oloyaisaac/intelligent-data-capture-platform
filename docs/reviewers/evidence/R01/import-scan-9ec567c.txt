@@ -1,0 +1,14 @@
+R01 static TS module-specifier review; base commit 9ec567c988888024a32d6e820b0c9f0ec262076b
+Tracked workspace src files: 195; literal specifiers: 881
+Uses TypeScript syntax tree and tsconfig.base.json resolution; nonliteral imports, native modules, test/config files, runtime resolution and correctness remain outside proof.
+
+Cross app/package-to-app resolved edges (0):
+
+Node/electron imports in desktop pages/components/lib (0):
+
+Unresolved relative/@idcp specifiers (1):
+apps/desktop/src/main.tsx:4 ./styles.css
+
+Nonliteral dynamic import/require calls (2):
+apps/mobile/src/assist/speechPlatform.ts:21 dynamic import/require
+apps/mobile/src/capture/frameProcessor.tsx:21 dynamic import/require

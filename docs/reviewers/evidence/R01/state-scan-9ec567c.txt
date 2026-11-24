@@ -1,0 +1,31 @@
+R01 backend process-state candidate scan; source baseline 9ec567c988888024a32d6e820b0c9f0ec262076b
+Tracked backend src files: 115; candidates: 25
+Module mutable/collection declarations and class fields mentioning selected collection, timer or promise types.
+Candidates may be constants, scoped adapters, test utilities, or runtime state; they require manual interpretation.
+Nested closures, plain scalar fields, caches in external packages, dynamic state, network/OS state and files outside backend src are not enumerated.
+
+apps/backend/src/adapters/connector-runner.ts:70 module mutable total
+apps/backend/src/adapters/connector-runner.ts:71 module mutable ended
+apps/backend/src/adapters/connector-runner.ts:72 module const collection chunks
+apps/backend/src/ai/classify.ts:17 module const collection SIGNALS
+apps/backend/src/auth/password.ts:22 module const collection argon2Hasher
+apps/backend/src/auth/password.ts:38 module const collection WEAK_PASSWORDS
+apps/backend/src/auth/tokens.ts:106 field AttemptLimiter.hits
+apps/backend/src/db/migrations.ts:23 module const collection MIGRATIONS
+apps/backend/src/db/sqlite.ts:27 field SqliteDatabase.queue
+apps/backend/src/logger.ts:3 module const collection LEVELS
+apps/backend/src/marketplace/catalog.ts:80 module const collection FIRST_PARTY_CATALOGUE
+apps/backend/src/realtime/hub.ts:50 field InMemoryRealtimeHub.subscribers
+apps/backend/src/realtime/hub.ts:55 field InMemoryRealtimeHub.deviceSockets
+apps/backend/src/repositories/batch-error-remediation-repo.ts:8 module const collection eligibleParams
+apps/backend/src/services/api-key-service.ts:30 module const collection SCOPE_ROLE
+apps/backend/src/services/batch-service.ts:43 module const collection DONE_STATUSES
+apps/backend/src/services/maintenance-service.ts:56 field MaintenanceService.timer
+apps/backend/src/services/maintenance-service.ts:59 field MaintenanceService.stopping
+apps/backend/src/services/maintenance-service.ts:60 field MaintenanceService.activeRuns
+apps/backend/src/services/worker.ts:61 field Worker.timer
+apps/backend/src/services/worker.ts:63 field Worker.starting
+apps/backend/src/services/worker.ts:64 field Worker.stopping
+apps/backend/src/services/worker.ts:65 field Worker.draining
+apps/backend/src/storage/index.ts:185 field MemoryStorage.objects
+apps/backend/src/workflows/engine.ts:33 module const collection DESTRUCTIVE_ACTIONS

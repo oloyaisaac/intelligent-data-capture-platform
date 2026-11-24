@@ -1,0 +1,3 @@
+organisation ai_provider=local; process AI_PROVIDER=cloud; factory selects cloud
+processed=1; cloud adapter stub calls=1; request contains synthetic image=true
+No external network request or production data was used.

@@ -1,0 +1,7 @@
+Synthetic two-replica probe: two API processes on one SQLite file, no workers, no external service.
+Both replicas healthy on one database file: ports 4300 and 4301.
+1. Same account, 4 failed logins per replica (budget RATE_LIMIT_AUTH_PER_15_MIN=3): replica A 401,401,401,429; replica B 401,401,401,429.
+   Effective budget across the pair: 6 attempts accepted before limiting, 2 rejected with 429 — a per-replica budget, so replicas multiply the limit.
+2a. Pairing session created on replica A: HTTP 201, token present=true.
+2b. Stream opened on replica A while replica B published: A stream received no cross-replica event (1 frame(s)).
+3. Both replicas ran against /tmp/r01-two-replica-kWOm6q/replicas.sqlite with WORKER_ENABLED=false, so no job claims compete here; T-03 covers claim contention on one database.

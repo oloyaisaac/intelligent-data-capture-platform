@@ -1,0 +1,6 @@
+Fake-fetch client probe; no network, real token, user or production data.
+Desktop: 4 document requests; /auth/refresh tokens [r0, r0].
+Desktop: both retries succeeded only because the stub accepted either rotation; stored refresh token r2.
+Mobile: /auth/refresh tokens [r0, r0]; single-use stub rejected the repeat.
+Mobile: onSessionExpired fired 1 time(s); stored refresh token after the race: r1.
+By inspection neither client shares an in-flight refresh promise or serialises 401 retries.
