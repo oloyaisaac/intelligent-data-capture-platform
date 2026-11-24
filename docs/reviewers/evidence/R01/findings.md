@@ -1406,6 +1406,33 @@ unreadable row is still customer data.
 
 Owner: unassigned; proposed R03 with R02/R04/R08.
 
+### ARC-061 — MEDIUM: a single crash strands one document, and the checklist does not notice
+
+An unfenced claim does not duplicate work — the claim guard prevents that — but it does abandon work.
+A probe killed the only worker with `SIGKILL` **while it held a claim** (verifying `status = 'running'`
+in the database before killing) and then started a fresh process on the same database:
+11 of 12 documents completed, the twelfth stuck in `processing`, 0 jobs requeued, no duplicate audit
+rows and no duplicate job rows (`two-worker-audit-9ec567c.txt`).
+
+This is the same root cause as ARC-013 and the same mechanism as ARC-060 (whose fence is what blocks
+recovery), recorded separately because it changes what the evidence means. `ARC-AC-17`'s literal pass
+criterion — no double-processing, no crash, no duplicate audit rows — is **fully satisfied while a
+document is lost**. A reviewer who ran only that checklist item would sign it green.
+
+Scope: one document per interrupted claim, and only when no operator follows up. Duplication is
+genuinely prevented, and the happy path is clean (12/12, no duplicates, both processes healthy), so this
+is not a corrupted-data finding. It is a _silent-loss_ finding: no error, no retry, no user-visible
+signal, and recovery requires database-level knowledge or the offline CLI.
+
+Why MEDIUM rather than HIGH: the crash is a normal failure mode, but nothing is corrupted and no wrong
+data is produced; the impact is one queued document per crash needing operator attention. It is a
+strong argument for the lease/fencing protocol in ARC-013 rather than a separate defect to fix.
+
+Suggested owner: R02 with R18 (recovery protocol), R04 (surface the stuck state to the user), R19
+(runbook). No code was changed here.
+
+Owner: unassigned; proposed R02/R18 with R04/R19.
+
 ### ARC-060 — LOW: recovery requires correlating a job id the product never surfaces
 
 A worker killed mid-extraction leaves its job `running`; startup deliberately does not requeue by age,

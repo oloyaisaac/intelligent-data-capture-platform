@@ -1,0 +1,17 @@
+=== MODE=clean (both processes run workers)
+Synthetic two-worker probe (mode=clean): real backend processes, one SQLite file, fake OCR binary.
+Both processes healthy with WORKER_ENABLED=true on one SQLite file.
+12 uploads alternated: 12 created (HTTP 201).
+Documents post-extraction: 12/12 (statuses seen: needs_review).
+Duplicate audit rows: none.
+Documents with more than one job: none.
+Job rows 13, audit rows 13, still running 0, still queued 0.
+Processes still alive: 2/2.
+
+=== MODE=crash (single worker SIGKILLed while holding a claim, then a fresh process)
+Synthetic two-worker probe (mode=crash): real backend processes, one SQLite file, fake OCR binary.
+CRASH: killed the only worker while holding a claim (observed 1 running). After SIGKILL: 1 job(s) still 'running' of 12.
+After restart: 11/12 documents post-extraction (statuses seen: needs_review, processing).
+Duplicate audit rows: none.
+Documents with more than one job: none.
+Job rows 13, audit rows 13, still running 1, still queued 0.

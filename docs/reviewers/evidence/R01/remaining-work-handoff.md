@@ -362,3 +362,26 @@ understated one real coupling.
 The §8 answers that remain genuinely open all reduce to deployment questions — how many replicas, what
 boundary third-party connectors run behind, whether independent release is required. Those are R19's and
 R02's calls; I can supply the measured consequences but not the decision.
+
+### The checklist item that passes while a document is lost
+
+ARC-AC-17 was the last checklist row I had marked partial without testing its literal criterion. Run
+properly, it produces a result that matters more than the row:
+
+- **Clean mode**: two workers on one database, 12/12 extracted, no duplicate audit rows, no duplicate
+  job rows, no crash. The claim protocol genuinely holds under concurrency.
+- **Crash mode**: the only worker SIGKILLed _while the database showed it holding a claim_ — 11/12
+  completed, one document stranded in `processing`, nothing requeued, still no duplicates.
+
+So the checklist's pass criterion (no double-processing, no crash, no duplicate audit rows) is fully
+satisfied while one document per crash is silently abandoned. Filed as ARC-061 (MEDIUM). The
+uncomfortable part is structural: a reviewer who runs only ARC-AC-17 signs it green, because the
+criterion cannot see the failure mode. Duplication is prevented; completion is not.
+
+This is the strongest single argument yet for the lease/fencing protocol in ARC-013, and it is evidence
+rather than opinion now. It does not change P6's status — P6 was already unmet — but it replaces "we
+think recovery is unfenced" with a measurement.
+
+One correction worth carrying: I had recorded that `two-replica-probe.ts` used a non-existent health
+route. It does exist (`http/app.ts:105`). The real defect was using an invalid token for the SSE
+stream. Corrected in both the evidence file and `command-notes.md` rather than left standing.

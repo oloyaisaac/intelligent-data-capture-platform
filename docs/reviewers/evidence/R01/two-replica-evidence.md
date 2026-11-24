@@ -72,6 +72,6 @@ shared bus is required or the deployment is single-writer.
   real pairing session), rather than simulated. **Upload was not exercised** — that needs a storage
   backend and a document fixture, and the upload path's replica-sensitive behaviour is already covered
   by the storage/atomicity evidence in ARC-018. That gap is stated rather than glossed.
-- An earlier version of this probe read a non-existent health route and used a deliberately invalid
-  token for the stream; the first produced connection failures, the second a 401 instead of a stream.
-  Both were probe errors, corrected before any result was recorded.
+- An earlier version of this probe used a deliberately invalid token for the stream, which produced a
+  401 instead of a stream. That was a probe error, corrected before any result was recorded. (I first
+  wrote that the health route did not exist; it does — `http/app.ts:105` — and that claim was wrong.)
