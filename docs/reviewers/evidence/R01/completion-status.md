@@ -12,6 +12,13 @@ are in `specialist-handoffs.md`. Actual owners and exceptions remain unassigned/
 record an assessment with unresolved findings, but its brief says G1 fails if a passing condition is
 false; referral by itself is not a pass. Only the independent architect can record the gate decision.
 
+## The report
+
+`REPORT.md` is the canonical answer to the brief: mission, condition status, findings, P12, the six §8
+questions, where the inherited risk list was wrong, what was not done, and a recommendation to the gate
+chair. The other files in this directory are the evidence behind it. It records **G1 as failed** on P6,
+P8 and P12 — a recommendation, not a decision: only the independent architect records the gate.
+
 ## Every R01 passing condition
 
 | Condition                                  | Current evidence and remaining work                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
